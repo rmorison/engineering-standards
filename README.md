@@ -1,0 +1,136 @@
+# Engineering Standards
+
+Lightweight development practices and standards for software projects.
+
+## Purpose
+
+This repository defines engineering standards for building software. The standards are intentionally lightweight to support early-stage agile development while providing enough structure to maintain quality and enable effective collaboration—both human-to-human and human-to-AI.
+
+## Standards Documents
+
+### [Documentation Standards](./documentation-standards.md)
+
+Defines how and when to create documentation:
+- Repository structure (`docs/` directory organization)
+- File naming conventions
+- Documentation types (product specs, technical designs, ADRs)
+- Best practices for spec-driven development
+- Markdown formatting and diagram tools
+
+**Key principle**: Documentation is the source of truth. Write specs before code, keep them current, focus on decisions and context rather than implementation details.
+
+### [Feature Development Workflow](./feature-development-workflow.md)
+
+Defines the process for product/business-driven feature work from concept to production:
+1. **Product Concept** - Articulate the problem and opportunity
+2. **Product Requirements & UI Design** - Define what to build
+3. **Project Planning & Sequencing** - Break work into implementable increments
+4. **Technical Design & Architecture** - Specify how to implement
+5. **Implementation** - Write code that implements the spec
+6. **Validation & Iteration** - Verify and improve
+
+**Key principle**: Intent → Spec → Plan → Execute → Validate. Small scoped changes, continuous validation, spec-driven development.
+
+### [Project Planning Standards](./project-planning-standards.md)
+
+Detailed guidance for Phase 3 of the feature development workflow:
+- **Story point estimation** - Fibonacci scale (1-13), baseline 2 points = ~1 day
+- **Task breakdown** - Decomposition strategies and patterns
+- **Sequencing and dependencies** - Critical path, parallel tracks, dependency mapping
+- **Risk identification** - Common risks and mitigation strategies
+
+Project management as a discipline deserves its own detailed standard while keeping the feature development workflow lightweight.
+
+### [Technical Work Workflow](./technical-work-workflow.md)
+
+Engineering-driven work separate from product features:
+- **Bug fixes** - Classification, triage, investigation documentation
+- **Technical debt** - Proposals, justification, prioritization
+- **Infrastructure and tooling** - Specifications, operational requirements
+- **Security fixes** - Handling by severity, documentation requirements
+
+**Key distinction**: Feature work is driven by product/business stakeholders; technical work is driven by engineering directives and engineers directly.
+
+### [Agent Transcripts](./agent-transcripts/)
+
+Conversation logs documenting the development and evolution of these standards through AI agent collaboration.
+
+**What's included:**
+- Decision-making processes and rationale
+- Design alternatives considered
+- Lessons learned during development
+- Questions addressed and resolved
+
+These transcripts provide historical context and reasoning behind the standards, useful for understanding why certain approaches were chosen and how to adapt them appropriately.
+
+## Philosophy
+
+### Lightweight, Not Heavyweight
+
+These standards prioritize working software over process compliance. Use judgment:
+- For trivial changes: A good PR description may be sufficient
+- For experiments: A brief experiment doc beats formal specs
+- For major features: Follow the full workflow to avoid rework
+
+### Spec-Driven Development
+
+Write specifications before code. Specs:
+- Clarify intent and surface questions early
+- Enable AI-assisted development with clear context
+- Serve as contracts for testing and validation
+- Document decisions for future reference
+
+The spec is source of truth. Code implements the spec.
+
+### Agile and Iterative
+
+Ship small increments frequently. Validate early. Learn from users. Iterate based on feedback. Don't over-engineer for hypothetical future requirements.
+
+### AI-Native Workflow
+
+Modern development increasingly involves AI coding assistants. These standards work well with AI:
+- Clear specs give AI better context
+- Small scopes reduce AI errors
+- Validation catches AI-generated bugs
+- Iteration is cheaper with AI assistance
+
+## Applying These Standards
+
+### For New Projects
+
+1. Create `docs/` directory with `product/` and `engineering/` subdirectories
+2. Write a strategic vision in `docs/product/strategic-vision.md`
+3. Add architecture decisions to `docs/engineering/adr/` as you make them
+4. Follow the feature development workflow for new features
+
+### For Existing Projects
+
+1. Introduce standards gradually—don't retrofit everything at once
+2. Start with ADRs to document new decisions going forward
+3. Write specs for next features to validate the approach
+4. Update standards based on what works and what doesn't
+
+### When to Deviate
+
+These are standards, not laws. Deviate when:
+- The standard adds no value for the situation
+- Time constraints require faster iteration
+- You have a better approach that you'll document
+
+When deviating intentionally, document why in the commit message or PR description.
+
+## Maintenance
+
+These standards will evolve:
+- Propose changes via pull requests
+- Update based on lessons learned
+- Keep lightweight—resist adding complexity
+- Review quarterly for relevance
+
+## Status
+
+**Draft** - These standards are in active development and subject to revision based on practical experience.
+
+## Questions or Feedback
+
+Open an issue or submit a PR to discuss improvements to these standards.
