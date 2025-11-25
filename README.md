@@ -51,6 +51,17 @@ Engineering-driven work separate from product features:
 
 **Key distinction**: Feature work is driven by product/business stakeholders; technical work is driven by engineering directives and engineers directly.
 
+### [Git Branching Strategy](./git-branching-strategy.md)
+
+Branch management and version control workflow:
+- **GitHub Flow** - Simple branch-based workflow with `main` + feature branches
+- **Issue-based branching** - Use GitHub's auto-generated branch names from issues
+- **Commit conventions** - Clear, conventional commit message format
+- **Pull request guidelines** - Size, description, and review practices
+- **Release versioning** - Semantic versioning and tagging
+
+**Key principle**: `main` is always deployable. All work happens in issue-based feature branches merged via pull requests.
+
 ### [Agent Transcripts](./agent-transcripts/)
 
 Conversation logs documenting the development and evolution of these standards through AI agent collaboration.
