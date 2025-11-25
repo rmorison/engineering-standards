@@ -99,12 +99,23 @@ git push --force-with-lease  # if rebased
 
 Choose rebase (cleaner history) or merge (preserves history) and use consistently per project.
 
+**Force push safety**:
+- Always use `--force-with-lease` instead of `--force` (prevents overwriting others' work)
+- Never force push to `main` (should be prevented by branch protection)
+- Coordinate with teammates if sharing a feature branch
+
 ### Merging to Main
 
 1. Open pull request (links to issue automatically)
 2. Get review approval and passing CI
 3. **Squash and merge** (recommended) - creates clean single commit per issue
 4. Branch auto-deleted, issue auto-closed
+
+**Note on squash merging**: When you squash and merge, all individual commits on the branch are combined into a single commit. This means:
+- Individual commit messages are preserved in the squashed commit body
+- The PR title becomes the final commit message summary
+- Write clear, incremental commits during development for your own tracking
+- Write a clear PR title since it becomes the commit message in `main`
 
 ---
 
@@ -120,6 +131,8 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 
 ### Types
 
+Common types (simplified subset of [Conventional Commits](https://www.conventionalcommits.org)):
+
 - `feat:` - New feature
 - `fix:` - Bug fix
 - `refactor:` - Code restructuring
@@ -127,6 +140,7 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 - `test:` - Test additions/updates
 - `perf:` - Performance improvements
 - `chore:` - Build, dependencies, tooling
+- `ci:` - CI/CD pipeline changes
 
 ### Examples
 
@@ -175,6 +189,9 @@ Brief description of the change
 
 ## Why
 User/business value or problem being solved (link to issue/spec)
+
+## How
+Implementation approach (reference design doc if applicable)
 
 ## Testing
 How this was tested (unit tests, manual testing, edge cases)
