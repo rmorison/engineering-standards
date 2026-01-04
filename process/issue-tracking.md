@@ -162,6 +162,7 @@ protected API endpoints.
 ### Estimation Labels
 - `points-1`, `points-2`, `points-3`, `points-5`, `points-8`, `points-13`
 - Fibonacci scale where 2 points ≈ 1 day of work
+- See [Project Planning Standards](./project-planning-standards.md#story-point-estimation) for detailed estimation guidance
 
 ### Status Labels
 - `blocked`: Cannot proceed due to external dependency
@@ -249,12 +250,20 @@ None
 
 ## Creating an Epic
 
-1. **Create milestone** (if needed): Use web UI or `gh api` to create milestone for the initiative
-2. **Create epic-specific label**: Label format `epic-{theme-slug}`, use for epic and all sub-issues
+1. **Create milestone** (if needed):
+   ```bash
+   gh api repos/:owner/:repo/milestones \
+     -f title="v2.0-api-redesign" \
+     -f description="API redesign initiative"
+   ```
+
+2. **Create epic-specific label**: Label format `epic-{theme-slug}` (lowercase, hyphens, <30 chars), use for epic and all sub-issues
+
 3. **Create epic issue**: Use template above, apply `epic` and `epic-{theme-slug}` labels
+
 4. **Create sub-issues**: Use "Create sub-issue" button in epic issue, or create separately and link via sidebar
 
-**Note**: GitHub CLI doesn't yet support creating sub-issues directly. Use web UI for parent-child linking.
+**Note**: GitHub CLI doesn't yet support creating sub-issues directly. Use web UI for parent-child linking. Create branches from implementation issues, not epic tracking issues (see [Git Branching Strategy](./git-branching-strategy.md)).
 
 ## Epic Lifecycle Management
 
@@ -349,14 +358,14 @@ See also: #50 (Performance Epic) - may benefit from perf improvements
 
 Follow these heuristics for appropriate epic sizing:
 
-**Minimum size**: 3-5 related sub-issues
+**Minimum size**: 3-5 related sub-issues, ~10-20 points
 - Fewer than 3 issues: probably doesn't need an epic, just use labels
 
-**Optimal size**: 5-15 sub-issues
+**Optimal size**: 5-15 sub-issues, 20-60 points
 - Manageable scope, clear theme, achievable in 1-2 months
 
-**Maximum size**: 20 sub-issues
-- Beyond 20: consider splitting into multiple epics
+**Maximum size**: 20 sub-issues, ~100 points
+- Beyond these limits: consider splitting into multiple epics
 - Exception: epics with many small, similar tasks (e.g., "Migrate all API endpoints to v2")
 
 **Duration**: 1-3 months typical

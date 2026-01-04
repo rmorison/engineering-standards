@@ -22,7 +22,7 @@
 
 ### Feature Development Workflow
 1. **Product Concept** → `docs/product/concepts/{feature}.md`
-2. **Requirements & Design** → `docs/product/specs/{feature}.md`
+2. **Requirements & Design** → `docs/product/features/{feature}.md`
 3. **Project Planning** → Break into issues with point estimates
 4. **Technical Design** → `docs/engineering/design/{feature}.md` or ADR
 5. **Implementation** → Code that implements the spec
@@ -57,7 +57,7 @@ docs/
 ├── product/
 │   ├── strategic-vision.md
 │   ├── concepts/{feature}.md
-│   └── specs/{feature}.md
+│   └── features/{feature}.md
 └── engineering/
     ├── design/{feature}.md
     └── adr/{number}-{title}.md
@@ -80,7 +80,8 @@ docs/
 
 ## Project-Specific Context
 
-<!-- **Projects using this template**: Customize this section with project-specific information -->
+<!-- **Projects using this template**: Customize this section with project-specific information.
+     Also update the repository link at the bottom of this file. -->
 
 **Project Name**: Engineering Standards Repository
 
