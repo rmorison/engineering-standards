@@ -6,9 +6,17 @@ Lightweight development practices and standards for software projects.
 
 This repository defines engineering standards for building software. The standards are intentionally lightweight to support early-stage agile development while providing enough structure to maintain quality and enable effective collaboration—both human-to-human and human-to-AI.
 
-## Standards Documents
+## Repository Structure
 
-### [Documentation Standards](./documentation-standards.md)
+- **[process/](./process/)** - Software process and SDLC standards (workflows, git, planning, documentation)
+- **[code/](./code/)** - Language and stack-specific code quality standards (future)
+- **[templates/](./templates/)** - Project templates with pre-configured tooling (future)
+- **[ai/](./ai/)** - AI assistant content and reference documentation
+- **[agent-transcripts/](./agent-transcripts/)** - Historical development logs
+
+## Process Standards
+
+### [Documentation Standards](./process/documentation-standards.md)
 
 Defines how and when to create documentation:
 - Repository structure (`docs/` directory organization)
@@ -19,7 +27,7 @@ Defines how and when to create documentation:
 
 **Key principle**: Documentation is the source of truth. Write specs before code, keep them current, focus on decisions and context rather than implementation details.
 
-### [Feature Development Workflow](./feature-development-workflow.md)
+### [Feature Development Workflow](./process/feature-development-workflow.md)
 
 Defines the process for product/business-driven feature work from concept to production:
 1. **Product Concept** - Articulate the problem and opportunity
@@ -31,7 +39,7 @@ Defines the process for product/business-driven feature work from concept to pro
 
 **Key principle**: Intent → Spec → Plan → Execute → Validate. Small scoped changes, continuous validation, spec-driven development.
 
-### [Project Planning Standards](./project-planning-standards.md)
+### [Project Planning Standards](./process/project-planning-standards.md)
 
 Detailed guidance for Phase 3 of the feature development workflow:
 - **Story point estimation** - Fibonacci scale (1-13), baseline 2 points = ~1 day
@@ -41,7 +49,7 @@ Detailed guidance for Phase 3 of the feature development workflow:
 
 Project management as a discipline deserves its own detailed standard while keeping the feature development workflow lightweight.
 
-### [Technical Work Workflow](./technical-work-workflow.md)
+### [Technical Work Workflow](./process/technical-work-workflow.md)
 
 Engineering-driven work separate from product features:
 - **Bug fixes** - Classification, triage, investigation documentation
@@ -51,7 +59,7 @@ Engineering-driven work separate from product features:
 
 **Key distinction**: Feature work is driven by product/business stakeholders; technical work is driven by engineering directives and engineers directly.
 
-### [Git Branching Strategy](./git-branching-strategy.md)
+### [Git Branching Strategy](./process/git-branching-strategy.md)
 
 Branch management and version control workflow:
 - **GitHub Flow** - Simple branch-based workflow with `main` + feature branches
@@ -61,6 +69,17 @@ Branch management and version control workflow:
 - **Release versioning** - Semantic versioning and tagging
 
 **Key principle**: `main` is always deployable. All work happens in issue-based feature branches merged via pull requests.
+
+### [Issue Tracking and Epic Organization](./process/issue-tracking.md)
+
+How to organize issues, track epics, and manage multi-issue initiatives in GitHub:
+- **Three-tier hierarchy** - Milestones (initiatives), epics (feature themes), implementation issues
+- **Epic structure** - Native GitHub sub-issues with automatic progress tracking
+- **Label strategy** - Category, epic, milestone, estimation, and status labels
+- **Epic lifecycle** - Creating, amending, closing, and cancelling epics
+- **Cross-epic dependencies** - Documenting and handling blocking relationships
+
+**Key principle**: Use GitHub's native features (sub-issues, labels, milestones) for lightweight, scalable issue organization without external tools.
 
 ### [Agent Transcripts](./agent-transcripts/)
 
