@@ -102,8 +102,14 @@ project-name/
 │   ├── unit/                   # Unit tests (fast, isolated)
 │   ├── integration/            # Integration tests (slower, dependencies)
 │   └── conftest.py             # Shared pytest fixtures
+├── config/                     # Configuration files (committed)
+│   └── .gitkeep
+├── secrets/                    # Secret files (gitignored)
+│   └── .gitkeep
 ├── scripts/                    # Development/deployment scripts
 ├── .venv/                      # Virtual environment (gitignored)
+├── .env                        # Local environment variables (gitignored)
+├── example.env                 # Environment template (committed)
 ├── .pre-commit-config.yaml     # Pre-commit hook configuration
 ├── .python-version             # Python version for pyenv
 ├── pyproject.toml              # Project metadata and tool configuration
@@ -129,6 +135,16 @@ project-name/
 **`docs/`** - Follow [documentation-standards.md](../process/documentation-standards.md)
 - Product specs, technical designs, ADRs
 - Keep code and docs in same repository
+
+**`config/`** - Configuration files (committed to git)
+- YAML/JSON configuration files
+- Structured application settings
+- Environment-specific configs can be referenced via env vars
+
+**`secrets/`** - Secret files (gitignored)
+- Local development secrets as files
+- Never committed to git
+- In production, mounted from secret managers
 
 **`scripts/`** - Utilities for development and deployment
 - Database migrations, data processing, deployment automation
@@ -752,6 +768,244 @@ uv run pip-audit
 3. **Scan dependencies regularly** - Weekly or on each PR
 4. **Pin dependencies** - Lock file ensures reproducible, scannable builds
 5. **Review direct and transitive dependencies** - Understand what you depend on
+
+---
+
+## Configuration Management
+
+### Environment Variables Strategy
+
+**Philosophy**: Separate configuration (non-sensitive) from secrets (sensitive), use simple values in environment variables and complex structures in files.
+
+**Pattern**:
+- `.env` file for local development (gitignored)
+- `example.env` committed to repo as template and documentation
+- File-based approach for secrets (infrastructure-friendly)
+- File paths in env vars for complex configuration
+
+### Naming Conventions
+
+**Configuration values** (non-sensitive):
+```bash
+# Infrastructure
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+REDIS_URL=redis://localhost:6379
+
+# Application behavior
+LOG_LEVEL=INFO
+API_TIMEOUT_SECONDS=30
+FEATURE_FLAG_NEW_UI=true
+```
+
+**Secrets** (sensitive, use paths):
+```bash
+# Secrets point to paths (files or infrastructure secrets)
+DATABASE_PASSWORD_PATH=/run/secrets/db_password
+API_KEY_PATH=/run/secrets/api_key
+JWT_SECRET_PATH=/run/secrets/jwt_secret
+```
+
+**Complex configuration** (YAML/JSON files):
+```bash
+# Path to structured config
+APP_CONFIG_FILE=./config/app.yaml
+LOGGING_CONFIG_FILE=./config/logging.json
+```
+
+### Project Structure
+
+```
+project-name/
+├── config/                     # Configuration files (committed)
+│   ├── app.yaml               # Application config
+│   └── logging.json           # Logging config
+├── secrets/                    # Secret files (gitignored)
+│   ├── .gitkeep               # Keep directory in git
+│   ├── db_password            # Local dev secrets
+│   └── api_key
+├── .env                        # Local environment (gitignored)
+├── example.env                 # Template (committed)
+└── .gitignore
+```
+
+### example.env Template
+
+Create `example.env` as documentation and setup template:
+
+```bash
+# example.env - Copy to .env and fill in values
+# Configuration (non-sensitive)
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+LOG_LEVEL=INFO
+ENVIRONMENT=development
+
+# Secrets (point to paths, create in secrets/ directory)
+# For local dev: echo "your-password" > secrets/db_password
+DATABASE_PASSWORD_PATH=./secrets/db_password
+API_KEY_PATH=./secrets/api_key
+
+# Complex configuration (optional, use for structured config)
+# APP_CONFIG_FILE=./config/app.yaml
+```
+
+### Makefile Integration
+
+Update `make setup` target to initialize environment:
+
+```makefile
+.PHONY: setup
+setup:  ## Initial project setup (install Python, deps, pre-commit)
+	# ... existing setup steps ...
+	# Initialize environment
+	@if [ ! -f .env ]; then \
+		cp example.env .env; \
+		echo "Created .env from example.env - update with your values"; \
+	fi
+	@mkdir -p secrets config
+	@touch secrets/.gitkeep config/.gitkeep
+```
+
+### .gitignore Entries
+
+```gitignore
+# Environment and secrets
+.env
+.env.local
+secrets/*
+!secrets/.gitkeep
+
+# Configuration overrides (if using local config files)
+config/local.yaml
+```
+
+### Loading Environment Variables
+
+**Use python-dotenv for local development**:
+
+```python
+# src/project_name/config.py
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env file in development
+load_dotenv()
+
+def get_config(key: str, default: str | None = None) -> str:
+    """Get configuration value from environment."""
+    value = os.getenv(key, default)
+    if value is None:
+        raise ValueError(f"Required environment variable {key} not set")
+    return value
+
+def get_secret(key: str) -> str:
+    """Get secret from path specified by environment variable."""
+    path_key = f"{key}_PATH"
+    secret_path = os.getenv(path_key)
+
+    if not secret_path:
+        raise ValueError(f"Secret path {path_key} not set")
+
+    secret_file = Path(secret_path)
+    if not secret_file.exists():
+        raise FileNotFoundError(f"Secret file not found: {secret_file}")
+
+    return secret_file.read_text().strip()
+
+# Usage
+DATABASE_HOST = get_config("DATABASE_HOST", "localhost")
+DATABASE_PASSWORD = get_secret("DATABASE_PASSWORD")
+```
+
+Add to dev dependencies:
+
+```bash
+uv add python-dotenv
+```
+
+### Infrastructure Compatibility
+
+This pattern works across environments:
+
+**Local Development**:
+```bash
+# .env
+DATABASE_PASSWORD_PATH=./secrets/db_password
+```
+
+**Docker**:
+```bash
+# Mount secrets as files
+docker run -v ./secrets:/run/secrets \
+  -e DATABASE_PASSWORD_PATH=/run/secrets/db_password \
+  myapp
+```
+
+**Kubernetes**:
+```yaml
+env:
+  - name: DATABASE_HOST
+    value: "postgres.default.svc.cluster.local"
+  - name: DATABASE_PASSWORD_PATH
+    value: "/run/secrets/db-password"
+volumeMounts:
+  - name: db-secret
+    mountPath: /run/secrets
+    readOnly: true
+volumes:
+  - name: db-secret
+    secret:
+      secretName: database-credentials
+```
+
+**Cloud Platforms** (AWS, GCP, Azure):
+- Secret managers can write secrets to files
+- Config from environment variables
+- Follows 12-factor app principles
+
+### Complex Configuration Files
+
+For structured configuration, use YAML or JSON files:
+
+**config/app.yaml** (committed):
+```yaml
+# Default application configuration
+features:
+  new_ui: false
+  beta_features: false
+
+rate_limiting:
+  enabled: true
+  requests_per_minute: 100
+
+retry_policy:
+  max_attempts: 3
+  backoff_seconds: [1, 2, 4]
+```
+
+**Load in code**:
+```python
+import yaml
+from pathlib import Path
+
+def load_config() -> dict:
+    config_file = os.getenv("APP_CONFIG_FILE", "./config/app.yaml")
+    with Path(config_file).open() as f:
+        return yaml.safe_load(f)
+```
+
+### Best Practices
+
+1. **Never commit secrets** - Use `.gitignore` for `.env` and `secrets/`
+2. **Distinguish config from secrets** - Use `_PATH` suffix for secret paths
+3. **Provide example.env** - Clear documentation of required variables
+4. **Default to development-safe values** - `example.env` should work for local dev
+5. **Use path-based secrets** - Infrastructure-compatible pattern (files or secret managers)
+6. **Simple values in .env, complex in files** - Don't put JSON in environment variables
+7. **Document all variables** - Comment `example.env` thoroughly
+8. **Validate on startup** - Fail fast if required config/secrets missing
 
 ---
 
