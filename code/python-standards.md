@@ -229,6 +229,10 @@ security:  ## Run security scans (secrets and vulnerabilities)
 pre-commit:  ## Run pre-commit hooks on all files
 	uv run pre-commit run --all-files
 
+.PHONY: update-hooks
+update-hooks:  ## Update pre-commit hook versions
+	uv run pre-commit autoupdate
+
 .PHONY: check
 check: lint format-check typecheck security test  ## Run all checks (CI equivalent)
 
@@ -643,6 +647,8 @@ repos:
         args: ['--baseline', '.secrets.baseline']
 ```
 
+**Note on versions**: Hook versions shown above are examples and will become outdated. Update hooks quarterly or when adopting new Python versions using `make update-hooks` (see Makefile targets).
+
 ### Setup and Usage
 
 ```bash
@@ -652,7 +658,7 @@ uv run pre-commit install
 # Run hooks manually on all files
 uv run pre-commit run --all-files
 
-# Update hook versions
+# Update hook versions (or use: make update-hooks)
 uv run pre-commit autoupdate
 
 # Skip hooks temporarily (not recommended)
@@ -1007,8 +1013,9 @@ Configure branch protection for `main`:
 
 1. **Pin dependencies** - Commit `uv.lock` for reproducibility
 2. **Update regularly** - Weekly or bi-weekly dependency updates
-3. **Minimize dependencies** - Each dependency is a liability
-4. **Audit new dependencies** - Check license, maintenance, security
+3. **Update pre-commit hooks** - Quarterly with `make update-hooks`
+4. **Minimize dependencies** - Each dependency is a liability
+5. **Audit new dependencies** - Check license, maintenance, security
 
 ### Testing Strategy
 
