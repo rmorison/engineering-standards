@@ -339,17 +339,22 @@ uv remove package-name
 
 ### Python Version Support
 
-**Policy**: Support last 3 minor versions of Python
+**Policy**: Support last 3 stable minor versions of Python
 
-Example: If current is Python 3.13, support 3.11, 3.12, 3.13
+**Rationale**: Balances adoption of new features with compatibility for users who haven't upgraded yet.
+
+**As of early 2025**: Python 3.13 (Oct 2024), 3.12 (Oct 2023), 3.11 (Oct 2022) are the current stable versions. Python 3.10 reaches end-of-life in October 2025.
 
 **Specify in pyproject.toml**:
 
 ```toml
+# Support last 3 stable versions (update as new versions release)
 requires-python = ">=3.11"
 ```
 
 **Test in CI against all supported versions** (see CI/CD section)
+
+**When to update**: Review version support policy annually or when a new major/minor Python version is released.
 
 ---
 
