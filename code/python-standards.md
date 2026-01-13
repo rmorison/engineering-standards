@@ -184,6 +184,10 @@ This command:
 Standard `Makefile` should provide these targets:
 
 ```makefile
+# Coverage thresholds (adjust as needed)
+COVERAGE_MIN_UNIT ?= 80
+COVERAGE_MIN_INTEGRATION ?= 80
+
 .PHONY: setup
 setup:  ## Initial project setup (install Python, deps, pre-commit)
 	# Check for pyenv and install Python version
@@ -194,15 +198,15 @@ setup:  ## Initial project setup (install Python, deps, pre-commit)
 
 .PHONY: test
 test:  ## Run unit tests with coverage
-	uv run pytest tests/unit/ --cov=src/project_name --cov-report=term --cov-report=html
+	uv run pytest tests/unit/ --cov=src/project_name --cov-report=term --cov-report=html --cov-fail-under=$(COVERAGE_MIN_UNIT)
 
 .PHONY: test-integration
-test-integration:  ## Run integration tests
-	uv run pytest tests/integration/
+test-integration:  ## Run integration tests with coverage
+	uv run pytest tests/integration/ --cov=src/project_name --cov-report=term --cov-report=html --cov-fail-under=$(COVERAGE_MIN_INTEGRATION)
 
 .PHONY: test-all
 test-all:  ## Run all tests with coverage
-	uv run pytest tests/ --cov=src/project_name --cov-report=term --cov-report=html
+	uv run pytest tests/ --cov=src/project_name --cov-report=term --cov-report=html --cov-fail-under=$(COVERAGE_MIN_UNIT)
 
 .PHONY: lint
 lint:  ## Run ruff linter
@@ -519,6 +523,29 @@ markers = [
 ### Coverage Requirements
 
 **Minimum coverage**: 80% for new projects, 90% target for mature projects
+
+**Enforcement strategy**:
+- Coverage thresholds are enforced via `--cov-fail-under` in make targets and CI
+- Tests fail if coverage drops below the configured minimum
+- Configured via Makefile variables (see Makefile Targets section):
+  - `COVERAGE_MIN_UNIT` - Unit test coverage threshold (default: 80%)
+  - `COVERAGE_MIN_INTEGRATION` - Integration test coverage threshold (default: 80%)
+
+**Adjusting thresholds**:
+
+```bash
+# Temporarily lower threshold for a single run
+make test COVERAGE_MIN_UNIT=70
+
+# Or set in Makefile for project-specific thresholds
+# At top of Makefile:
+COVERAGE_MIN_UNIT ?= 85
+COVERAGE_MIN_INTEGRATION ?= 75
+```
+
+**What shouldn't be tested**:
+- Use `exclude_lines` configuration (see below) for code that shouldn't count against coverage
+- Common exclusions: `if __name__ == "__main__":`, `TYPE_CHECKING` blocks, abstract methods, debug-only code
 
 **Coverage configuration**:
 
@@ -927,6 +954,10 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  COVERAGE_MIN_UNIT: 80
+  COVERAGE_MIN_INTEGRATION: 80
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -959,10 +990,10 @@ jobs:
         run: uv run mypy src/
 
       - name: Run unit tests
-        run: uv run pytest tests/unit/ --cov=src/project_name --cov-report=xml
+        run: uv run pytest tests/unit/ --cov=src/project_name --cov-report=xml --cov-fail-under=${{ env.COVERAGE_MIN_UNIT }}
 
       - name: Run integration tests
-        run: uv run pytest tests/integration/
+        run: uv run pytest tests/integration/ --cov=src/project_name --cov-report=xml --cov-fail-under=${{ env.COVERAGE_MIN_INTEGRATION }}
 
       - name: Security scan
         run: |
@@ -979,9 +1010,10 @@ jobs:
 
 1. **Test on all supported Python versions** - Use matrix strategy
 2. **Run all checks** - Lint, format, type check, test, security
-3. **Fast feedback** - Fail fast, parallelize when possible
-4. **Coverage reporting** - Use codecov or similar
-5. **Dependency caching** - Cache `.venv/` to speed up builds
+3. **Enforce coverage thresholds** - Use `--cov-fail-under` to fail builds when coverage drops
+4. **Fast feedback** - Fail fast, parallelize when possible
+5. **Coverage reporting** - Use codecov or similar
+6. **Dependency caching** - Cache `.venv/` to speed up builds
 
 ### Required Status Checks
 
