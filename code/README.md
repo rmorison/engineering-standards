@@ -15,7 +15,7 @@ Modern tooling and practices for Python command-line and library projects:
 - **Project structure** - src-layout, test organization, documentation
 - **Code quality** - Linting, formatting, type checking, Google-style docstrings
 - **Testing** - pytest with coverage (80%+ target), unit and integration tests
-- **Security** - detect-secrets, uv-secure vulnerability scanning
+- **Security** - detect-secrets, pip-audit vulnerability scanning
 - **Docker** - Multi-stage builds with python-slim, non-root user
 - **CI/CD** - GitHub Actions with matrix testing across Python versions
 

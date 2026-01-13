@@ -58,7 +58,7 @@ These standards focus on project structure and development workflow, not applica
 | **pytest-cov** | Coverage reporting | Integrated coverage measurement |
 | **pre-commit** | Git hooks | Automated quality checks before commits |
 | **detect-secrets** | Secret scanning | Prevent committing credentials and sensitive data |
-| **uv-secure** | Vulnerability scanner | Check dependencies for known security issues |
+| **pip-audit** | Vulnerability scanner | Check dependencies for known security vulnerabilities |
 
 ### Development Environment
 
@@ -223,7 +223,7 @@ typecheck:  ## Run mypy type checking
 .PHONY: security
 security:  ## Run security scans (secrets and vulnerabilities)
 	uv run detect-secrets scan --baseline .secrets.baseline
-	uv run uv-secure check
+	uv run pip-audit
 
 .PHONY: pre-commit
 pre-commit:  ## Run pre-commit hooks on all files
@@ -287,7 +287,7 @@ dev = [
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
     "detect-secrets>=1.4.0",
-    "uv-secure>=0.1.0",
+    "pip-audit>=2.7.0",
 ]
 
 # Entry points for CLI tools
@@ -688,17 +688,19 @@ uv run detect-secrets scan --baseline .secrets.baseline
 
 ### Dependency Vulnerability Scanning
 
-**Tool**: uv-secure (wraps pip-audit)
+**Tool**: pip-audit (official PyPA tool)
 
 **Run manually**:
 
 ```bash
 make security
 # or
-uv run uv-secure check
+uv run pip-audit
 ```
 
 **CI integration**: Include in GitHub Actions workflow
+
+**Alternative**: [uv-secure](https://github.com/owenlamont/uv-secure) is a community tool specifically designed for uv.lock files. Native `uv audit` command is [under consideration](https://github.com/astral-sh/uv/issues/9189).
 
 **Handling vulnerabilities**:
 1. Update affected package: `uv add package-name@latest`
@@ -954,7 +956,7 @@ jobs:
       - name: Security scan
         run: |
           uv run detect-secrets scan --baseline .secrets.baseline
-          uv run uv-secure check
+          uv run pip-audit
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3
@@ -1051,7 +1053,7 @@ Configure branch protection for `main`:
 
 **Problem**: Security vulnerabilities, missing bug fixes
 
-**Solution**: Update dependencies regularly, use uv-secure to scan
+**Solution**: Update dependencies regularly, use pip-audit to scan
 
 ### ❌ Overly Broad Dependency Specifications
 
@@ -1153,6 +1155,7 @@ dev = [
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
     "detect-secrets>=1.4.0",
+    "pip-audit>=2.7.0",
 ]
 
 [build-system]
