@@ -104,8 +104,6 @@ project-name/
 │   └── conftest.py             # Shared pytest fixtures
 ├── config/                     # Configuration files (committed)
 │   └── .gitkeep
-├── secrets/                    # Secret files (gitignored)
-│   └── .gitkeep
 ├── scripts/                    # Development/deployment scripts
 ├── .venv/                      # Virtual environment (gitignored)
 ├── .env                        # Local environment variables (gitignored)
@@ -137,14 +135,9 @@ project-name/
 - Keep code and docs in same repository
 
 **`config/`** - Configuration files (committed to git)
-- YAML/JSON configuration files
+- YAML/JSON configuration files (dev.yaml, stage.yaml, prod.yaml)
 - Structured application settings
-- Environment-specific configs can be referenced via env vars
-
-**`secrets/`** - Secret files (gitignored)
-- Local development secrets as files
-- Never committed to git
-- In production, mounted from secret managers
+- Environment-specific configs referenced via APP_CONFIG_FILE env var
 
 **`scripts/`** - Utilities for development and deployment
 - Database migrations, data processing, deployment automation
@@ -775,13 +768,13 @@ uv run pip-audit
 
 ### Environment Variables Strategy
 
-**Philosophy**: Separate configuration (non-sensitive) from secrets (sensitive), use simple values in environment variables and complex structures in files.
+**Philosophy**: Secrets are injected directly as environment variables (not file paths). This works universally across AWS, Kubernetes, Docker, and local development.
 
 **Pattern**:
 - `.env` file for local development (gitignored)
 - `example.env` committed to repo as template and documentation
-- File-based approach for secrets (infrastructure-friendly)
-- File paths in env vars for complex configuration
+- Secrets injected as environment variables by infrastructure
+- Complex configuration in YAML/JSON files, referenced via env vars
 
 ### Naming Conventions
 
@@ -796,19 +789,21 @@ REDIS_URL=redis://localhost:6379
 LOG_LEVEL=INFO
 API_TIMEOUT_SECONDS=30
 FEATURE_FLAG_NEW_UI=true
+ENVIRONMENT=development
 ```
 
-**Secrets** (sensitive, use paths):
+**Secrets** (sensitive, injected as environment variables):
 ```bash
-# Secrets point to paths (files or infrastructure secrets)
-DATABASE_PASSWORD_PATH=/run/secrets/db_password
-API_KEY_PATH=/run/secrets/api_key
-JWT_SECRET_PATH=/run/secrets/jwt_secret
+# Secrets are values, not paths
+DATABASE_PASSWORD=actual-password-here
+ANTHROPIC_API_KEY=sk-ant-api-key-here
+STRIPE_API_KEY=sk_live_key_here
+JWT_SECRET=random-secret-string
 ```
 
 **Complex configuration** (YAML/JSON files):
 ```bash
-# Path to structured config
+# Path to structured config file
 APP_CONFIG_FILE=./config/app.yaml
 LOGGING_CONFIG_FILE=./config/logging.json
 ```
@@ -818,36 +813,39 @@ LOGGING_CONFIG_FILE=./config/logging.json
 ```
 project-name/
 ├── config/                     # Configuration files (committed)
-│   ├── app.yaml               # Application config
-│   └── logging.json           # Logging config
-├── secrets/                    # Secret files (gitignored)
-│   ├── .gitkeep               # Keep directory in git
-│   ├── db_password            # Local dev secrets
-│   └── api_key
+│   ├── dev.yaml               # Development config
+│   ├── stage.yaml             # Staging config
+│   ├── prod.yaml              # Production config
+│   └── logging.json           # Shared logging config
 ├── .env                        # Local environment (gitignored)
 ├── example.env                 # Template (committed)
-└── .gitignore
+├── .gitignore                  # Git exclusions
+└── ...
 ```
+
+**Note**: No `secrets/` directory needed - secrets come from environment variables set by infrastructure.
 
 ### example.env Template
 
-Create `example.env` as documentation and setup template:
-
 ```bash
-# example.env - Copy to .env and fill in values
+# example.env - Copy to .env and fill in your local development values
+
 # Configuration (non-sensitive)
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
+REDIS_URL=redis://localhost:6379
 LOG_LEVEL=INFO
 ENVIRONMENT=development
 
-# Secrets (point to paths, create in secrets/ directory)
-# For local dev: echo "your-password" > secrets/db_password
-DATABASE_PASSWORD_PATH=./secrets/db_password
-API_KEY_PATH=./secrets/api_key
+# Secrets (sensitive - never commit actual values)
+# For local dev, use development/test credentials
+DATABASE_PASSWORD=local-dev-password
+ANTHROPIC_API_KEY=sk-ant-dev-key-here
+STRIPE_API_KEY=sk_test_key_here
+JWT_SECRET=local-dev-jwt-secret
 
-# Complex configuration (optional, use for structured config)
-# APP_CONFIG_FILE=./config/app.yaml
+# Configuration file (environment-specific)
+APP_CONFIG_FILE=./config/dev.yaml
 ```
 
 ### Makefile Integration
@@ -863,18 +861,17 @@ setup:  ## Initial project setup (install Python, deps, pre-commit)
 		cp example.env .env; \
 		echo "Created .env from example.env - update with your values"; \
 	fi
-	@mkdir -p secrets config
-	@touch secrets/.gitkeep config/.gitkeep
+	@mkdir -p config
+	@touch config/.gitkeep
 ```
 
 ### .gitignore Entries
 
 ```gitignore
-# Environment and secrets
+# Environment (contains secrets)
 .env
 .env.local
-secrets/*
-!secrets/.gitkeep
+.env.*.local
 
 # Configuration overrides (if using local config files)
 config/local.yaml
@@ -890,7 +887,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env file in development
+# Load .env file in development (no-op in production)
 load_dotenv()
 
 def get_config(key: str, default: str | None = None) -> str:
@@ -901,22 +898,16 @@ def get_config(key: str, default: str | None = None) -> str:
     return value
 
 def get_secret(key: str) -> str:
-    """Get secret from path specified by environment variable."""
-    path_key = f"{key}_PATH"
-    secret_path = os.getenv(path_key)
-
-    if not secret_path:
-        raise ValueError(f"Secret path {path_key} not set")
-
-    secret_file = Path(secret_path)
-    if not secret_file.exists():
-        raise FileNotFoundError(f"Secret file not found: {secret_file}")
-
-    return secret_file.read_text().strip()
+    """Get secret from environment variable."""
+    value = os.getenv(key)
+    if not value:
+        raise ValueError(f"Required secret {key} not set")
+    return value
 
 # Usage
 DATABASE_HOST = get_config("DATABASE_HOST", "localhost")
 DATABASE_PASSWORD = get_secret("DATABASE_PASSWORD")
+ANTHROPIC_API_KEY = get_secret("ANTHROPIC_API_KEY")
 ```
 
 Add to dev dependencies:
@@ -927,62 +918,226 @@ uv add python-dotenv
 
 ### Infrastructure Compatibility
 
-This pattern works across environments:
+This pattern works across all platforms:
 
 **Local Development**:
 ```bash
 # .env
-DATABASE_PASSWORD_PATH=./secrets/db_password
+DATABASE_PASSWORD=local-dev-password
+ANTHROPIC_API_KEY=sk-ant-dev-key
 ```
 
 **Docker**:
 ```bash
-# Mount secrets as files
-docker run -v ./secrets:/run/secrets \
-  -e DATABASE_PASSWORD_PATH=/run/secrets/db_password \
+# Direct environment variable injection
+docker run \
+  -e DATABASE_HOST=postgres \
+  -e DATABASE_PASSWORD=prod-password \
+  -e ANTHROPIC_API_KEY=sk-ant-prod-key \
   myapp
 ```
 
-**Kubernetes**:
-```yaml
-env:
-  - name: DATABASE_HOST
-    value: "postgres.default.svc.cluster.local"
-  - name: DATABASE_PASSWORD_PATH
-    value: "/run/secrets/db-password"
-volumeMounts:
-  - name: db-secret
-    mountPath: /run/secrets
-    readOnly: true
-volumes:
-  - name: db-secret
-    secret:
-      secretName: database-credentials
+**ECS/Fargate** (AWS Secrets Manager):
+```json
+{
+  "containerDefinitions": [{
+    "environment": [
+      {"name": "DATABASE_HOST", "value": "prod-db.rds.amazonaws.com"},
+      {"name": "APP_CONFIG_FILE", "value": "/app/config/prod.yaml"}
+    ],
+    "secrets": [
+      {
+        "name": "DATABASE_PASSWORD",
+        "valueFrom": "arn:aws:secretsmanager:us-east-1:123:secret:myapp/prod/database-password"
+      },
+      {
+        "name": "ANTHROPIC_API_KEY",
+        "valueFrom": "arn:aws:secretsmanager:us-east-1:123:secret:myapp/prod/anthropic-api-key"
+      }
+    ]
+  }]
+}
 ```
 
-**Cloud Platforms** (AWS, GCP, Azure):
-- Secret managers can write secrets to files
-- Config from environment variables
-- Follows 12-factor app principles
+**Kubernetes with AWS Secrets Store CSI Driver**:
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: myapp-sa
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123:role/myapp-secrets-role
+
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: myapp-aws-secrets
+spec:
+  provider: aws
+  parameters:
+    objects: |
+      - objectName: "myapp/prod/database-password"
+        objectType: "secretsmanager"
+        objectAlias: "database-password"
+      - objectName: "myapp/prod/anthropic-api-key"
+        objectType: "secretsmanager"
+        objectAlias: "anthropic-api-key"
+  secretObjects:
+  - secretName: myapp-secrets
+    type: Opaque
+    data:
+    - objectName: "database-password"
+      key: "database-password"
+    - objectName: "anthropic-api-key"
+      key: "anthropic-api-key"
+
+---
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: myapp-sa
+  containers:
+  - name: myapp
+    env:
+    - name: DATABASE_HOST
+      value: "postgres.prod.svc.cluster.local"
+    - name: DATABASE_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: myapp-secrets
+          key: database-password
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: myapp-secrets
+          key: anthropic-api-key
+    - name: APP_CONFIG_FILE
+      value: "/app/config/prod.yaml"
+    volumeMounts:
+    - name: secrets-store
+      mountPath: "/mnt/secrets"
+      readOnly: true
+  volumes:
+  - name: secrets-store
+    csi:
+      driver: secrets-store.csi.k8s.io
+      readOnly: true
+      volumeAttributes:
+        secretProviderClass: "myapp-aws-secrets"
+```
+
+**Kubernetes with External Secrets Operator**:
+```yaml
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: aws-secretsmanager
+  namespace: prod
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: us-east-1
+      auth:
+        jwt:
+          serviceAccountRef:
+            name: myapp-sa
+
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: myapp-secrets
+  namespace: prod
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-secretsmanager
+    kind: SecretStore
+  target:
+    name: myapp-secrets
+  data:
+  - secretKey: database-password
+    remoteRef:
+      key: myapp/prod/database-password
+  - secretKey: anthropic-api-key
+    remoteRef:
+      key: myapp/prod/anthropic-api-key
+
+---
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: myapp
+    env:
+    - name: DATABASE_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: myapp-secrets
+          key: database-password
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: myapp-secrets
+          key: anthropic-api-key
+```
 
 ### Complex Configuration Files
 
 For structured configuration, use YAML or JSON files:
 
-**config/app.yaml** (committed):
+**config/dev.yaml** (committed):
 ```yaml
-# Default application configuration
+# Development configuration
 features:
-  new_ui: false
+  new_ui: true
+  beta_features: true
+  debug_mode: true
+
+rate_limiting:
+  enabled: false
+  requests_per_minute: 1000
+
+anthropic:
+  model: "claude-3-5-sonnet-20241022"
+  max_tokens: 4096
+  temperature: 0.7
+
+database:
+  pool_size: 5
+  timeout_seconds: 30
+
+logging:
+  level: DEBUG
+  format: detailed
+```
+
+**config/prod.yaml** (committed):
+```yaml
+# Production configuration
+features:
+  new_ui: true
   beta_features: false
+  debug_mode: false
 
 rate_limiting:
   enabled: true
   requests_per_minute: 100
 
-retry_policy:
-  max_attempts: 3
-  backoff_seconds: [1, 2, 4]
+anthropic:
+  model: "claude-3-5-sonnet-20241022"
+  max_tokens: 4096
+  temperature: 0.3
+
+database:
+  pool_size: 20
+  timeout_seconds: 10
+
+logging:
+  level: INFO
+  format: json
 ```
 
 **Load in code**:
@@ -991,24 +1146,78 @@ import yaml
 from pathlib import Path
 
 def load_config() -> dict:
-    config_file = os.getenv("APP_CONFIG_FILE", "./config/app.yaml")
+    config_file = os.getenv("APP_CONFIG_FILE", "./config/dev.yaml")
     with Path(config_file).open() as f:
         return yaml.safe_load(f)
+
+# Usage
+config = load_config()
+model = config["anthropic"]["model"]
+pool_size = config["database"]["pool_size"]
 ```
+
+### Multi-Environment Strategy
+
+**Philosophy**: Application code is environment-agnostic. Infrastructure provides environment-specific values.
+
+**How it works**:
+
+1. **Same variable names everywhere** - `DATABASE_PASSWORD`, not `DATABASE_PASSWORD_DEV`
+2. **Infrastructure sets values** - Different values per environment
+3. **Config files for complex settings** - `APP_CONFIG_FILE=./config/prod.yaml`
+4. **No environment logic in code** - Application doesn't know about dev/stage/prod
+
+**Example across environments**:
+
+| Environment | DATABASE_HOST | DATABASE_PASSWORD | APP_CONFIG_FILE |
+|-------------|---------------|-------------------|-----------------|
+| **Development** (.env) | localhost | local-dev-password | ./config/dev.yaml |
+| **Staging** (AWS Secrets Mgr) | stage-db.rds.amazonaws.com | (from secrets manager) | ./config/stage.yaml |
+| **Production** (AWS Secrets Mgr) | prod-db.rds.amazonaws.com | (from secrets manager) | ./config/prod.yaml |
+
+**AWS Secrets Manager organization**:
+```
+Development (local .env file):
+  - Actual values in .env
+
+Staging:
+  myapp/stage/database-password
+  myapp/stage/anthropic-api-key
+  myapp/stage/stripe-api-key
+
+Production:
+  myapp/prod/database-password
+  myapp/prod/anthropic-api-key
+  myapp/prod/stripe-api-key
+```
+
+**Key principles**:
+1. **No environment logic in application code** - App doesn't know about dev/stage/prod
+2. **Same variable names** across all environments
+3. **Infrastructure provides values** - ECS, Kubernetes, or Docker Compose
+4. **Config files** for environment-specific behavior (dev.yaml, prod.yaml)
+5. **Sensible defaults** - Development values in example.env for local work
+
+**What NOT to do**:
+- ❌ Don't create `.env.dev`, `.env.stage`, `.env.prod` - use infrastructure
+- ❌ Don't put environment logic in code (`if env == 'prod'`) - use config files
+- ❌ Don't hardcode environment-specific values - always use env vars or config files
+- ❌ Don't use file-based secrets with `_PATH` suffix - use direct injection
 
 ### Best Practices
 
-1. **Never commit secrets** - Use `.gitignore` for `.env` and `secrets/`
-2. **Distinguish config from secrets** - Use `_PATH` suffix for secret paths
-3. **Provide example.env** - Clear documentation of required variables
-4. **Default to development-safe values** - `example.env` should work for local dev
-5. **Use path-based secrets** - Infrastructure-compatible pattern (files or secret managers)
-6. **Simple values in .env, complex in files** - Don't put JSON in environment variables
-7. **Document all variables** - Comment `example.env` thoroughly
-8. **Validate on startup** - Fail fast if required config/secrets missing
+1. **Never commit secrets** - Use `.gitignore` for `.env`
+2. **Use direct injection** - Secrets as environment variables, not file paths
+3. **Provide example.env** - Clear documentation with safe development values
+4. **Default to development-safe values** - example.env should work for local dev
+5. **Simple values in .env, complex in files** - Don't put JSON in environment variables
+6. **Document all variables** - Comment example.env thoroughly
+7. **Validate on startup** - Fail fast if required config/secrets missing
+8. **Keep code environment-agnostic** - No `if env == 'prod'` logic
+9. **Use infrastructure for secrets** - AWS Secrets Manager, Kubernetes Secrets, etc.
+10. **Separate by environment in secret manager** - myapp/dev/*, myapp/stage/*, myapp/prod/*
 
 ---
-
 ## Docker Builds
 
 ### Multi-stage Dockerfile
