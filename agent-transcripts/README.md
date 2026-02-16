@@ -7,9 +7,9 @@ This directory contains conversation transcripts documenting the development and
 Transcripts follow the naming pattern: `YYYY-MM-DD-description.md`
 
 **Examples:**
-- `2024-11-16-standards-creation.md` - Initial creation of the engineering standards
-- `2024-12-01-workflow-updates.md` - Updates to workflow documents
-- `2025-01-15-new-standards.md` - Addition of new standard documents
+- `2025-11-16-standards-creation.md` - Initial creation of the engineering standards
+- `2026-01-12-python-standards.md` - Python project standards
+- `2026-02-16-database-standards.md` - Database standards for PostgreSQL
 
 ## Purpose
 

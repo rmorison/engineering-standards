@@ -9,7 +9,7 @@ This repository defines engineering standards for building software. The standar
 ## Repository Structure
 
 - **[process/](./process/)** - Software process and SDLC standards (workflows, git, planning, documentation)
-- **[code/](./code/)** - Language and stack-specific code quality standards (future)
+- **[code/](./code/)** - Language and stack-specific code quality standards ([Python](./code/python-standards.md), [Database](./code/database-standards.md))
 - **[templates/](./templates/)** - Project templates with pre-configured tooling (future)
 - **[ai/](./ai/)** - AI assistant content and reference documentation
 - **[agent-transcripts/](./agent-transcripts/)** - Historical development logs
