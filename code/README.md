@@ -21,6 +21,19 @@ Modern tooling and practices for Python command-line and library projects:
 
 **Key principle**: Automated, consistent development environment with fast feedback and security scanning.
 
+### [Database Standards](./database-standards.md)
+
+PostgreSQL conventions and practices for application database design:
+- **Engine** - PostgreSQL 18+ with standard extensions (pg_trgm, pgcrypto)
+- **Schema design** - Per-domain schemas forming a DAG, no circular dependencies
+- **Naming conventions** - snake_case, plural tables, prefixed constraints (`pk_`, `fk_`, `uq_`, `idx_`, `ck_`)
+- **Standard columns** - UUID v7 primary keys, `created_at`/`updated_at` with triggers
+- **Data access** - Direct SQL with psycopg 3, Pydantic models for validation (no ORM)
+- **Migrations** - golang-migrate with per-schema directories, up/down pairs
+- **Security** - Parameterized queries, least-privilege database roles, secrets via environment variables
+
+**Key principle**: The database is the source of truth for data integrity. Use SQL directly, let PostgreSQL enforce constraints.
+
 ## Future Standards
 
 Examples of standards that will be added:
