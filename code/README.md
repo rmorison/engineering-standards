@@ -24,7 +24,7 @@ Modern tooling and practices for Python command-line and library projects:
 ### [Database Standards](./database-standards.md)
 
 PostgreSQL conventions and practices for application database design:
-- **Engine** - PostgreSQL with standard extensions (pg_trgm, pgcrypto)
+- **Engine** - PostgreSQL 18+ with standard extensions (pg_trgm, pgcrypto)
 - **Schema design** - Per-domain schemas forming a DAG, no circular dependencies
 - **Naming conventions** - snake_case, plural tables, prefixed constraints (`pk_`, `fk_`, `uq_`, `idx_`, `ck_`)
 - **Standard columns** - UUID v7 primary keys, `created_at`/`updated_at` with triggers

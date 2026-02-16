@@ -48,24 +48,23 @@ PostgreSQL is the default database engine for all application projects:
 
 ### Required Extensions
 
-Enable these extensions in your database setup:
+Enable these extensions in your database setup as needed:
 
 ```sql
--- UUID v7 generation (time-ordered UUIDs for primary keys)
-CREATE EXTENSION IF NOT EXISTS pg_uuidv7;
-
 -- Trigram similarity for fuzzy text search
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- Cryptographic functions (if needed beyond UUID generation)
+-- Cryptographic functions (if needed)
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 ```
 
-**Note on pg_uuidv7**: This extension provides `uuid_generate_v7()` for time-ordered UUID primary keys. It is available on AWS RDS and most managed PostgreSQL providers. If `pg_uuidv7` is not available in your environment, fall back to generating UUID v7 values in the application layer and passing them to inserts (see [Primary Keys and References](#primary-keys-and-references)).
+**Note on UUID v7**: PostgreSQL 18+ provides native `uuidv7()` — no extension required. For PostgreSQL 17 and earlier, use the [pg_uuidv7](https://github.com/fboulnois/pg_uuidv7) extension or generate UUID v7 values in the application layer (see [Primary Keys and References](#primary-keys-and-references)).
 
 ### Version Guidance
 
-Target the current stable PostgreSQL release. As of early 2025, PostgreSQL 17 is current. Support the latest two major versions (16, 17) for production deployments.
+**Target PostgreSQL 18+** for new projects. PostgreSQL 18 is available on all major cloud providers (AWS RDS, Google Cloud SQL, Azure Database for PostgreSQL) as of late 2025. Key advantages of 18+ include native `uuidv7()` support and I/O subsystem improvements.
+
+Support the latest two major versions (17, 18) for production deployments. If constrained to PostgreSQL 17, see the UUID v7 fallback guidance in [Primary Keys and References](#primary-keys-and-references).
 
 ---
 
@@ -175,10 +174,10 @@ Every table includes these columns:
 ### id — UUID v7 Primary Key
 
 ```sql
-id UUID NOT NULL DEFAULT uuid_generate_v7()
+id UUID NOT NULL DEFAULT uuidv7()
 ```
 
-The database generates time-ordered UUID v7 values via the `pg_uuidv7` extension. Application code should **not** supply `id` values on insert — let the database default handle it (see [Column-Level Privileges](#column-level-privileges-for-system-columns) for enforcement).
+The database generates time-ordered UUID v7 values via PostgreSQL 18's native `uuidv7()` function. Application code should **not** supply `id` values on insert — let the database default handle it (see [Column-Level Privileges](#column-level-privileges-for-system-columns) for enforcement).
 
 ### created_at — Immutable Creation Timestamp
 
@@ -225,7 +224,7 @@ CREATE TRIGGER trg_users_set_updated_at
 
 ```sql
 CREATE TABLE inventory.products (
-    id UUID NOT NULL DEFAULT uuid_generate_v7(),
+    id UUID NOT NULL DEFAULT uuidv7(),
     name TEXT NOT NULL,
     sku TEXT NOT NULL,
     price_cents INTEGER NOT NULL,
@@ -260,18 +259,21 @@ UUID v7 is the standard primary key type:
 
 ### UUID v7 Generation Strategy
 
-**Standard**: Use the `pg_uuidv7` extension to generate UUID v7 values as column defaults. This makes the database the single source of truth for ID generation — consistent regardless of client language, and impossible to forget.
+**Standard (PostgreSQL 18+)**: Use the native `uuidv7()` function as the column default. This makes the database the single source of truth for ID generation — consistent regardless of client language, and impossible to forget. No extension required.
 
 ```sql
-id UUID NOT NULL DEFAULT uuid_generate_v7()
+id UUID NOT NULL DEFAULT uuidv7()
 ```
 
 Combined with [column-level privileges](#column-level-privileges-for-system-columns), application roles cannot supply their own `id` values, ensuring all primary keys are database-generated and time-ordered.
 
-**Fallback**: If `pg_uuidv7` is not available in your environment (some managed providers or older versions), generate UUID v7 in the application layer (e.g., Python's `uuid_utils` or `uuid7` package) and supply it on insert. Use `gen_random_uuid()` (UUID v4, built-in) as the column default for safety:
+**Fallback (PostgreSQL 17 and earlier)**: If you cannot use PostgreSQL 18+, you have two options:
+
+1. **pg_uuidv7 extension**: Provides `uuid_generate_v7()`. Available on some managed providers (e.g., Neon) but not on AWS RDS, Google Cloud SQL, or Azure.
+2. **Application-side generation**: Generate UUID v7 in the application layer (e.g., Python's `uuid_utils` or `uuid7` package) and supply it on insert. Use `gen_random_uuid()` (UUID v4, built-in) as the column default for safety:
 
 ```sql
--- Fallback only — when pg_uuidv7 is unavailable
+-- Fallback only — when on PostgreSQL 17 or earlier
 id UUID NOT NULL DEFAULT gen_random_uuid()
 ```
 
@@ -283,7 +285,7 @@ id UUID NOT NULL DEFAULT gen_random_uuid()
 
 ```sql
 CREATE TABLE billing.invoices (
-    id UUID NOT NULL DEFAULT uuid_generate_v7(),
+    id UUID NOT NULL DEFAULT uuidv7(),
     user_id UUID NOT NULL,
     -- ...
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -318,7 +320,7 @@ Use psycopg 3 (the modern PostgreSQL driver for Python) for all database interac
 
 ```python
 import psycopg
-from psycopg.rows import class_row
+from psycopg.rows import dict_row
 from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime
@@ -335,35 +337,30 @@ class Product(BaseModel):
 
 
 async def get_product(conn: psycopg.AsyncConnection, product_id: UUID) -> Product | None:
-    row = await conn.execute(
-        "SELECT * FROM inventory.products WHERE id = %s",
-        (product_id,),
-    )
-    result = await row.fetchone()
-    if result is None:
-        return None
-    return Product.model_validate(dict(zip([col.name for col in row.description], result)))
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "SELECT * FROM inventory.products WHERE id = %s",
+            (product_id,),
+        )
+        row = await cur.fetchone()
+        if row is None:
+            return None
+        return Product.model_validate(row)
 
 
 async def create_product(conn: psycopg.AsyncConnection, product: Product) -> Product:
-    row = await conn.execute(
-        """
-        INSERT INTO inventory.products (name, sku, price_cents, is_active)
-        VALUES (%s, %s, %s, %s)
-        RETURNING *
-        """,
-        (product.name, product.sku, product.price_cents, product.is_active),
-    )
-    result = await row.fetchone()
-    return Product.model_validate(dict(zip([col.name for col in row.description], result)))
-```
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """
+            INSERT INTO inventory.products (name, sku, price_cents, is_active)
+            VALUES (%s, %s, %s, %s)
+            RETURNING *
+            """,
+            (product.name, product.sku, product.price_cents, product.is_active),
+        )
+        row = await cur.fetchone()
+        return Product.model_validate(row)
 
-### Row Factory Pattern
-
-psycopg 3 supports row factories for cleaner mapping:
-
-```python
-from psycopg.rows import dict_row
 
 async def list_active_products(conn: psycopg.AsyncConnection) -> list[Product]:
     async with conn.cursor(row_factory=dict_row) as cur:
@@ -489,32 +486,38 @@ migrate -path db/migrations/auth -database "$DATABASE_URL" down 1
 migrate -path db/migrations/auth -database "$DATABASE_URL" goto 3
 ```
 
+**Migration tracking**: Each per-schema directory gets its own `schema_migrations` table in the database. golang-migrate creates this automatically on first run.
+
 ### Migration Execution Order
 
-Run migrations in dependency order matching the schema DAG:
+Run migrations in dependency order matching the schema DAG. Encode the order in a Makefile target:
 
-```bash
-# 1. Shared utilities first
-migrate -path db/migrations/public -database "$DATABASE_URL" up
+```makefile
+.PHONY: migrate-up
+migrate-up:  ## Run all migrations in schema dependency order
+	migrate -path db/migrations/public -database "$(DATABASE_URL)" up
+	migrate -path db/migrations/auth -database "$(DATABASE_URL)" up
+	migrate -path db/migrations/inventory -database "$(DATABASE_URL)" up
+	migrate -path db/migrations/billing -database "$(DATABASE_URL)" up
 
-# 2. Then schemas in dependency order
-migrate -path db/migrations/auth -database "$DATABASE_URL" up
-migrate -path db/migrations/inventory -database "$DATABASE_URL" up
-migrate -path db/migrations/billing -database "$DATABASE_URL" up
+.PHONY: migrate-down
+migrate-down:  ## Roll back the last migration for each schema (reverse order)
+	migrate -path db/migrations/billing -database "$(DATABASE_URL)" down 1
+	migrate -path db/migrations/inventory -database "$(DATABASE_URL)" down 1
+	migrate -path db/migrations/auth -database "$(DATABASE_URL)" down 1
+	migrate -path db/migrations/public -database "$(DATABASE_URL)" down 1
 ```
-
-Automate this in a Makefile or shell script.
 
 ### Idempotent Migrations
 
-Write migrations that can safely run even if partially applied:
+Write migrations that are safe to re-run after a partial failure (e.g., a migration that crashed mid-execution). Use `IF NOT EXISTS` and `IF EXISTS` guards so re-running the same migration doesn't error on already-applied statements:
 
 ```sql
 -- Up migration: 000001_create_products_table.up.sql
 CREATE SCHEMA IF NOT EXISTS inventory;
 
 CREATE TABLE IF NOT EXISTS inventory.products (
-    id UUID NOT NULL DEFAULT uuid_generate_v7(),
+    id UUID NOT NULL DEFAULT uuidv7(),
     name TEXT NOT NULL,
     sku TEXT NOT NULL,
     price_cents INTEGER NOT NULL,
@@ -619,7 +622,7 @@ GRANT UPDATE (name, sku, price_cents, is_active)
 GRANT DELETE ON inventory.products TO myapp_prod_write;
 ```
 
-**How this works**: When the `_write` role inserts a row without specifying `id`, `created_at`, or `updated_at`, PostgreSQL applies the column defaults (`uuid_generate_v7()`, `NOW()`, `NOW()`). If the role attempts to supply those columns, the query fails with a privilege error.
+**How this works**: When the `_write` role inserts a row without specifying `id`, `created_at`, or `updated_at`, PostgreSQL applies the column defaults (`uuidv7()`, `NOW()`, `NOW()`). If the role attempts to supply those columns, the query fails with a privilege error.
 
 **Trade-off**: Column-level grants must enumerate business columns per table, which is more verbose than table-level grants. This is additional work in migrations but provides strong guarantees that system columns are database-managed. Apply this pattern to tables where the guarantee matters (most application tables); for internal/utility tables the overhead may not be warranted.
 
@@ -666,14 +669,17 @@ Follow the credential management patterns defined in [Python Project Standards](
 Use a standard connection URL:
 
 ```
-postgresql://user:password@host:port/database
+postgresql://user:password@host:port/database?sslmode=require
 ```
 
 Set via environment variable:
 
 ```bash
-# .env (local development)
+# .env (local development — SSL not needed for localhost/Docker)
 DATABASE_URL=postgresql://myapp:localpass@localhost:5432/myapp_dev
+
+# Production — always require SSL
+# DATABASE_URL=postgresql://myapp:password@prod-db.rds.amazonaws.com:5432/myapp?sslmode=require
 ```
 
 ### Docker Compose for Local Development
@@ -681,7 +687,7 @@ DATABASE_URL=postgresql://myapp:localpass@localhost:5432/myapp_dev
 ```yaml
 services:
   db:
-    image: postgres:17
+    image: postgres:18
     environment:
       POSTGRES_DB: myapp_dev
       POSTGRES_USER: myapp
@@ -758,7 +764,6 @@ volumes:
 
 ### Tools
 - [PostgreSQL](https://www.postgresql.org/) - Database engine
-- [pg_uuidv7](https://github.com/fboulnois/pg_uuidv7) - UUID v7 extension for PostgreSQL
 - [psycopg 3](https://www.psycopg.org/psycopg3/) - Python PostgreSQL driver
 - [golang-migrate](https://github.com/golang-migrate/migrate) - Database migration tool
 - [Pydantic](https://docs.pydantic.dev/) - Data validation and serialization

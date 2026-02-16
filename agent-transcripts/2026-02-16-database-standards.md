@@ -96,18 +96,46 @@ The current document hand-waves this — it says "generate in app, database defa
 
 **User:** Add the role standards. For UUID v7, make `pg_uuidv7` the standard.
 
+*[Role hierarchy and column-level privileges added, UUID v7 updated to use `pg_uuidv7` extension]*
+
+---
+
+## Revisiting UUID v7: pg_uuidv7 Cloud Support
+
+**User:** Starting with AWS RDS, what cloud platforms support `pg_uuidv7` directly?
+
+**AI Agent:** I researched this and the answer is surprising — `pg_uuidv7` is actually **not supported** on any of the major cloud providers:
+- **AWS RDS** — not in the supported extensions list. AWS published a workaround using Trusted Language Extensions with PL/Rust.
+- **Google Cloud SQL** — not listed in supported extensions.
+- **Azure Database for PostgreSQL** — not in their allowlist either.
+- **Neon** — one of the few that does support it.
+
+However, this is largely moot now. PostgreSQL 18 adds a native `uuidv7()` function — no extension required. And all three major cloud providers already support PostgreSQL 18 GA: AWS RDS since November 2025, Google Cloud SQL and Azure both GA.
+
+**User:** And is Postgres 18+ supported on AWS, GCP and Azure?
+
+**AI Agent:** Yes — all three:
+- AWS RDS — PostgreSQL 18 available since November 2025
+- Google Cloud SQL — PostgreSQL 18 GA
+- Azure Database for PostgreSQL — PostgreSQL 18 GA on Flexible Server
+
+So the cleanest path is: target PostgreSQL 18+, use native `uuidv7()`, drop the extension requirement entirely.
+
+**User:** Yes, update it.
+
+**AI Agent:** Updated the document:
+- **Version guidance**: Target PostgreSQL 18+ for new projects, support 17 and 18
+- **Required extensions**: Removed `pg_uuidv7` — UUID v7 is now native
+- **All SQL examples**: Changed `uuid_generate_v7()` to `uuidv7()`
+- **UUID v7 Generation Strategy**: Native `uuidv7()` as standard, `pg_uuidv7` and app-side generation as fallbacks for PostgreSQL 17 and earlier
+- **Docker Compose**: Updated to `postgres:18`
+- **References**: Removed `pg_uuidv7` link (now just a footnote in fallback guidance)
+
 ---
 
 ## Implementing the Role and UUID Changes
 
-**AI Agent:** I made the following changes:
-
-**UUID v7 — `pg_uuidv7` as standard:**
-- Added `pg_uuidv7` to required extensions
-- Changed all `gen_random_uuid()` defaults to `uuid_generate_v7()` across all examples
-- New "UUID v7 Generation Strategy" section explaining standard (database-side) vs fallback (application-side)
-- Updated the INSERT example to omit `id` — the database handles it
-- Added to references
+**AI Agent:** Across the two rounds of changes, the document now reflects:
 
 **Database Roles and Access** (replaced the generic three-bullet section):
 - `main` as root/superuser (local or cloud-provided admin)
@@ -137,7 +165,7 @@ The current document hand-waves this — it says "generate in app, database defa
 1. **Database engine:** PostgreSQL (standard for all projects)
 2. **Schema architecture:** Per-domain schemas with DAG dependency rule
 3. **Naming:** snake_case, plural tables, prefixed constraints, `v_`/`mv_` for views
-4. **Primary keys:** UUID v7 via `pg_uuidv7` extension (database-generated)
+4. **Primary keys:** UUID v7 via PostgreSQL 18's native `uuidv7()` (database-generated)
 5. **Timestamps:** Database-managed `created_at`/`updated_at` with trigger
 6. **Data access:** Direct SQL + psycopg 3 + Pydantic (no ORM)
 7. **Migrations:** golang-migrate with per-schema directories (not Alembic)
@@ -149,11 +177,11 @@ The current document hand-waves this — it says "generate in app, database defa
 
 ## Evolution of Thinking
 
-**UUID v7 generation** went through three stages: initially application-side generation with a v4 database fallback, then shifted to database-side generation via `pg_uuidv7` after the user confirmed AWS RDS support from another project, then strengthened further with column-level privileges that prevent application roles from overriding the database-generated values.
+**UUID v7 generation** went through four stages: initially application-side generation with a v4 database fallback, then shifted to database-side generation via the `pg_uuidv7` extension after the user reported success with it on AWS RDS, then strengthened with column-level privileges to enforce database-managed IDs. Finally, research revealed that `pg_uuidv7` is actually not supported on major cloud providers (AWS RDS, GCP, Azure) — but PostgreSQL 18, which is GA on all three, provides native `uuidv7()` making the extension unnecessary. The standard was updated to target PostgreSQL 18+ with native `uuidv7()`.
 
 **Database roles** started as a generic three-role model with placeholder names like `app_user`. The user brought practical experience with the `{app}_{env}_{level}` pattern and the `main` / `_all` / `_write` / `_read` hierarchy, which maps directly to real deployment scenarios and handles the cloud provider reality where root isn't a true superuser.
 
-**Key insight:** Making the database the single source of truth for ID generation and enforcing it via column-level privileges creates a stronger guarantee than relying on application discipline. The `pg_uuidv7` extension + column-level grants pattern ensures consistency regardless of which client or tool accesses the database.
+**Key insight:** Making the database the single source of truth for ID generation and enforcing it via column-level privileges creates a stronger guarantee than relying on application discipline. Native `uuidv7()` + column-level grants ensures consistency regardless of which client or tool accesses the database.
 
 ---
 
