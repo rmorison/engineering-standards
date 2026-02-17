@@ -564,7 +564,7 @@ Roles follow the pattern `{application}_{environment}_{level}`:
 
 | Role | Purpose |
 |------|---------|
-| `main` | Root/superuser. Locally this is the PostgreSQL superuser; on managed services (AWS RDS, etc.) this is the provided admin user. Owns databases and runs DDL. |
+| `main` | The literal superuser role name. Use `main` in Docker Compose (`POSTGRES_USER`), IaC provisioning, and managed service setup (e.g., the admin username when creating an AWS RDS instance). Owns databases and runs DDL. |
 | `{app}_{env}_all` | All privileges that can be assigned on the database and its schemas. Runs migrations and manages schema objects. On cloud providers, this is the most-privileged role you can create (some provider-level privileges are reserved). |
 | `{app}_{env}_write` | CRUD access (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) on application tables. The standard role for API services and application connections. No DDL privileges. |
 | `{app}_{env}_read` | Read-only access (`SELECT` only). For reporting, debugging, dashboards, and analytics connections. |
@@ -648,8 +648,8 @@ REVOKE ALL ON inventory.products FROM myapp_prod_read;
 
 #### Cloud Provider Considerations
 
-- **AWS RDS**: The `main` user provided by RDS is not a true superuser — some PostgreSQL-level privileges are reserved by AWS. The `_all` role can hold all privileges RDS allows you to assign.
-- **Other managed providers**: Similar restrictions apply. The `_all` role represents the maximum assignable privilege level, not necessarily PostgreSQL superuser.
+- **AWS RDS**: Specify `main` as the admin username when creating the RDS instance. Note that `main` on RDS is not a true PostgreSQL superuser — some provider-level privileges are reserved by AWS. The `_all` role can hold all privileges RDS allows you to assign.
+- **Other managed providers**: Similarly, configure `main` as the admin username at provisioning time. The `_all` role represents the maximum assignable privilege level, not necessarily PostgreSQL superuser.
 
 ### Credential Management
 
@@ -676,7 +676,7 @@ Set via environment variable:
 
 ```bash
 # .env (local development — SSL not needed for localhost/Docker)
-DATABASE_URL=postgresql://myapp:localpass@localhost:5432/myapp_dev
+DATABASE_URL=postgresql://main:localpass@localhost:5432/myapp_dev
 
 # Production — always require SSL
 # DATABASE_URL=postgresql://myapp:password@prod-db.rds.amazonaws.com:5432/myapp?sslmode=require
@@ -690,7 +690,7 @@ services:
     image: postgres:18
     environment:
       POSTGRES_DB: myapp_dev
-      POSTGRES_USER: myapp
+      POSTGRES_USER: main
       POSTGRES_PASSWORD: localpass
     ports:
       - "5432:5432"
