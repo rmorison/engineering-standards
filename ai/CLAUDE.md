@@ -21,6 +21,7 @@
 ## Quick Reference
 
 ### Feature Development Workflow
+0. **Discovery & Brainstorming** (optional) → `docs/brainstorm/{topic}.md`
 1. **Product Concept** → `docs/product/concepts/{feature}.md`
 2. **Requirements & Design** → `docs/product/features/{feature}.md`
 3. **Project Planning** → Break into issues with point estimates
