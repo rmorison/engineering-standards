@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make:*)",
+      "Bash(uv:*)",
+      "Bash(git:*)",
+      "Bash(ruff:*)",
+      "Bash(mypy:*)",
+      "Bash(pytest:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)"
+    ]
+  },
+  "hooks": {
+    "pre-tool-use": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "command": "python3 .claude/hooks/pre-tool-use/example-block.py"
+      }
+    ],
+    "post-tool-use": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "command": "python3 .claude/hooks/post-tool-use/example-notify.py"
+      }
+    ]
+  }
+}
