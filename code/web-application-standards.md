@@ -436,14 +436,15 @@ For initial page loads, fetch data in Server Components directly — no TanStack
 ```typescript
 // app/products/page.tsx (Server Component)
 import { ProductsService } from "@project/api-client"
+import { serverClient } from "@/lib/api-server"
 
 export default async function ProductsPage() {
-  const products = await ProductsService.listProducts({ isActive: true })
+  const products = await ProductsService.listProducts({ client: serverClient, query: { isActive: true } })
   return <ProductList products={products} />
 }
 ```
 
-Server Components call FastAPI server-to-server using `BACKEND_URL` (not the public `NEXT_PUBLIC_API_URL`), skipping CORS. Configure the client's base URL for server-side usage in your `lib/api-config.ts`.
+Server Components use `serverClient` (from `lib/api-server.ts`) which calls FastAPI server-to-server via `BACKEND_URL`, skipping CORS and attaching auth via `auth()`. See the [Passing Tokens to API Calls](#passing-tokens-to-api-calls) section for the server/client split.
 
 Use TanStack Query in Client Components for interactive features (search, pagination, mutations, optimistic updates).
 
@@ -589,25 +590,40 @@ Handle `RefreshTokenError` in your session callback or middleware to redirect to
 
 ### Passing Tokens to API Calls
 
-Configure the generated API client to include the JWT token:
+Next.js Server Components and Client Components have different auth mechanisms. Configure two separate API clients:
 
 ```typescript
-// lib/api-config.ts
+// lib/api-server.ts — for Server Components and Server Actions
 import { createClient } from "@hey-api/client-fetch"
 import { auth } from "@/lib/auth"
 
-export const apiClient = createClient({
-  baseUrl: process.env.NEXT_PUBLIC_API_URL!,
+export const serverClient = createClient({
+  baseUrl: process.env.BACKEND_URL!,  // server-to-server, no CORS
 })
 
-apiClient.interceptors.request.use(async (request) => {
-  const session = await auth()
+serverClient.interceptors.request.use(async (request) => {
+  const session = await auth()  // server-only function
   if (session?.accessToken) {
     request.headers.set("Authorization", `Bearer ${session.accessToken}`)
   }
   return request
 })
 ```
+
+```typescript
+// lib/api-client.ts — for Client Components (browser)
+import { createClient } from "@hey-api/client-fetch"
+
+export const browserClient = createClient({
+  baseUrl: process.env.NEXT_PUBLIC_API_URL!,  // public URL, goes through CORS
+})
+
+// Token is set per-request in TanStack Query hooks using useSession():
+// const { data: session } = useSession()
+// ProductsService.listProducts({ client: browserClient, headers: { Authorization: `Bearer ${session.accessToken}` } })
+```
+
+**Key distinction**: `auth()` from Auth.js is a server-only function — it reads cookies via `next/headers` and cannot be called from Client Components. In Client Components, use `useSession()` from `next-auth/react` instead.
 
 ---
 
@@ -998,6 +1014,20 @@ jobs:
 ---
 
 ## Docker
+
+### Next.js Configuration
+
+`apps/web/next.config.ts` — `output: "standalone"` is **required** for the Docker build to work:
+
+```typescript
+import type { NextConfig } from "next"
+
+const nextConfig: NextConfig = {
+  output: "standalone",
+}
+
+export default nextConfig
+```
 
 ### Frontend Dockerfile
 
