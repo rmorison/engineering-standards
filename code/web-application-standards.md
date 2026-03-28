@@ -54,6 +54,8 @@ Lean on framework defaults:
 | **TanStack Query** | Server state management | Caching, refetching, loading/error states for API data |
 | **Auth.js** | Authentication | JWT sessions, provider support, App Router integration |
 | **Vitest** | Unit/component testing | Fast, native TypeScript, Jest-compatible API |
+| **@testing-library/react** | Component test utilities | Accessible queries, user-centric testing |
+| **@testing-library/user-event** | Interaction simulation | Realistic browser event simulation |
 | **Playwright** | E2E testing | Cross-browser headless testing, reliable selectors |
 | **ESLint** | Linting | Code quality and consistency |
 | **Prettier** | Formatting | Consistent code formatting |
@@ -70,6 +72,7 @@ Backend tooling follows [Python Project Standards](./python-standards.md) and [D
 | **Pydantic** | Validation/serialization | Request/response models, settings management |
 | **psycopg 3** | Database driver | Async PostgreSQL access, connection pooling |
 | **uvicorn** | ASGI server | Production-grade async server for FastAPI |
+| **pytest-asyncio** | Async test support | Run async test functions with pytest |
 
 ### Build System
 
@@ -282,12 +285,13 @@ Tailwind config in `apps/web/tailwind.config.ts`:
 
 ```typescript
 import type { Config } from "tailwindcss"
+import tailwindcssAnimate from "tailwindcss-animate"
 
 const config: Config = {
   darkMode: "class",
   content: [
-    "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
+    "./src/app/**/*.{ts,tsx}",
+    "./src/components/**/*.{ts,tsx}",
     "../../packages/ui/src/**/*.{ts,tsx}",  // shared UI package
   ],
   theme: {
@@ -302,7 +306,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],  // required by shadcn/ui
+  plugins: [tailwindcssAnimate],  // required by shadcn/ui
 }
 
 export default config
@@ -429,13 +433,15 @@ For initial page loads, fetch data in Server Components directly — no TanStack
 
 ```typescript
 // app/products/page.tsx (Server Component)
-import { apiClient } from "@/lib/api-server"
+import { ProductsService } from "@project/api-client"
 
 export default async function ProductsPage() {
-  const products = await apiClient.get("/products", { isActive: true })
+  const products = await ProductsService.listProducts({ isActive: true })
   return <ProductList products={products} />
 }
 ```
+
+Server Components call FastAPI server-to-server using `BACKEND_URL` (not the public `NEXT_PUBLIC_API_URL`), skipping CORS. Configure the client's base URL for server-side usage in your `lib/api-config.ts`.
 
 Use TanStack Query in Client Components for interactive features (search, pagination, mutations, optimistic updates).
 
@@ -481,8 +487,12 @@ async def login(request: LoginRequest):
     ...
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(refresh_token: str):
+async def refresh(request: RefreshRequest):
     # Validate refresh token, issue new access token
     ...
 ```
@@ -537,21 +547,64 @@ import { handlers } from "@/lib/auth"
 export const { GET, POST } = handlers
 ```
 
+### Token Refresh
+
+The `jwt` callback runs on every request. Check token expiry and refresh proactively:
+
+```typescript
+// In the jwt callback (lib/auth.ts)
+async jwt({ token, user }) {
+  if (user) {
+    token.accessToken = user.access_token
+    token.refreshToken = user.refresh_token
+    token.expiresAt = Date.now() + user.expires_in * 1000
+  }
+
+  // Return existing token if not expired (with 60s buffer)
+  if (Date.now() < (token.expiresAt as number) - 60_000) {
+    return token
+  }
+
+  // Refresh the access token
+  const res = await fetch(`${process.env.BACKEND_URL}/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: token.refreshToken }),
+  })
+  if (!res.ok) {
+    // Refresh failed — force re-login
+    return { ...token, error: "RefreshTokenError" }
+  }
+  const refreshed = await res.json()
+  token.accessToken = refreshed.access_token
+  token.refreshToken = refreshed.refresh_token
+  token.expiresAt = Date.now() + refreshed.expires_in * 1000
+  return token
+},
+```
+
+Handle `RefreshTokenError` in your session callback or middleware to redirect to the login page. See the [Auth.js JWT rotation docs](https://authjs.dev/guides/refresh-token-rotation) for additional patterns.
+
 ### Passing Tokens to API Calls
 
 Configure the generated API client to include the JWT token:
 
 ```typescript
 // lib/api-config.ts
-import { OpenAPI } from "@project/api-client"
+import { createClient } from "@hey-api/client-fetch"
 import { auth } from "@/lib/auth"
 
-OpenAPI.BASE = process.env.NEXT_PUBLIC_API_URL!
+export const apiClient = createClient({
+  baseUrl: process.env.NEXT_PUBLIC_API_URL!,
+})
 
-OpenAPI.TOKEN = async () => {
+apiClient.interceptors.request.use(async (request) => {
   const session = await auth()
-  return session?.accessToken ?? ""
-}
+  if (session?.accessToken) {
+    request.headers.set("Authorization", `Bearer ${session.accessToken}`)
+  }
+  return request
+})
 ```
 
 ---
@@ -563,6 +616,7 @@ OpenAPI.TOKEN = async () => {
 | State type | Tool | Examples |
 |-----------|------|---------|
 | Server data (API responses) | **TanStack Query** | Product lists, user profiles, dashboard data |
+| URL state (shareable, bookmarkable) | **`useSearchParams`** or **nuqs** | Search queries, filters, pagination, sort order |
 | Client UI state (local) | **React state** (`useState`) | Form inputs, toggle visibility, accordion state |
 | Client UI state (shared) | **Zustand** | Shopping cart, multi-step wizard, notification queue |
 | Global low-frequency state | **React Context** | Theme, locale, auth session |
@@ -737,7 +791,7 @@ async def client():
         yield ac
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_list_products(client: AsyncClient):
     response = await client.get("/products")
     assert response.status_code == 200
@@ -884,6 +938,8 @@ jobs:
           cache: "npm"
       - uses: astral-sh/setup-uv@v4
       - run: npm ci
+      - name: Install backend Python dependencies
+        run: cd services/backend && uv sync
       - run: make generate-api-client
       - name: Verify API client is up to date
         run: git diff --exit-code packages/api-client/src/
@@ -971,6 +1027,11 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U main -d myapp_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   backend:
     build:
@@ -980,7 +1041,13 @@ services:
     environment:
       DATABASE_URL: postgresql://main:localpass@db:5432/myapp_dev
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   web:
     build:
@@ -993,7 +1060,8 @@ services:
       # Note: NEXT_PUBLIC_* vars are baked in at build time, not read at runtime.
       # Pass them as build args in the Dockerfile instead.
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   pgdata:
@@ -1017,7 +1085,7 @@ volumes:
 
 **Manual API types** — Never hand-write TypeScript types that mirror Pydantic models. Auto-generate the client. Manual types drift from the backend.
 
-**Calling FastAPI from `getServerSideProps`** — This is Pages Router. With App Router, fetch data in Server Components directly or use Route Handlers.
+**Wrapping server data fetches in Client Components** — If the data doesn't need interactivity, fetch it in a Server Component. Don't add `"use client"` just to call `useEffect` + `fetch` when a Server Component can fetch the same data with zero client JavaScript.
 
 ### Backend
 
