@@ -375,13 +375,17 @@ generate-api-client:  ## Generate TypeScript client from FastAPI OpenAPI schema
 
 #### Using the Generated Client
 
+The generated client provides fully typed service methods. Always pass an explicit `client` — either `serverClient` or `browserClient` (see [Passing Tokens to API Calls](#passing-tokens-to-api-calls)):
+
 ```typescript
 import { ProductsService } from "@project/api-client"
+import { serverClient } from "@/lib/api-server"
 
 // Fully typed — parameter and return types match FastAPI's Pydantic models
-const products = await ProductsService.listProducts({ isActive: true })
+const products = await ProductsService.listProducts({ client: serverClient, query: { isActive: true } })
 const product = await ProductsService.createProduct({
-  requestBody: { name: "Widget", sku: "WDG-001", priceCents: 1999 },
+  client: serverClient,
+  body: { name: "Widget", sku: "WDG-001", priceCents: 1999 },
 })
 ```
 
@@ -405,19 +409,33 @@ Wrap the generated client with TanStack Query for caching and state management:
 ```typescript
 // lib/queries/products.ts
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useSession } from "next-auth/react"
 import { ProductsService } from "@project/api-client"
+import { browserClient } from "@/lib/api-client"
 
 export function useProducts(isActive?: boolean) {
+  const { data: session } = useSession()
   return useQuery({
     queryKey: ["products", { isActive }],
-    queryFn: () => ProductsService.listProducts({ isActive }),
+    queryFn: () => ProductsService.listProducts({
+      client: browserClient,
+      query: { isActive },
+      headers: { Authorization: `Bearer ${session!.accessToken}` },
+    }),
+    enabled: !!session,  // don't fetch until session is available
   })
 }
 
 export function useCreateProduct() {
+  const { data: session } = useSession()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ProductsService.createProduct,
+    mutationFn: (body: { name: string; sku: string; priceCents: number }) =>
+      ProductsService.createProduct({
+        client: browserClient,
+        body,
+        headers: { Authorization: `Bearer ${session!.accessToken}` },
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] })
     },
@@ -546,6 +564,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 })
 ```
 
+Auth.js requires type augmentation to add custom fields to the session:
+
+```typescript
+// types/next-auth.d.ts
+import { DefaultSession } from "next-auth"
+
+declare module "next-auth" {
+  interface Session extends DefaultSession {
+    accessToken: string
+    error?: "RefreshTokenError"
+  }
+}
+```
+
 ```typescript
 // app/api/auth/[...nextauth]/route.ts
 import { handlers } from "@/lib/auth"
@@ -599,6 +631,8 @@ Next.js Server Components and Client Components have different auth mechanisms. 
 
 ```typescript
 // lib/api-server.ts — for Server Components and Server Actions
+import "server-only"  // build-time error if accidentally imported in a Client Component
+
 import { createClient } from "@hey-api/client-fetch"
 import { auth } from "@/lib/auth"
 
@@ -1056,6 +1090,9 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# NEXT_PUBLIC_* vars are baked in at build time — pass via docker build --build-arg
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npx turbo build --filter=web
 
 FROM base AS runner
@@ -1112,14 +1149,14 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
     ports:
       - "3000:3000"
     environment:
       BACKEND_URL: http://backend:8000
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: local-dev-secret-change-in-production
-      # Note: NEXT_PUBLIC_* vars are baked in at build time, not read at runtime.
-      # Pass them as build args in the Dockerfile instead.
     depends_on:
       backend:
         condition: service_healthy
