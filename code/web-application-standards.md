@@ -226,8 +226,11 @@ app/
 
 ```typescript
 // Server Component (default) — runs on the server, no JS shipped to client
+import { ProductsService } from "@project/api-client"
+import { serverClient } from "@/lib/api-server"
+
 export default async function ProductsPage() {
-  const products = await fetchProducts()  // server-side fetch
+  const products = await ProductsService.listProducts({ client: serverClient })
   return <ProductList products={products} />
 }
 ```
@@ -420,7 +423,7 @@ export function useProducts(isActive?: boolean) {
     queryFn: () => ProductsService.listProducts({
       client: browserClient,
       query: { isActive },
-      headers: { Authorization: `Bearer ${session!.accessToken}` },
+      headers: session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {},
     }),
     enabled: !!session,  // don't fetch until session is available
   })
@@ -434,7 +437,7 @@ export function useCreateProduct() {
       ProductsService.createProduct({
         client: browserClient,
         body,
-        headers: { Authorization: `Bearer ${session!.accessToken}` },
+        headers: session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {},
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] })
@@ -656,10 +659,7 @@ import { createClient } from "@hey-api/client-fetch"
 export const browserClient = createClient({
   baseUrl: process.env.NEXT_PUBLIC_API_URL!,  // public URL, goes through CORS
 })
-
-// Token is set per-request in TanStack Query hooks using useSession():
-// const { data: session } = useSession()
-// ProductsService.listProducts({ client: browserClient, headers: { Authorization: `Bearer ${session.accessToken}` } })
+// Auth headers are set per-request in TanStack Query hooks — see the TanStack Query Integration section
 ```
 
 **Key distinction**: `auth()` from Auth.js is a server-only function — it reads cookies via `next/headers` and cannot be called from Client Components. In Client Components, use `useSession()` from `next-auth/react` instead.
