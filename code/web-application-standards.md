@@ -509,9 +509,10 @@ class TokenResponse(BaseModel):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(request: LoginRequest):
-    # Verify credentials against database
-    # Return JWT access + refresh tokens
-    ...
+    user = await get_user_by_email(request.email)
+    if not user or not verify_password(request.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return create_tokens(user)
 
 
 class RefreshRequest(BaseModel):
@@ -523,6 +524,8 @@ async def refresh(request: RefreshRequest):
     # Validate refresh token, issue new access token
     ...
 ```
+
+**Password hashing**: Never store plaintext passwords. Use `bcrypt` (via `passlib` or `bcrypt` package) for hashing. The `verify_password()` helper above should compare the plaintext input against the stored bcrypt hash. See the `auth/` module in the directory layout.
 
 ### Auth.js Configuration
 
@@ -835,10 +838,18 @@ test("user can log in and see dashboard", async ({ page }) => {
 
 ### Backend Testing
 
-Follow [Python Project Standards](./python-standards.md) for pytest configuration. FastAPI-specific patterns:
+Follow [Python Project Standards](./python-standards.md) for pytest configuration. Add `asyncio_mode = "auto"` to `pyproject.toml` so async tests don't need individual `@pytest.mark.asyncio` decorators:
+
+```toml
+# In pyproject.toml
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+```
+
+FastAPI-specific patterns — put shared fixtures in `tests/conftest.py`:
 
 ```python
-# tests/test_products.py
+# tests/conftest.py
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
@@ -849,9 +860,13 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+```
 
+```python
+# tests/integration/test_products.py
+import pytest
 
-@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_list_products(client: AsyncClient):
     response = await client.get("/products")
     assert response.status_code == 200
@@ -921,6 +936,27 @@ BACKEND_URL=http://localhost:8000
 FastAPI middleware for local development and production:
 
 ```python
+# services/backend/src/app/config.py
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    database_url: str
+    secret_key: str
+    cors_origins: list[str] = ["http://localhost:3000"]
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 30
+    jwt_refresh_token_expire_days: int = 7
+
+    model_config = {"env_file": ".env"}
+
+
+settings = Settings()
+```
+
+This extends the configuration pattern in [Python Project Standards](./python-standards.md) — Pydantic `BaseSettings` integrates well with FastAPI's dependency injection and provides type-safe, validated configuration from environment variables.
+
+```python
 # services/backend/src/app/main.py
 from contextlib import asynccontextmanager
 
@@ -947,6 +983,14 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint — validates database connectivity."""
+    async with pool.connection() as conn:
+        await conn.execute("SELECT 1")
+    return {"status": "ok"}
 ```
 
 The `lifespan` handler manages the psycopg `AsyncConnectionPool` — see [Database Standards](./database-standards.md) for pool configuration details.
@@ -1000,6 +1044,7 @@ jobs:
         run: |
           make setup
           make lint
+          make security
           make test
 
   api-client-check:
