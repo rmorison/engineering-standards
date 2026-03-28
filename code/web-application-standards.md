@@ -52,6 +52,7 @@ Lean on framework defaults:
 | **Tailwind CSS** | Styling | Utility-first CSS, consistent design system, no context switching |
 | **shadcn/ui** | Component library | Accessible, composable components built on Tailwind + Radix UI |
 | **TanStack Query** | Server state management | Caching, refetching, loading/error states for API data |
+| **nuqs** | URL state management | Type-safe search params with serialization, SSR-compatible |
 | **Auth.js** | Authentication | JWT sessions, provider support, App Router integration |
 | **Vitest** | Unit/component testing | Fast, native TypeScript, Jest-compatible API |
 | **@testing-library/react** | Component test utilities | Accessible queries, user-centric testing |
@@ -237,13 +238,14 @@ export default async function ProductsPage() {
 
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { apiClient } from "@project/api-client"
+import { ProductsService } from "@project/api-client"
+import { browserClient } from "@/lib/api-client"
 
 export function ProductSearch() {
   const [query, setQuery] = useState("")
   const { data, isLoading } = useQuery({
     queryKey: ["products", "search", query],
-    queryFn: () => apiClient.searchProducts({ query }),
+    queryFn: () => ProductsService.searchProducts({ client: browserClient, query: { query } }),
     enabled: query.length > 2,
   })
   // ...
@@ -466,17 +468,18 @@ Browser → Auth.js (Next.js) → /auth/login (FastAPI) → JWT
 ```python
 # services/backend/src/app/routers/auth.py
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
 
 class TokenResponse(BaseModel):
+    user_id: str
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -587,6 +590,8 @@ async jwt({ token, user }) {
 ```
 
 Handle `RefreshTokenError` in your session callback or middleware to redirect to the login page. See the [Auth.js JWT rotation docs](https://authjs.dev/guides/refresh-token-rotation) for additional patterns.
+
+**Note**: If multiple requests arrive simultaneously with an expired token, each will independently attempt a refresh (race condition). For high-traffic applications, implement a locking/deduplication strategy — the Auth.js docs cover this pattern.
 
 ### Passing Tokens to API Calls
 
@@ -709,6 +714,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@project/ui": path.resolve(__dirname, "../../packages/ui/src"),
+      "@project/api-client": path.resolve(__dirname, "../../packages/api-client/src"),
+      "@project/shared": path.resolve(__dirname, "../../packages/shared/src"),
     },
   },
 })
@@ -942,7 +950,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        image: postgres:17
         env:
           POSTGRES_DB: test_db
           POSTGRES_USER: main
@@ -982,7 +990,7 @@ jobs:
     needs: [frontend, backend]
     services:
       postgres:
-        image: postgres:18
+        image: postgres:17
         env:
           POSTGRES_DB: test_db
           POSTGRES_USER: main
@@ -1069,7 +1077,7 @@ CMD ["node", "apps/web/server.js"]
 # docker-compose.yml
 services:
   db:
-    image: postgres:18
+    image: postgres:17
     environment:
       POSTGRES_DB: myapp_dev
       POSTGRES_USER: main
@@ -1095,7 +1103,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -1108,6 +1116,8 @@ services:
       - "3000:3000"
     environment:
       BACKEND_URL: http://backend:8000
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: local-dev-secret-change-in-production
       # Note: NEXT_PUBLIC_* vars are baked in at build time, not read at runtime.
       # Pass them as build args in the Dockerfile instead.
     depends_on:
