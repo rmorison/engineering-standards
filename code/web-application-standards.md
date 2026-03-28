@@ -563,7 +563,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token
     },
     async session({ session, token }) {
-      session.accessToken = token.accessToken as string
+      session.accessToken = token.accessToken ?? ""
       if (token.error) session.error = token.error
       return session
     },
@@ -605,7 +605,7 @@ export const { GET, POST } = handlers
 
 ### Token Refresh
 
-The `jwt` callback runs on every request. Check token expiry and refresh proactively:
+The following replaces the `jwt` callback in `lib/auth.ts` above with a complete version that handles token expiry and refresh:
 
 ```typescript
 // In the jwt callback (lib/auth.ts)
@@ -617,7 +617,7 @@ async jwt({ token, user }) {
   }
 
   // Return existing token if not expired (with 60s buffer)
-  if (Date.now() < (token.expiresAt as number) - 60_000) {
+  if (token.expiresAt && Date.now() < token.expiresAt - 60_000) {
     return token
   }
 
@@ -1111,6 +1111,10 @@ jobs:
       - name: Run Playwright tests
         env:
           DATABASE_URL: postgresql://main:testpass@localhost:5432/test_db
+          BACKEND_URL: http://localhost:8000
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXTAUTH_URL: http://localhost:3000
+          NEXTAUTH_SECRET: test-secret-for-ci
         run: npx playwright test --project=chromium
 ```
 
