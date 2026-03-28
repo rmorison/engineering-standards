@@ -52,8 +52,9 @@ Subagents handle focused tasks with their own context and tool access.
 **Location:** `templates/.claude/hooks/`
 
 Shell or Python scripts that run automatically on tool-use events. They enforce
-non-negotiable rules without consuming context window. Written in Python via
-`uv run` for portability; Bash only for single-line operations.
+non-negotiable rules without consuming context window. Written in Python for
+portability (use `uv run` if hooks need project dependencies); Bash only for
+single-line operations.
 
 The template provides example hooks showing the pattern — projects replace the
 example logic with their own rules.

@@ -6,7 +6,7 @@ contains a specific pattern. Replace the example logic with your project's
 rules.
 
 Hook type: pre-tool-use
-Triggers on: Write, Edit tools
+Triggers on: Write, Edit, MultiEdit tools
 
 Exit codes:
   0 — allow the tool use (pattern not found)
@@ -20,7 +20,7 @@ Usage in .claude/settings.json:
   "hooks": {
     "pre-tool-use": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit",
         "command": "python3 .claude/hooks/pre-tool-use/example-block.py"
       }
     ]
@@ -36,8 +36,8 @@ def main() -> None:
     tool_name = os.environ.get("TOOL_NAME", "")
     tool_input_raw = os.environ.get("TOOL_INPUT", "{}")
 
-    # Only check Write and Edit tools
-    if tool_name not in ("Write", "Edit"):
+    # Only check Write, Edit, and MultiEdit tools
+    if tool_name not in ("Write", "Edit", "MultiEdit"):
         sys.exit(0)
 
     try:
@@ -46,7 +46,12 @@ def main() -> None:
         sys.exit(0)
 
     # Get the content being written
-    content = tool_input.get("content", "") or tool_input.get("new_string", "")
+    # MultiEdit uses an "edits" array; check each edit's new_string
+    if tool_name == "MultiEdit":
+        edits = tool_input.get("edits", [])
+        content = "\n".join(e.get("new_string", "") for e in edits)
+    else:
+        content = tool_input.get("content", "") or tool_input.get("new_string", "")
 
     # --- Replace this example rule with your own ---
     # Example: block time.sleep() in pipeline code

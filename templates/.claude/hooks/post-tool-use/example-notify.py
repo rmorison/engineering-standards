@@ -6,7 +6,7 @@ writes or edits a file. Replace the example logic with your project's needs
 (e.g., run a linter, validate selectors, trigger a build).
 
 Hook type: post-tool-use
-Triggers on: Write, Edit tools
+Triggers on: Write, Edit, MultiEdit tools
 
 Exit codes:
   0 — success (hook ran, no issues)
@@ -20,7 +20,7 @@ Usage in .claude/settings.json:
   "hooks": {
     "post-tool-use": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit",
         "command": "python3 .claude/hooks/post-tool-use/example-notify.py"
       }
     ]
@@ -36,7 +36,7 @@ def main() -> None:
     tool_name = os.environ.get("TOOL_NAME", "")
     tool_input_raw = os.environ.get("TOOL_INPUT", "{}")
 
-    if tool_name not in ("Write", "Edit"):
+    if tool_name not in ("Write", "Edit", "MultiEdit"):
         sys.exit(0)
 
     try:

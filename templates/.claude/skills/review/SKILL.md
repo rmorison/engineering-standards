@@ -10,6 +10,10 @@ Review code changes against the project's engineering standards.
 https://raw.githubusercontent.com/rmorison/engineering-standards/main/process/feature-development-workflow.md
 </web_fetch>
 
+<web_fetch>
+https://raw.githubusercontent.com/rmorison/engineering-standards/main/code/python-standards.md
+</web_fetch>
+
 2. Identify what to review:
    - If the user specifies files or a PR, review those
    - If no target is specified, review staged or uncommitted changes (`git diff` and `git diff --cached`)
