@@ -52,6 +52,7 @@ Lean on framework defaults:
 | **Tailwind CSS** | Styling | Utility-first CSS, consistent design system, no context switching |
 | **shadcn/ui** | Component library | Accessible, composable components built on Tailwind + Radix UI |
 | **TanStack Query** | Server state management | Caching, refetching, loading/error states for API data |
+| **Zustand** | Client state management | Lightweight, no boilerplate, supports persistence middleware |
 | **nuqs** | URL state management | Type-safe search params with serialization, SSR-compatible |
 | **Auth.js** | Authentication | JWT sessions, provider support, App Router integration |
 | **Vitest** | Unit/component testing | Fast, native TypeScript, Jest-compatible API |
@@ -248,7 +249,7 @@ export function ProductSearch() {
   const [query, setQuery] = useState("")
   const { data, isLoading } = useQuery({
     queryKey: ["products", "search", query],
-    queryFn: () => ProductsService.searchProducts({ client: browserClient, query: { query } }),
+    queryFn: () => ProductsService.searchProducts({ client: browserClient, query: { query } }),  // public endpoint — no auth required
     enabled: query.length > 2,
   })
   // ...
@@ -563,6 +564,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async session({ session, token }) {
       session.accessToken = token.accessToken as string
+      if (token.error) session.error = token.error
       return session
     },
   },
@@ -575,10 +577,20 @@ Auth.js requires type augmentation to add custom fields to the session:
 ```typescript
 // types/next-auth.d.ts
 import { DefaultSession } from "next-auth"
+import { DefaultJWT } from "next-auth/jwt"
 
 declare module "next-auth" {
   interface Session extends DefaultSession {
     accessToken: string
+    error?: "RefreshTokenError"
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT extends DefaultJWT {
+    accessToken?: string
+    refreshToken?: string
+    expiresAt?: number
     error?: "RefreshTokenError"
   }
 }
@@ -807,7 +819,7 @@ export default defineConfig({
   webServer: [
     {
       command: "cd ../../services/backend && make dev",
-      url: "http://localhost:8000/docs",
+      url: "http://localhost:8000/health",
       reuseExistingServer: !process.env.CI,
     },
     {
@@ -1045,6 +1057,7 @@ jobs:
           make setup
           make lint
           make security
+          make migrate-up
           make test
 
   api-client-check:
@@ -1060,7 +1073,10 @@ jobs:
       - run: npm ci
       - name: Install backend Python dependencies
         run: cd services/backend && uv sync
-      - run: make generate-api-client
+      - name: Generate API client
+        env:
+          DATABASE_URL: postgresql://unused:unused@localhost:5432/unused
+        run: make generate-api-client
       - name: Verify API client is up to date
         run: git diff --exit-code packages/api-client/src/
 
@@ -1251,6 +1267,7 @@ volumes:
 - [Turborepo](https://turbo.build/) - Monorepo build system
 - [@hey-api/openapi-ts](https://heyapi.dev/) - OpenAPI client generator
 - [Zustand](https://zustand-demo.pmnd.rs/) - Client state management
+- [nuqs](https://nuqs.47ng.com/) - Type-safe search params
 
 ### Related Standards
 - [Python Project Standards](./python-standards.md) - Backend tooling and conventions
