@@ -62,6 +62,8 @@ Lean on framework defaults:
 | **lint-staged** + **Husky** | Pre-commit hooks | Run linting and formatting on staged files before commit |
 | **npm audit** | Dependency scanning | Detect known vulnerabilities in npm packages |
 
+**Note on pre-commit hooks in the monorepo**: Husky runs at the repo root for JavaScript (lint-staged, Prettier, ESLint). Python pre-commit hooks (`detect-secrets`, `pip-audit`, linting) run via `pre-commit` in `services/backend/` per [Python Project Standards](./python-standards.md). Both coexist — Husky's `.husky/pre-commit` can call `pre-commit run --config services/backend/.pre-commit-config.yaml` for Python files.
+
 ### Backend
 
 Backend tooling follows [Python Project Standards](./python-standards.md) and [Database Standards](./database-standards.md). Key tools specific to the web application context:
@@ -92,7 +94,7 @@ project-root/
 ├── package.json                # npm workspace root
 ├── turbo.json                  # Turborepo pipeline config
 ├── Makefile                    # Top-level commands (start all, migrate, generate client)
-├── .env.example                # Environment variable template
+├── example.env                # Environment variable template
 ├── .nvmrc                      # Pin Node.js version (e.g., "22")
 ├── apps/
 │   └── web/                    # Next.js application
@@ -834,7 +836,7 @@ cd services/backend && make dev      # FastAPI dev server (uvicorn --reload)
 
 ### Environment Variables
 
-`.env.example` at the project root:
+`example.env` at the project root:
 
 ```bash
 # Backend
@@ -843,6 +845,7 @@ SECRET_KEY=local-dev-secret-change-in-production
 JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
 JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
+CORS_ORIGINS=["http://localhost:3000"]
 
 # Frontend
 NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -861,11 +864,23 @@ FastAPI middleware for local development and production:
 
 ```python
 # services/backend/src/app/main.py
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import settings
 
-app = FastAPI()
+from app.config import settings
+from app.db import pool
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await pool.open()
+    yield
+    await pool.close()
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -875,6 +890,8 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 ```
+
+The `lifespan` handler manages the psycopg `AsyncConnectionPool` — see [Database Standards](./database-standards.md) for pool configuration details.
 
 ---
 
@@ -967,7 +984,11 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npx turbo build
       - working-directory: services/backend
-        run: make setup
+        env:
+          DATABASE_URL: postgresql://main:testpass@localhost:5432/test_db
+        run: |
+          make setup
+          make migrate-up
       - name: Run Playwright tests
         env:
           DATABASE_URL: postgresql://main:testpass@localhost:5432/test_db
