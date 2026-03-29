@@ -34,12 +34,26 @@ PostgreSQL conventions and practices for application database design:
 
 **Key principle**: The database is the source of truth for data integrity. Use SQL directly, let PostgreSQL enforce constraints.
 
+### [Web Application Standards](./web-application-standards.md)
+
+Full-stack web application standards for Next.js + FastAPI projects in a Turborepo monorepo:
+- **Monorepo structure** - Turborepo for TypeScript, Make for Python, npm workspaces
+- **Frontend** - Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui, TanStack Query
+- **Backend** - FastAPI, Pydantic, psycopg 3 (follows Python and Database standards)
+- **API integration** - Auto-generated TypeScript client from FastAPI's OpenAPI schema
+- **Authentication** - Auth.js with JWT tokens issued by FastAPI
+- **Testing** - Vitest for components, Playwright for E2E, pytest for backend
+- **CI/CD** - GitHub Actions with API client staleness checks
+- **Docker** - Multi-stage builds, Docker Compose for full stack
+
+**Key principle**: The OpenAPI schema is the contract between frontend and backend. Auto-generate the TypeScript client so the two sides stay in sync without manual effort.
+
 ## Future Standards
 
 Examples of standards that will be added:
 
 - **go.md** - Go code standards (gofmt, golint, error handling, conventions)
-- **typescript.md** - TypeScript/JavaScript standards (ESLint, Prettier, React conventions)
+- **typescript.md** - Standalone TypeScript/JavaScript standards (ESLint, Prettier, non-web conventions)
 - **rust.md** - Rust code standards (rustfmt, clippy, conventions)
 
 ## Relationship to Templates
@@ -50,4 +64,4 @@ Code standards defined here should be pre-configured in corresponding project te
 
 ## Status
 
-**Active** - Python standards complete. Additional language standards will be added as projects adopt specific stacks.
+**Active** - Python, Database, and Web Application standards complete. Additional language standards will be added as projects adopt specific stacks.
