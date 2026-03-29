@@ -231,7 +231,7 @@ import { ProductsService } from "@project/api-client"
 import { serverClient } from "@/lib/api-server"
 
 export default async function ProductsPage() {
-  const products = await ProductsService.listProducts({ client: serverClient })
+  const { data: products } = await ProductsService.listProducts({ client: serverClient })
   return <ProductList products={products} />
 }
 ```
@@ -249,7 +249,10 @@ export function ProductSearch() {
   const [query, setQuery] = useState("")
   const { data, isLoading } = useQuery({
     queryKey: ["products", "search", query],
-    queryFn: () => ProductsService.searchProducts({ client: browserClient, query: { query } }),  // public endpoint — no auth required
+    queryFn: async () => {  // public endpoint — no auth required
+      const { data } = await ProductsService.searchProducts({ client: browserClient, query: { query } })
+      return data
+    },
     enabled: query.length > 2,
   })
   // ...
@@ -386,8 +389,8 @@ import { ProductsService } from "@project/api-client"
 import { serverClient } from "@/lib/api-server"
 
 // Fully typed — parameter and return types match FastAPI's Pydantic models
-const products = await ProductsService.listProducts({ client: serverClient, query: { isActive: true } })
-const product = await ProductsService.createProduct({
+const { data: products } = await ProductsService.listProducts({ client: serverClient, query: { isActive: true } })
+const { data: product } = await ProductsService.createProduct({
   client: serverClient,
   body: { name: "Widget", sku: "WDG-001", priceCents: 1999 },
 })
@@ -421,11 +424,14 @@ export function useProducts(isActive?: boolean) {
   const { data: session } = useSession()
   return useQuery({
     queryKey: ["products", { isActive }],
-    queryFn: () => ProductsService.listProducts({
-      client: browserClient,
-      query: { isActive },
-      headers: session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {},
-    }),
+    queryFn: async () => {
+      const { data } = await ProductsService.listProducts({
+        client: browserClient,
+        query: { isActive },
+        headers: session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {},
+      })
+      return data
+    },
     enabled: !!session,  // don't fetch until session is available
   })
 }
@@ -434,12 +440,14 @@ export function useCreateProduct() {
   const { data: session } = useSession()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { name: string; sku: string; priceCents: number }) =>
-      ProductsService.createProduct({
+    mutationFn: async (body: { name: string; sku: string; priceCents: number }) => {
+      const { data } = await ProductsService.createProduct({
         client: browserClient,
         body,
         headers: session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {},
-      }),
+      })
+      return data
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] })
     },
@@ -463,7 +471,7 @@ import { ProductsService } from "@project/api-client"
 import { serverClient } from "@/lib/api-server"
 
 export default async function ProductsPage() {
-  const products = await ProductsService.listProducts({ client: serverClient, query: { isActive: true } })
+  const { data: products } = await ProductsService.listProducts({ client: serverClient, query: { isActive: true } })
   return <ProductList products={products} />
 }
 ```
@@ -1072,7 +1080,7 @@ jobs:
       - uses: astral-sh/setup-uv@v4
       - run: npm ci
       - name: Install backend Python dependencies
-        run: cd services/backend && uv sync
+        run: cd services/backend && make setup
       - name: Generate API client
         env:
           DATABASE_URL: postgresql://unused:unused@localhost:5432/unused
@@ -1201,6 +1209,8 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://main:localpass@db:5432/myapp_dev
+      SECRET_KEY: local-dev-secret-change-in-production
+      CORS_ORIGINS: '["http://localhost:3000"]'
     depends_on:
       db:
         condition: service_healthy
