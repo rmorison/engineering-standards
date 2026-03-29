@@ -14,13 +14,13 @@
     ]
   },
   "hooks": {
-    "pre-tool-use": [
+    "PreToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
         "command": "python3 .claude/hooks/pre-tool-use/example-block.py"
       }
     ],
-    "post-tool-use": [
+    "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
         "command": "python3 .claude/hooks/post-tool-use/example-notify.py"

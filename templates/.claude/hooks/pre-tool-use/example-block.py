@@ -5,7 +5,7 @@ This hook demonstrates how to prevent Claude Code from writing code that
 contains a specific pattern. Replace the example logic with your project's
 rules.
 
-Hook type: pre-tool-use
+Hook type: PreToolUse
 Triggers on: Write, Edit, MultiEdit tools
 
 Exit codes:
@@ -18,7 +18,7 @@ Environment variables provided by Claude Code:
 
 Usage in .claude/settings.json:
   "hooks": {
-    "pre-tool-use": [
+    "PreToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
         "command": "python3 .claude/hooks/pre-tool-use/example-block.py"

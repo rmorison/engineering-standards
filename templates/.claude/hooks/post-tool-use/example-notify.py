@@ -5,7 +5,7 @@ This hook demonstrates how to run a check or notification after Claude Code
 writes or edits a file. Replace the example logic with your project's needs
 (e.g., run a linter, validate selectors, trigger a build).
 
-Hook type: post-tool-use
+Hook type: PostToolUse
 Triggers on: Write, Edit, MultiEdit tools
 
 Exit codes:
@@ -18,7 +18,7 @@ Environment variables provided by Claude Code:
 
 Usage in .claude/settings.json:
   "hooks": {
-    "post-tool-use": [
+    "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
         "command": "python3 .claude/hooks/post-tool-use/example-notify.py"
