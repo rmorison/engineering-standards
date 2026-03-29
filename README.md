@@ -10,7 +10,6 @@ This repository defines engineering standards for building software. The standar
 
 - **[process/](./process/)** - Software process and SDLC standards (workflows, git, planning, documentation)
 - **[code/](./code/)** - Language and stack-specific code quality standards ([Python](./code/python-standards.md), [Database](./code/database-standards.md), [Web Application](./code/web-application-standards.md))
-- **[templates/](./templates/)** - Project templates with pre-configured tooling (future)
 - **[ai/](./ai/)** - AI assistant configuration and Claude Code integration ([details](./ai/claude-code/README.md))
 - **[templates/](./templates/)** - Project starter kit with Claude Code configuration (`.claude/` directory template)
 - **[agent-transcripts/](./agent-transcripts/)** - Historical development logs
@@ -112,7 +111,7 @@ Defines how Claude Code actively enforces the standards in `process/` and `code/
 Starter kit for adopting these standards in new projects with Claude Code:
 
 1. Copy `templates/.claude/` into your project root as `.claude/`
-2. Copy `templates/CLAUDE.md` to your project root
+2. Copy `templates/CLAUDE.md` to your project root and fill in the placeholder sections
 3. Customize skills, agents, hooks, and settings for your project's architecture
 
 The template includes pre-configured skills that reference the canonical standards via URL, so they stay in sync without duplication.
