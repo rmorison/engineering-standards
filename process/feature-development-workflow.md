@@ -4,7 +4,7 @@
 
 ## Overview
 
-This workflow defines the process for **feature work driven by product and business stakeholders**. It follows a spec-driven approach: **Intent → Spec → Plan → Execute → Validate**. Each phase produces lightweight documentation that serves as the source of truth for the next phase.
+This workflow defines the process for **feature work driven by product and business stakeholders**. It follows a spec-driven approach: **Discover → Intent → Spec → Plan → Execute → Validate**. Each phase produces lightweight documentation that serves as the source of truth for the next phase.
 
 **For engineering-driven work** (bugs, tech debt, infrastructure, security), see [Technical Work Workflow](./technical-work-workflow.md).
 
@@ -12,6 +12,7 @@ This workflow defines the process for **feature work driven by product and busin
 
 ```mermaid
 flowchart LR
+    Z[Phase 0:<br/>Discovery &<br/>Brainstorming] -.->|Graduate| A
     A[Phase 1:<br/>Product Concept] --> B[Phase 2:<br/>Requirements & UI]
     B --> C[Phase 3:<br/>Planning &<br/>Sequencing]
     C --> D[Phase 4:<br/>Technical Design]
@@ -19,6 +20,7 @@ flowchart LR
     E --> F[Phase 6:<br/>Validation]
     F -.->|Iterate| B
 
+    style Z fill:#f0f0f0
     style A fill:#e1f5ff
     style B fill:#e1f5ff
     style C fill:#fff4e1
@@ -34,6 +36,64 @@ flowchart LR
 3. **Continuous validation** - Test against specs throughout development
 4. **Document decisions** - Capture context and rationale, not implementation details
 5. **Stay lightweight** - Only create documentation that provides value
+
+---
+
+## Phase 0: Discovery & Brainstorming
+
+**Goal**: Explore a problem space, capture rough ideas, and determine if there's something worth building
+
+**When to use**: When you have an itch, a pain point, or a vague idea but haven't committed to building anything yet. Phase 0 is optional — skip it when the problem and solution are already clear enough to write a Product Concept directly.
+
+**Process**:
+1. Write a brainstorm document capturing the problem, context, constraints, and possible approaches
+2. Explore feasibility: API availability, technical constraints, integration points, policy/legal considerations
+3. Identify open questions — things that must be answered before committing to build
+4. Resolve open questions through research, spikes, or conversation
+5. Graduate to Phase 1 when the problem is validated and a viable approach emerges
+
+**Output**: `docs/brainstorm/topic-name.md`
+
+**Graduation criteria** — a brainstorm is ready for Phase 1 when:
+- The problem is clearly articulated and worth solving
+- Open questions are resolved (or reduced to acceptable risks)
+- At least one viable approach is identified
+- Scope boundaries are emerging (what's in, what's out)
+
+**Time**: Hours to weeks (timeboxed — if a brainstorm stalls, either kill it or force decisions)
+
+**Example**:
+```markdown
+# Widget Automation — Brainstorm
+
+## Problem
+Manual process X takes Y hours/month and is error-prone.
+
+## Context
+- Current tools and constraints
+- Relevant APIs, integrations, prior art
+- Policy or legal considerations
+
+## Possible Approaches
+- Approach A: [description, tradeoffs]
+- Approach B: [description, tradeoffs]
+
+## Open Questions
+- Question 1? → Resolved: [answer and rationale]
+- Question 2? → Resolved: [answer and rationale]
+- Question 3? → Deferred to Phase 1 as acceptable risk
+
+## Decisions
+- [Key decisions made during discovery, with rationale]
+
+## Next Steps
+Ready for Phase 1 — write Product Concept focusing on [chosen approach].
+```
+
+**Anti-patterns**:
+- **Endless brainstorming**: Set a timebox. If open questions can't be resolved, the idea may not be ready.
+- **Brainstorm as spec**: Keep it rough. The point is exploration, not precision.
+- **Skipping to code**: Tempting for small projects, but even a brief brainstorm surfaces assumptions worth questioning.
 
 ---
 
