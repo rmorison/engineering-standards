@@ -81,6 +81,12 @@ How to organize issues, track epics, and manage multi-issue initiatives in GitHu
 
 **Key principle**: Use GitHub's native features (sub-issues, labels, milestones) for lightweight, scalable issue organization without external tools.
 
+### [Compound Engineering Integration](./process/compound-engineering-integration.md)
+
+Operational reference for adopting [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) (CE) as the canonical realization of Layers 2–5 of the [six-layer AI architecture](./ai/claude-code/README.md). Covers artifact path mapping, ticket-tracking modes (team-scale and solo + AI), branch-naming reconciliation, AI-review discipline, and the CE skill ↔ standards doc cross-reference. Self-contained — usable by any adopter without rmorison context.
+
+**Key principle**: The architecture is the abstraction; CE is one canonical realization. Vendor-neutral baselines remain in place for projects that don't adopt the plugin.
+
 ### [Agent Transcripts](./agent-transcripts/)
 
 Conversation logs documenting the development and evolution of these standards through AI agent collaboration.
@@ -95,26 +101,33 @@ These transcripts provide historical context and reasoning behind the standards,
 
 ## AI / Claude Code Integration
 
-### [Claude Code Layer Model](./ai/claude-code/README.md)
+### [Six-Layer AI Architecture](./ai/claude-code/README.md)
 
-Defines how Claude Code actively enforces the standards in `process/` and `code/` rather than passively referencing them. The AI artifacts are organized in four layers, ordered by context cost:
+Defines how AI tooling integrates with software engineering workflows. The architecture is the **abstraction**; specific toolkits — most concretely [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) (CE) for [Claude Code](https://claude.ai/code) — fill the layers as **canonical realizations**. Vendor-neutral baselines live in this repository for projects that don't adopt a specific toolkit.
 
-1. **Rules** (`ai/claude-code/rules/`) — Compact pointers to full standards, auto-loaded at session start. Always in context, kept under 150 lines each.
-2. **Skills** (`templates/.claude/skills/`) — Load full standards content on demand when invoked (e.g., `/spec`, `/plan`, `/review`). Reference standards via URL so they work in any project.
-3. **Agents** (`templates/.claude/agents/`) — Specialized subagents for focused tasks like code review and spec writing, each with their own context and tool access.
-4. **Hooks** (`templates/.claude/hooks/`) — Shell/Python scripts that run automatically on tool-use events. Enforce non-negotiable rules at zero context cost.
+| # | Layer | Principle | Vendor-neutral baseline | Canonical realization (CE) |
+|---|-------|-----------|-------------------------|----------------------------|
+| 1 | **Rules** | Persistence — always-loaded session context | `ai/claude-code/rules/` | *(not provided by CE)* |
+| 2 | **Workflow Skills** | Composability — multi-step orchestrators | `templates/.claude/skills/` | `/ce-brainstorm`, `/ce-plan`, `/ce-work`, `/ce-doc-review`, `/ce-code-review`, `/ce-debug`, `/ce-compound`, `lfg`, … |
+| 3 | **Persona Agents** | Perspective — multiple expertises | `templates/.claude/agents/` | ~20 CE persona reviewers (coherence, feasibility, adversarial, security, …) |
+| 4 | **References** | Progressivity — context grows with workflow depth | *(none yet)* | CE skills' `references/*.md` subtrees |
+| 5 | **Compound / Learnings** | Compounding — institutional knowledge accumulates | *(none yet)* | `docs/solutions/`, `ce-compound`, `ce-compound-refresh` |
+| 6 | **Hooks** | Determinism — non-AI enforcement at zero context cost | `templates/.claude/hooks/` | *(not provided by CE)* |
 
-**Key principle**: Context is expensive — only load what's needed, when it's needed. Standards are enforced, not just referenced.
+**Key principle**: Context is expensive — only load what's needed, when it's needed. The six layers each specialize this principle for a different context-cost slot.
+
+For the architectural decision and full layer descriptions, see [ADR-0001](./docs/engineering/adr/0001-six-layer-ai-architecture.md) and [`ai/claude-code/README.md`](./ai/claude-code/README.md). For CE adoption operational details, see [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md).
 
 ### [Project Templates](./templates/)
 
 Starter kit for adopting these standards in new projects with Claude Code:
 
-1. Copy `templates/.claude/` into your project root as `.claude/`
-2. Copy `templates/CLAUDE.md` to your project root and fill in the placeholder sections
-3. Customize skills, agents, hooks, and settings for your project's architecture
+1. Copy `templates/.claude/` into your project root as `.claude/` — provides Layer 1 rule scaffolding (via `ai/claude-code/rules/`), Layer 2 (skills) and Layer 3 (agents) vendor-neutral baselines, and Layer 6 (hooks).
+2. Copy `templates/CLAUDE.md` to your project root and fill in the placeholder sections.
+3. If you adopt compound-engineering, install the plugin and consult [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for the operational details. CE specializes Layers 2, 3, 4, and 5 with deep implementations; Layers 1 and 6 stay owned by your project's `.claude/`.
+4. Customize hooks, skills, agents, and settings for your project's architecture.
 
-The template includes pre-configured skills that reference the canonical standards via URL, so they stay in sync without duplication.
+The vendor-neutral skills reference the canonical standards via URL, so they stay in sync without duplication.
 
 ## Philosophy
 
@@ -155,6 +168,7 @@ Modern development increasingly involves AI coding assistants. These standards w
 2. Write a strategic vision in `docs/product/strategic-vision.md`
 3. Add architecture decisions to `docs/engineering/adr/` as you make them
 4. Follow the feature development workflow for new features
+5. If adopting compound-engineering, see [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for path mapping (CE adds `docs/brainstorms/`, `docs/plans/`, `docs/solutions/` to the documentation tree) and review discipline.
 
 ### For Existing Projects
 
