@@ -16,6 +16,8 @@ Behavioral guardrails for Claude Code sessions. Follow these in every task.
 - If the plan changes during implementation, pause and re-confirm
 - Break large changes into steps; confirm each step's approach
 
+When [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) is in use, `/ce-plan` produces the plan and `/ce-work` executes it iteratively against U-IDs and acceptance criteria; the `lfg` autonomous flow runs the discover → plan → execute → review pipeline without per-step confirmation and is appropriate when a complete plan exists. See [process/compound-engineering-integration.md](../../process/compound-engineering-integration.md).
+
 ## Validate After Each Change
 
 - After each meaningful change: run tests, run lint, confirm behavior
