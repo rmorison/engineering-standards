@@ -16,10 +16,40 @@
 Always read the relevant spec and existing code before making changes.
 Present a plan and wait for confirmation before writing any code.
 
+When [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin)
+is in use, `/ce-plan` produces the plan and `/ce-work` executes it
+iteratively against U-IDs and acceptance criteria; the `lfg` autonomous
+flow runs without per-step confirmation when a complete plan exists.
+See `process/compound-engineering-integration.md`.
+
 ### Standards References
 - Feature workflow: process/feature-development-workflow.md
 - Documentation: process/documentation-standards.md
 - Git conventions: process/git-branching-strategy.md
+- Compound-engineering integration (when CE is installed): process/compound-engineering-integration.md
+
+### AI Architecture
+This template assumes the six-layer AI architecture defined in
+`ai/claude-code/README.md`. The architecture is the abstraction;
+specific toolkits realize the layers:
+
+- **Layers 1 (Rules) and 6 (Hooks)** live in `ai/claude-code/rules/`
+  and `templates/.claude/hooks/` respectively (vendor-neutral; shipped
+  by the standards repo).
+- **Layers 2 (Skills) and 3 (Agents)** have vendor-neutral baselines
+  in `templates/.claude/skills/` and `templates/.claude/agents/`. When
+  compound-engineering is installed, CE skills (`/ce-brainstorm`,
+  `/ce-plan`, `/ce-work`, `/ce-doc-review`, `/ce-code-review`, etc.)
+  and CE persona reviewers are the canonical realization of those
+  layers.
+- **Layers 4 (References) and 5 (Compound)** are realized by CE today;
+  non-CE projects may leave them empty or fill with hand-rolled
+  implementations.
+
+For the architectural decision and full layer descriptions, see
+`docs/engineering/adr/0001-six-layer-ai-architecture.md` and
+`ai/claude-code/README.md` (paths assume the standards repo is
+checked out at the same level; adjust as needed for your project).
 
 ### Module Boundaries
 Each module has a single responsibility. Do not move logic between modules

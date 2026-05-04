@@ -32,21 +32,23 @@ docs/
 │   ├── concepts/{feature}.md
 │   └── features/{feature}.md
 └── engineering/
-    ├── design/{feature}.md
+    ├── designs/{feature}.md
     └── adr/{number}-{title}.md
 ```
+
+When compound-engineering is in use, additional artifact paths apply (`docs/brainstorms/`, `docs/plans/`, `docs/solutions/`, `docs/ideation/`). See [process/compound-engineering-integration.md](../../process/compound-engineering-integration.md) for the full path mapping and precedence rules.
 
 Full standard: [process/documentation-standards.md](../../process/documentation-standards.md)
 
 ## Git Conventions
 
 - **Branching**: GitHub Flow — `main` is always deployable, all work in feature branches
-- **Branch names**: `{issue-number}-{slugified-title}` (use GitHub auto-generated names)
+- **Branch names**: `{issue-number}-{slugified-title}` (use GitHub auto-generated names). When CE is in use, `lfg`/`ce-work` autonomous flows may produce topic-style branches (`feat/...`, `fix/...`) without a parent issue; see the integration doc.
 - **Commits**: Conventional format — `type(scope): description`
 - **PRs**: Small, focused, one feature/fix per branch
 - **Versioning**: Semantic versioning (vMAJOR.MINOR.PATCH)
 
-Full strategy: [process/git-branching-strategy.md](../../process/git-branching-strategy.md)
+Full strategy: [process/git-branching-strategy.md](../../process/git-branching-strategy.md). When CE is in use: [process/compound-engineering-integration.md](../../process/compound-engineering-integration.md).
 
 ## Code Quality Principles
 

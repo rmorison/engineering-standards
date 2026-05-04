@@ -16,6 +16,8 @@
 
 This document defines how to organize issues, track epics, and manage multi-issue initiatives in GitHub. It provides a lightweight, scalable approach using GitHub's native features.
 
+> **When compound-engineering is in use**: solo + AI work often runs at a smaller scale than the three-tier hierarchy below assumes. The standard already carries solo carve-outs at the Epic Size Guidelines section (below) — "<3 issues: probably doesn't need an epic, just use labels", "<1 month: might not need epic structure". For CE-using solo projects, plan files (`docs/plans/...`) serve as the granular tracker via U-IDs, with reactive sub-issues filed for review residuals, bugs, and Open Question activations. See [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 3 for the full ticket-policy pattern.
+
 ## Three-Tier Hierarchy
 
 Use a three-tier structure to organize work from high-level initiatives down to specific implementation tasks:

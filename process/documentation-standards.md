@@ -45,6 +45,8 @@ Repository documentation lives under `docs/` with the following top-level direct
   - Monitoring and alerting setup
   - Infrastructure as code documentation
 
+> **When compound-engineering is in use**: CE-skill outputs add the following paths to the documentation tree — `docs/ideation/`, `docs/brainstorms/`, `docs/plans/` (subsumes `docs/planning/`), `docs/solutions/`. See [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 2 for the full path mapping and precedence rule.
+
 ## File Naming Conventions
 
 - Use lowercase kebab-case: `feature-name.md`, `api-design.md`

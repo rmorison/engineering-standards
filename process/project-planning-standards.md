@@ -85,6 +85,8 @@ For team settings, use planning poker:
 
 Individual contributors can estimate solo but should validate assumptions with technical leads.
 
+> **When compound-engineering is in use**: planning poker is N/A for solo + AI work. Point estimates in CE plan files (`docs/plans/...` U-IDs) serve as the self-calibration mechanism — useful for personal pacing rather than team coordination. See [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 5.
+
 ## Task Breakdown
 
 ### Decomposition Strategy

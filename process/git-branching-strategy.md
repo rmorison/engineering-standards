@@ -8,6 +8,8 @@ This strategy follows **[GitHub Flow](https://docs.github.com/en/get-started/usi
 
 **Core principle**: `main` branch is always deployable. All work happens in feature branches, merged via pull requests after review.
 
+> **When compound-engineering is in use**: see [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) for branch-naming carve-outs (CE's `lfg`/`ce-work` autonomous flows) and the AI-review discipline that complements branch protection.
+
 ### Workflow Diagram
 
 ```mermaid
@@ -290,6 +292,8 @@ Maintain `CHANGELOG.md` or use [GitHub Releases](https://docs.github.com/en/repo
 
 **Solution**: Create issue first (even for small fixes), use issue-based branching
 
+**Exception**: When compound-engineering is in use, `lfg` and `ce-work` autonomous flows may produce topic-style branches (`feat/...`, `fix/...`) without a parent issue. File an issue retroactively only if review surfaces something worth tracking. See [`process/compound-engineering-integration.md`](./compound-engineering-integration.md).
+
 ### ❌ Stale Branches Not Synced
 
 **Problem**: Merge conflicts, integration problems discovered late
@@ -327,6 +331,8 @@ Configure these rules for `main` branch in repository settings:
 - ✅ Require status checks to pass (CI/tests)
 - ✅ Require branches to be up to date before merging
 - ✅ Delete head branches automatically after merge
+
+**When compound-engineering is in use**: the "Require at least 1 approval" rule has a process-level complement — the AI-review **discipline** (`ce-code-review` + `ce-doc-review`) defined in [`process/compound-engineering-integration.md`](./compound-engineering-integration.md). The discipline is process-level, not enforced by repo configuration; the standards' approval rule re-engages when a human reviewer onboards.
 
 See [GitHub branch protection](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches) for setup details.
 
