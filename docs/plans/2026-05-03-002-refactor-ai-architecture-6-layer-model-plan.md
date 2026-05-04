@@ -1,8 +1,9 @@
 ---
 title: "refactor: Adopt 6-layer AI architecture with compound-engineering as canonical realization"
 type: refactor
-status: active
+status: completed
 date: 2026-05-03
+completed: 2026-05-03
 origin: https://github.com/rmorison/engineering-standards/issues/22
 prior_plan: docs/plans/2026-05-03-001-feat-compound-engineering-integration-plan.md
 ---
