@@ -2,7 +2,7 @@
 
 > **Implementation strategy superseded by [ADR-0001: Six-Layer AI Architecture](../docs/engineering/adr/0001-six-layer-ai-architecture.md).**
 >
-> This document analyzed agent-native principles and proposed building those abstractions in this repository. We instead adopted the six-layer AI architecture (see [ADR-0001](../docs/engineering/adr/0001-six-layer-ai-architecture.md)) with [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) as the canonical realization of Layers 2 and 3. Kept here as the evaluative framework that informed the architecture — the analysis remains the lens for re-evaluating CE adoption if circumstances change. See [`process/compound-engineering-integration.md`](../process/compound-engineering-integration.md) for the operational doc.
+> This document analyzed agent-native principles and proposed building those abstractions in this repository. We instead adopted the six-layer AI architecture (see [ADR-0001](../docs/engineering/adr/0001-six-layer-ai-architecture.md)) with [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) as the canonical realization of Layers 2 (Workflow Skills), 3 (Persona Agents), 4 (References), and 5 (Compound / Learnings). Kept here as the evaluative framework that informed the architecture — the analysis remains the lens for re-evaluating CE adoption if circumstances change. See [`process/compound-engineering-integration.md`](../process/compound-engineering-integration.md) for the operational doc.
 
 **Date**: 2026-01-22
 **Source**: [Agent-Native Guide](https://every.to/guides/agent-native) from Every.to

@@ -122,7 +122,7 @@ For the architectural decision and full layer descriptions, see [ADR-0001](./doc
 
 Starter kit for adopting these standards in new projects with Claude Code:
 
-1. Copy `templates/.claude/` into your project root as `.claude/` — provides Layer 1 rule scaffolding (via `ai/claude-code/rules/`), Layer 2 (skills) and Layer 3 (agents) vendor-neutral baselines, and Layer 6 (hooks).
+1. Copy `templates/.claude/` into your project root as `.claude/` — provides Layers 2 (skills), 3 (agents), 6 (hooks) baselines plus configuration.
 2. Copy `templates/CLAUDE.md` to your project root and fill in the placeholder sections.
 3. If you adopt compound-engineering, install the plugin and consult [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for the operational details. CE specializes Layers 2, 3, 4, and 5 with deep implementations; Layers 1 and 6 stay owned by your project's `.claude/`.
 4. Customize hooks, skills, agents, and settings for your project's architecture.
