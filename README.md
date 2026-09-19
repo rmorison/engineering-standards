@@ -168,7 +168,7 @@ Modern development increasingly involves AI coding assistants. These standards w
 2. Write a strategic vision in `docs/product/strategic-vision.md`
 3. Add architecture decisions to `docs/engineering/adr/` as you make them
 4. Follow the feature development workflow for new features
-5. If adopting compound-engineering, see [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for path mapping (CE adds `docs/brainstorms/`, `docs/plans/`, `docs/solutions/` to the documentation tree) and review discipline.
+5. If adopting compound-engineering, see [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for path mapping (CE adds `docs/plans/`, `docs/solutions/`, `docs/ideation/` to the documentation tree) and review discipline.
 
 ### For Existing Projects
 

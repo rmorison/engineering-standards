@@ -36,7 +36,7 @@ docs/
     └── adr/{number}-{title}.md
 ```
 
-When compound-engineering is in use, additional artifact paths apply (`docs/brainstorms/`, `docs/plans/`, `docs/solutions/`, `docs/ideation/`). See [process/compound-engineering-integration.md](../../process/compound-engineering-integration.md) for the full path mapping and precedence rules.
+When compound-engineering is in use, additional artifact paths apply (`docs/plans/`, `docs/solutions/`, `docs/ideation/`, and legacy `docs/brainstorms/`). See [process/compound-engineering-integration.md](../../process/compound-engineering-integration.md) for the full path mapping and precedence rules.
 
 Full standard: [process/documentation-standards.md](../../process/documentation-standards.md)
 
