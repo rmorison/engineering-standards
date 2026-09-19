@@ -172,6 +172,8 @@ The table below maps the CE pipeline and git-adjacent skills (Layer 2) that the 
 
 **Version drift.** Renaming is not the drift vector to plan for. Between CE 3.1.0 (which this doc was first written against) and 3.27.0, no skill was renamed — but the skill count grew, the persona roster moved and grew, `ce-brainstorm`'s output path changed, and `lfg` gained a shipping tail. Behavior and output paths are what move, and they move § 1, § 2 and § 6 together rather than one row at a time. Re-verify all three tables against the installed CE on each minor upgrade, and update the **Verified against** line in the header when you do.
 
+**Then check what repeats them.** This doc being correct is not the same as the repository being correct: other documents restate these claims rather than linking to them, and they do not update when this one does. After correcting a path or a rule here, grep for the old value across the repo — `grep -rn '<old path or rule>' --include='*.md' .` — and fix every live restatement. The 3.1.0 → 3.27.0 audit found one stale artifact path repeated in four other documents, and a superseded precedence rule still stated in full in [`ai/CLAUDE.md`](../ai/CLAUDE.md), where it would have kept instructing agents to apply a rule these standards no longer have. The usual dependents are [`ai/CLAUDE.md`](../ai/CLAUDE.md), [`ai/claude-code/rules/`](../ai/claude-code/rules/), [`process/feature-development-workflow.md`](./feature-development-workflow.md), [`process/documentation-standards.md`](./documentation-standards.md), and the root [`README.md`](../README.md). Leave ADRs alone: they record what was decided when it was decided.
+
 ---
 
 ## Real-world deployment example
