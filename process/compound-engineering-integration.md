@@ -15,10 +15,10 @@ This document describes how compound-engineering ([CE](https://github.com/EveryI
 
 For the architecture itself, see [`ai/claude-code/README.md`](../ai/claude-code/README.md). This doc is the operational complement.
 
-**Precedence rule with provenance clause.** When a CE skill produces an artifact, CE paths and conventions win. Standards paths and conventions own human-authored artifacts and ADRs. Edge cases:
+**Precedence rule with provenance clause.** When a CE skill produces an artifact, CE paths and conventions win. Standards paths and conventions own human-authored artifacts and ADRs. Ownership is decided in two steps:
 
-- **First-skill-touched-the-file wins** by default. If `ce-plan` produced `docs/plans/foo.md`, subsequent human edits do not reclassify it as hand-authored.
-- **Explicit reclassification** via a one-line `provenance:` frontmatter note (`provenance: hand-authored` or `provenance: ce-plan`) when the default rule produces the wrong answer.
+- **The path decides, by default.** The [artifact location mapping](#2-artifact-location-mapping) in § 2 maps every path this integration names to its owner: `docs/plans/` is CE's, `docs/engineering/designs/` is the standards'. A file's location answers the question without recovering who wrote it first — which nothing in the repository records, since CE writes and hand edits appear in git as the same author.
+- **Explicit reclassification** via a one-line `provenance:` frontmatter note (`provenance: hand-authored` or `provenance: ce-plan`) overrides the path. Use it only when a file genuinely crosses a boundary — a hand-authored document living in a CE path, or a CE artifact since adopted as hand-maintained. Ordinary files carry no annotation, so the note's presence is itself the signal that something non-obvious happened.
 
 ---
 
@@ -46,15 +46,15 @@ CE-using projects produce artifacts at paths the standards' `docs/` taxonomy doe
 | Path | Owner | Producer / notes |
 |------|-------|------------------|
 | `docs/ideation/` | CE | `ce-ideate` output |
-| `docs/plans/YYYY-MM-DD-HHMM-<type>-<topic>-plan.md` | CE | `ce-brainstorm` output as of CE 3.x — a requirements-only unified plan (`artifact_contract: ce-unified-plan/v1`, `product_contract_source: ce-brainstorm`) carrying a Product Contract but no Implementation Units. **Serves as the Phase 0 / discovery artifact** for [`process/feature-development-workflow.md`](./feature-development-workflow.md); Phase 1 (Product Concept) is seeded from it. |
+| `docs/plans/` | CE | Every unified plan artifact, whichever skill wrote it. `ce-plan` output — implementation-ready, carrying Implementation Units and acceptance criteria. Subsumes the standards' `docs/planning/` for CE-using projects. |
+| `docs/plans/YYYY-MM-DD-HHMM-<type>-<topic>-plan.md` | CE | `ce-brainstorm` output as of CE 3.x, in the same directory — a requirements-only unified plan (`artifact_contract: ce-unified-plan/v1`, `product_contract_source: ce-brainstorm`) carrying a Product Contract but no Implementation Units. **Serves as the Phase 0 / discovery artifact** for [`process/feature-development-workflow.md`](./feature-development-workflow.md); Phase 1 (Product Concept) is seeded from it. |
 | `docs/brainstorms/` | CE (legacy) | Historical `*-requirements.{md,html}` files. `ce-plan` still accepts them as input; `ce-brainstorm` no longer writes here. |
-| `docs/plans/` | CE | `ce-plan` output. Subsumes the standards' `docs/planning/` for CE-using projects. |
 | `docs/solutions/` | CE | Layer 5 artifacts produced by `ce-compound` and `ce-compound-refresh`. No standards analog yet. |
 | `docs/engineering/adr/` | shared | Human-authored ADRs. Path identical in standards-mode and CE-mode. |
 | `docs/engineering/designs/` | standards | Human-authored technical design documents. |
 | `docs/product/` | standards | Human-authored product concepts and feature specs. |
 
-**When in doubt:** if a CE skill produced the file, CE owns it. If a human authored it, standards conventions apply. The `provenance:` frontmatter override is available when the default heuristic produces the wrong answer.
+**When in doubt:** the path in this table is the answer. A `provenance:` frontmatter note overrides it for the rare file that belongs to the other side of the boundary; absent that note, the path governs regardless of who last edited the file.
 
 ---
 
