@@ -5,6 +5,7 @@
 **Architectural decision:** [ADR-0001](../docs/engineering/adr/0001-six-layer-ai-architecture.md).
 **Audience:** projects using compound-engineering (CE) — most concretely the `rmorison` projects, but the integration is intended to be readable and usable by any adopter.
 **Status:** active.
+**Verified against:** CE v3.27.0 (2026-09-19).
 
 ---
 
@@ -26,8 +27,8 @@ For the architecture itself, see [`ai/claude-code/README.md`](../ai/claude-code/
 | # | Layer | Principle | What CE provides |
 |---|-------|-----------|------------------|
 | 1 | Rules | Persistence | *Not provided.* The standards repo's [`ai/claude-code/rules/*.md`](../ai/claude-code/rules/) retains ownership. Rule files carry one-line CE-aware pointers, not multi-mode policy. |
-| 2 | Workflow Skills | Composability | ~30 skills covering discovery, planning, execution, review, debugging, and compounding. Pipeline shape: `ce-brainstorm → ce-plan → ce-work → ce-doc-review → ce-code-review → ce-compound`. The `lfg` skill runs the pipeline autonomously. |
-| 3 | Persona Agents | Perspective | ~20 specialized review personas dispatched in parallel by `ce-doc-review` and `ce-code-review` skills. Persona names are stable in CE 3.x. |
+| 2 | Workflow Skills | Composability | 36 skills covering discovery, planning, execution, review, debugging, and compounding. Pipeline shape: `ce-brainstorm → ce-plan → ce-work → ce-doc-review → ce-code-review → ce-compound`. The `lfg` skill routes a request to the skills whose job it is and carries a code change through to an open PR. |
+| 3 | Persona Agents | Perspective | 27 specialized review personas, held as reference files inside `ce-code-review` (16), `ce-doc-review` (8), and `ce-simplify-code` (3). Each review skill activates a subset per document or diff rather than dispatching all of them: in `ce-doc-review` only coherence and feasibility run every time, the rest on matching signals. The roster lives in CE's internals and carries no stability contract — the durable interface is the skill invocation, not the persona names. |
 | 4 | References | Progressivity | Each skill ships a `references/*.md` subtree loaded progressively as workflow depth grows. The pattern keeps Layer 2 skills lean at the entry point. |
 | 5 | Compound / Learnings | Compounding | `ce-compound` captures learnings from completed work into `docs/solutions/`. `ce-compound-refresh` audits and consolidates. The compound output is itself a Layer 5 artifact. |
 | 6 | Hooks | Determinism | *Not provided.* The standards repo's [`templates/.claude/hooks/`](../templates/.claude/hooks/) retains ownership. CE-mode invariants (e.g., warn if `/plan` is invoked instead of `/ce-plan`) can be added as hooks in follow-up work. |
@@ -40,10 +41,13 @@ For the canonical layer descriptions (vendor-neutral), see [`ai/claude-code/READ
 
 CE-using projects produce artifacts at paths the standards' `docs/` taxonomy does not name. The precedence rule (above) governs ownership; this table documents which paths are produced by which CE skill.
 
+**The `docs/` prefixes below are CE's default artifact root.** CE resolves that root from `docs_root` in `<repo-root>/.compound-engineering/config.yaml`; an adopter who sets it should read every `docs/` path in this document as `<docs_root>/`. An invalid value stops CE from writing artifacts rather than silently falling back to `docs/`. This repository declares no config file, so the default applies here.
+
 | Path | Owner | Producer / notes |
 |------|-------|------------------|
 | `docs/ideation/` | CE | `ce-ideate` output |
-| `docs/brainstorms/` | CE | `ce-brainstorm` output. **Also serves as the Phase 0 / discovery artifact** for [`process/feature-development-workflow.md`](./feature-development-workflow.md); Phase 1 (Product Concept) is seeded from the brainstorm requirements doc. |
+| `docs/plans/YYYY-MM-DD-HHMM-<type>-<topic>-plan.md` | CE | `ce-brainstorm` output as of CE 3.x — a requirements-only unified plan (`artifact_contract: ce-unified-plan/v1`, `product_contract_source: ce-brainstorm`) carrying a Product Contract but no Implementation Units. **Serves as the Phase 0 / discovery artifact** for [`process/feature-development-workflow.md`](./feature-development-workflow.md); Phase 1 (Product Concept) is seeded from it. |
+| `docs/brainstorms/` | CE (legacy) | Historical `*-requirements.{md,html}` files. `ce-plan` still accepts them as input; `ce-brainstorm` no longer writes here. |
 | `docs/plans/` | CE | `ce-plan` output. Subsumes the standards' `docs/planning/` for CE-using projects. |
 | `docs/solutions/` | CE | Layer 5 artifacts produced by `ce-compound` and `ce-compound-refresh`. No standards analog yet. |
 | `docs/engineering/adr/` | shared | Human-authored ADRs. Path identical in standards-mode and CE-mode. |
@@ -70,7 +74,7 @@ Full three-tier hierarchy per [`process/issue-tracking.md`](./issue-tracking.md)
 
 ### Solo + AI
 
-Reactive issue creation only. The plan file (`docs/plans/...`) is the granular unit tracker via U-IDs; pre-allocating per-U sub-issues duplicates state and drifts from the plan. Apply when:
+Reactive issue creation only. The implementation-ready plan file — the one carrying `## Implementation Units`, not a requirements-only brainstorm artifact sharing the same directory — is the granular unit tracker via U-IDs; pre-allocating per-U sub-issues duplicates state and drifts from the plan. Apply when:
 
 - Sole contributor working with CE
 - Plan U-IDs adequately track granular progress
@@ -99,6 +103,8 @@ A minimal pattern that has worked in real use:
 
 **Rule.** When an issue exists, use the standards' `{issue-number}-{slugified-title}` format. When `lfg` or `ce-work` produces a branch without a parent issue, topic-style naming (`feat/...`, `fix/...`, `refactor/...`) is acceptable. File an issue retroactively only if review surfaces something worth tracking.
 
+**Prerequisite.** CE derives branch names from the work description and has no path that reads an issue number — `ce-worktree` picks a name like `feat/login`, and `ce-work` creates one from the plan whenever the session starts on the default branch. So the issue-numbered half of the rule applies only if you create and check out `{issue-number}-{slugified-title}` *before* invoking `ce-work` or `lfg`. Otherwise you get topic-style naming regardless of whether an issue exists.
+
 [`process/git-branching-strategy.md`](./git-branching-strategy.md) carries this carve-out in its anti-pattern section.
 
 ---
@@ -112,7 +118,7 @@ What shifts at solo + AI scale, with citations to existing standards:
 - **Estimation.** [`process/project-planning-standards.md`](./project-planning-standards.md) line 86 already permits solo estimation. For CE-using solo work, point estimates in CE plan files (`docs/plans/...`) serve as the self-calibration mechanism; planning poker is N/A.
 - **Code review.** Standards assume a human reviewer. Solo + AI work substitutes the AI-review discipline below.
 - **Milestones.** Earn their keep at >3-month horizons. Solo + AI work over shorter horizons typically uses plans (Layer 2 outputs) and reactive issues.
-- **Epic structure.** Earns its keep at 5+ implementation issues per feature. Below that, plan U-IDs are the unit tracker.
+- **Epic structure.** Earns its keep at 5+ implementation issues per feature. This *replaces* the standards' epic minimum rather than extending it: [`process/issue-tracking.md`](./issue-tracking.md) sets the minimum at 3–5 sub-issues and exempts only fewer than 3. For the 3–4 band in between, solo + AI mode uses labels plus plan U-IDs — the standards' own answer for small groupings — rather than an epic.
 
 ### AI-review discipline (not enforced merge gate)
 
@@ -139,12 +145,12 @@ Adopters who follow the discipline understand they are trading these failure mod
 
 ## 6. CE skill ↔ standards doc cross-reference
 
-The table below maps each CE skill (Layer 2) to the standards doc(s) it operates within. Behavior is described alongside the skill name so that skill renaming within CE 3.x is a one-row table edit.
+The table below maps the CE pipeline and git-adjacent skills (Layer 2) that the standards docs govern — not all 36 CE ships. Behavior is described alongside each skill name so the mapping survives a rename.
 
 | CE skill | Behavior | Standards doc(s) it operates within |
 |----------|----------|------------------------------------|
 | `ce-ideate` | Open-ended ideation; produces `docs/ideation/` artifacts | Pre-Phase 1 of [`process/feature-development-workflow.md`](./feature-development-workflow.md) |
-| `ce-brainstorm` | Structured requirements gathering; produces `docs/brainstorms/<topic>-requirements.md` | **Phase 0** of [`process/feature-development-workflow.md`](./feature-development-workflow.md); Phase 1 is seeded from the brainstorm output |
+| `ce-brainstorm` | Structured requirements gathering; produces a requirements-only unified plan at `docs/plans/YYYY-MM-DD-HHMM-<type>-<topic>-plan.md`. Legacy `docs/brainstorms/*-requirements.md` files remain valid input to `ce-plan` but are no longer written | **Phase 0** of [`process/feature-development-workflow.md`](./feature-development-workflow.md); Phase 1 is seeded from the brainstorm output |
 | `ce-plan` | Produces implementation plans at `docs/plans/...` with U-IDs and acceptance criteria | Phases 3–4 of [`process/feature-development-workflow.md`](./feature-development-workflow.md); subsumes `docs/planning/` for CE-using projects |
 | `ce-work` | Executes a plan; manages task state and incremental commits | Phase 5 of [`process/feature-development-workflow.md`](./feature-development-workflow.md) |
 | `ce-doc-review` | Dispatches Layer 3 persona reviewers against a plan or requirements doc; produces P0–P3 findings | Phase 4 review surface (plans, designs, ADRs) |
@@ -152,9 +158,12 @@ The table below maps each CE skill (Layer 2) to the standards doc(s) it operates
 | `ce-debug` | Systematic root-cause investigation; produces a debug record | Bug-fix work in [`process/technical-work-workflow.md`](./technical-work-workflow.md) |
 | `ce-compound` | Captures learnings from completed work into `docs/solutions/` (Layer 5 output) | Phase 6 (validation/iteration) of [`process/feature-development-workflow.md`](./feature-development-workflow.md), or post-incident |
 | `ce-compound-refresh` | Audits and consolidates `docs/solutions/`; supersedes outdated learnings | Maintenance of Layer 5 artifacts |
-| `lfg` | Runs the brainstorm → plan → work → review → compound pipeline autonomously | The full feature workflow, executed without per-step confirmation |
+| `ce-commit` / `ce-commit-push-pr` | Creates commits and opens PRs | Commit-message and PR conventions in [`process/git-branching-strategy.md`](./git-branching-strategy.md) |
+| `ce-worktree` | Creates isolated worktrees and branches | Branch naming per § 4 above — supply the name when an issue exists |
+| `ce-resolve-pr-feedback` / `ce-babysit-pr` | Resolves review feedback and drives a PR to merge-ready | PR review and merge gates in [`process/git-branching-strategy.md`](./git-branching-strategy.md) |
+| `lfg` | Routes a request to the CE skill whose job it is rather than running a fixed chain. On a code change: plans, implements, simplifies, runs `ce-code-review` and applies eligible findings, then pushes a branch, opens a PR and watches CI — leaving only the merge. `ce-brainstorm` runs only when a human is present; `ce-compound` only when the run produced durable reasoning | The full feature workflow, executed without per-step confirmation, through to an open PR |
 
-**Skill renaming.** CE skill names are stable in 3.x; if a skill renames, only this table changes. Behavior descriptions are the durable anchor.
+**Version drift.** Renaming is not the drift vector to plan for. Between CE 3.1.0 (which this doc was first written against) and 3.27.0, no skill was renamed — but the skill count grew, the persona roster moved and grew, `ce-brainstorm`'s output path changed, and `lfg` gained a shipping tail. Behavior and output paths are what move, and they move § 1, § 2 and § 6 together rather than one row at a time. Re-verify all three tables against the installed CE on each minor upgrade, and update the **Verified against** line in the header when you do.
 
 ---
 
