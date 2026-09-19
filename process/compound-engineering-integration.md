@@ -129,6 +129,7 @@ For solo + AI work, the human-reviewer slot in branch protection is replaced by 
 1. **`ce-code-review`** on the diff before merge. Dispatches Layer 3 persona reviewers (security, reliability, performance, language-specific style, etc.) per the conditional triggers in the skill. Surfaces P0/P1 findings.
 2. **`ce-doc-review`** on the plan or spec when applicable. Dispatches Layer 3 persona reviewers (coherence, feasibility, scope-guardian, adversarial, product-lens, etc.). Surfaces P0/P1 findings.
 3. **Self-review against plan acceptance criteria.** The implementer verifies the unit's `Verification` field is satisfied before merge.
+4. **A disposition record in the PR body.** State that `ce-code-review` ran (and `ce-doc-review` where applicable), then one line per P0/P1 finding saying what happened to it: fixed, deferred to an issue, or not accepted and why. A review that surfaced nothing says so in one line. This is the record the branch-protection approval would otherwise have left — it is documentation, not a gate, and nothing blocks the merge on it.
 
 **Failure modes the discipline does not catch:**
 
@@ -137,7 +138,13 @@ For solo + AI work, the human-reviewer slot in branch protection is replaced by 
 - **Product-positioning regressions.** AI reviewers tuned for code patterns miss strategic intent.
 - **Same-intent author/reviewer.** No second pair of eyes with independent stakes.
 
-Adopters who follow the discipline understand they are trading these failure modes for the speed of solo work. When a human reviewer onboards, the standards' "Require at least 1 approval" rule re-engages and AI review becomes complementary.
+**Where the discipline is not sufficient on its own.** Scale is not the only axis that matters; risk is the other. [`process/technical-work-workflow.md`](./technical-work-workflow.md) reserves its critical (P0) tier for security breaches, data loss, and authentication bypass. For changes in those classes — security fixes, data-loss-capable migrations, and auth or permission changes — the discipline above is a floor, not a substitute, and three additions apply:
+
+- **A second review pass in a separate session**, so the reviewing context is not the one that wrote the change. The self-grading failure mode above is strongest exactly where the stakes are highest.
+- **No same-session merge.** Let the change sit until a later session before merging, so the disposition decisions get read by someone who is no longer mid-implementation.
+- **An explicit note in the PR body** recording that the change is in a critical class and was merged without human approval, so the choice is visible in history rather than implied by its absence.
+
+Where a human reviewer is available, these classes take human approval and the additions above do not substitute for it. Adopters who follow the discipline understand they are trading the remaining failure modes for the speed of solo work. When a human reviewer onboards, the standards' "Require at least 1 approval" rule re-engages and AI review becomes complementary.
 
 [`process/git-branching-strategy.md`](./git-branching-strategy.md) carries a one-line note in its branch protection block pointing at this discipline.
 
