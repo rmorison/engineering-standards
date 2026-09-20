@@ -305,6 +305,8 @@ Two of these gates need care, for reasons this repository has already paid for.
 
 Anchor links are not verified by CI. `scripts/check-docs.mjs:117` splits the fragment off and checks only the file part, so a link to `#label-strategy` passes whether or not that heading exists. Every anchor added by this work is checked by hand, or the heading text is left unchanged.
 
+One trap specific to U6. `docs/experiments/` will not exist on disk when this work declares it, and the link check resolves a relative target with `existsSync`. Write the path as a code span, not a markdown link, in every document U6 touches. `docs/README.md:10` is the backticked "may be added when the relevant content exists" list and is safe; the linked Contents list just above it is not. The same applies to the rewrite of `process/git-branching-strategy.md:262`.
+
 The label and commit sweeps are the kind of check that reports success by finding nothing, which is the failure mode `docs/solutions/best-practices/prove-a-check-fails-before-trusting-it-passes.md` documents. Before trusting a clean sweep, confirm the pattern matches a known instance. Labels appear both backticked in prose and unbackticked inside fenced examples, at `process/issue-tracking.md:65` and `:121`, so a pattern that only matches backticked names will report clean while missing them.
 
 ---
