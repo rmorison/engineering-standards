@@ -71,6 +71,7 @@ docs/
 │   ├── strategic-vision.md
 │   ├── concepts/{feature}.md
 │   └── features/{feature}.md
+├── experiments/   (experiment and spike briefs)
 └── engineering/
     ├── designs/{feature}.md
     └── adr/{number}-{title}.md

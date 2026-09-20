@@ -117,7 +117,7 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 - Individual commit messages are preserved in the squashed commit body
 - The PR title becomes the final commit message summary
 - Write clear, incremental commits during development for your own tracking
-- Write the PR title to the commit format above, since it becomes the commit message in `main`
+- Write the PR title to the format in [Commit Messages](#commit-messages), since it becomes the commit message in `main`
 
 ---
 
@@ -127,12 +127,15 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 
 ```
 <type>: <summary in present tense>
-<type>(<scope>): <summary in present tense>
 
 [optional body: context, reasoning, references]
 ```
 
-Scope is optional. Both forms are valid; use a scope when it tells the reader something the summary does not.
+Scope is optional. When it tells the reader something the summary does not, add it to the type:
+
+```
+<type>(<scope>): <summary in present tense>
+```
 
 ### Types
 
@@ -169,7 +172,7 @@ Fixes: #42
 ### Guidelines
 
 - Use present tense: "add feature" not "added feature"
-- Keep the whole first line to 72 characters or fewer, counting any `type(scope): ` prefix. That is `gitlint`'s default `title-max-length` and sits inside the Linux kernel's 70-75 range for a patch summary. Git's own 50 is a soft limit for a bare summary with no prefix, and in the widely cited 50/72 pair the 72 is the body wrap width, not a subject limit
+- Keep the whole first line to 72 characters or fewer, counting any `type(scope): ` prefix. That is `gitlint`'s default `title-max-length` and sits inside the Linux kernel's 70-75 range for a patch summary. Git's own documentation suggests 50 for the whole summary line; this standard relaxes that to 72 to leave room for the type prefix. Note that in the widely cited 50/72 pair the 72 is the body wrap width, not a subject limit
 - Reference issue number and specs when applicable
 - Explain why, not what (code shows what)
 
@@ -181,7 +184,7 @@ See [Conventional Commits](https://www.conventionalcommits.org) for more details
 
 ### PR Title
 
-A PR title must satisfy [Commit Messages](#commit-messages) above. Squash and merge is the recommended default, and the PR title becomes the commit subject on `main`, so the two cannot disagree:
+A PR title must satisfy [Commit Messages](#commit-messages) above. Squash and merge is the recommended default, and GitHub builds the squash subject from the PR title, appending ` (#<number>)` to it, so a PR title that ignores the commit format lands on `main` as a commit that violates it:
 - ✅ `feat: add user notification preferences UI`
 - ✅ `fix: prevent login timeout on slow connections`
 - ❌ `Add user notification preferences UI` (no type prefix)
@@ -266,7 +269,7 @@ Maintain `CHANGELOG.md` or use [GitHub Releases](https://docs.github.com/en/repo
 2. Document in `docs/experiments/feature-name.md`, the location [`process/documentation-standards.md`](./documentation-standards.md#optional-directories-add-as-needed) declares
 3. Develop on branch, timebox the exploration
 4. **If successful**: Clean up, merge to `main`
-5. **If unsuccessful**: Document findings in issue, close without merging
+5. **If unsuccessful**: Record findings in the brief, close the issue without merging
 
 ---
 
