@@ -92,32 +92,55 @@ rm -rf process/plans
 ```
 
 The fix matches repo-relative paths, and the same probe now fails as it should. See
-`scripts/check-docs.mjs:26-41`, where the comment records why these are paths and not names.
+`scripts/check-docs.mjs:29-41`, where the comment records why these are paths and not names.
 
 The `printf` above is split so the probe link is not literal markdown. Writing this document
 surfaced a fourth instance of the same problem: the link check reads every line of every file,
 including fenced code blocks, so it cannot distinguish an example of a broken link from a
-broken link. Check 4 in the same file tracks fences; check 2 does not.
+broken link. Check 4 in the same file tracks fences; check 2 does not. That is still true of
+the check today; it is recorded here rather than fixed, because fixing it is a code change.
 
-### `git check-ignore` exits 0 for both answers
+### `git check-ignore -v` exits 0 for both answers
 
-Verifying a `.gitignore` negation with `git check-ignore` produced the wrong conclusion:
-the exception looked broken when it had worked. `check-ignore` exits `0` when a path matches
-*any* pattern, and a negation is a pattern:
+Verifying the `.gitignore` negation produced the wrong conclusion: the exception looked
+broken when it had worked. The cause is worth knowing precisely, because the flag added to
+get *more* information is what removed the answer.
+
+Plain `check-ignore` discriminates correctly. In a minimal repository with
+`package-lock.json` ignored and `!scripts/package-lock.json` negating it, both files
+untracked:
 
 ```
-$ git check-ignore -v scripts/package-lock.json   # NOT ignored (negated)
+$ git check-ignore scripts/package-lock.json   # negated, so not ignored
+exit=1
+
+$ git check-ignore package-lock.json           # ignored
+package-lock.json
+exit=0
+```
+
+Add `-v` to see *which* pattern matched, and exit `0` widens to mean "matched some pattern",
+negations included:
+
+```
+$ git check-ignore -v scripts/package-lock.json
 .gitignore:2:!scripts/package-lock.json	scripts/package-lock.json
 exit=0
 
-$ git check-ignore -v package-lock.json           # genuinely ignored
+$ git check-ignore -v package-lock.json
 .gitignore:1:package-lock.json	package-lock.json
 exit=0
 ```
 
 The `-v` output does disclose the difference, in the leading `!`. The exit code does not.
 `git add --dry-run` answers the question that was actually being asked, and its exit codes
-differ: `0` for the tracked-able path, `1` for the ignored one.
+differ in that same minimal repository: `0` for the tracked-able path, `1` for the ignored
+one.
+
+The transcripts above are a minimal reproduction, not this repository. Reproducing them here
+needs `--no-index`, because `scripts/package-lock.json` is now tracked and `check-ignore`
+skips tracked paths entirely, exiting `1` whatever the patterns say. That is a third way for
+the same command to hand back a confident and misleading answer.
 
 ### A pin that was declared but not installed
 
