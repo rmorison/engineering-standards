@@ -349,7 +349,7 @@ Why top-level `archive/` and not `ai/archive/`: agents that recursively load `ai
 
 Banner for each archived file (relative path `../docs/engineering/adr/...` — files are 1 level deep under archive/):
 ```
-> **Implementation strategy superseded by [ADR-0001: Compound Engineering Integration](../docs/engineering/adr/0001-compound-engineering-integration.md).**
+> **Implementation strategy superseded by [ADR-0001: Six-Layer AI Architecture](../engineering/adr/0001-six-layer-ai-architecture.md).**
 >
 > This document analyzed agent-native principles and proposed building these abstractions in this repo. We instead adopted the 4-layer AI architecture (PRs #16/#19/#21) plus [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) as the deep specialization of Layers 2 and 3. Kept here as the evaluative framework that informed the layering decision — the analysis remains the lens for re-evaluating the architecture if circumstances change. See `process/compound-engineering-integration.md` for the current operational doc.
 ```

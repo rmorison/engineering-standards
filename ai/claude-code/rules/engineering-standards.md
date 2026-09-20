@@ -12,7 +12,7 @@ Follow the spec-driven workflow: **Intent → Spec → Plan → Execute → Vali
 - Break work into small, reviewable increments
 - Validate each increment against the spec before moving on
 
-Full workflow: [process/feature-development-workflow.md](../../process/feature-development-workflow.md)
+Full workflow: [process/feature-development-workflow.md](../../../process/feature-development-workflow.md)
 
 ## Documentation
 
@@ -36,9 +36,9 @@ docs/
     └── adr/{number}-{title}.md
 ```
 
-When compound-engineering is in use, additional artifact paths apply (`docs/plans/`, `docs/solutions/`, `docs/ideation/`, and legacy `docs/brainstorms/`). See [process/compound-engineering-integration.md](../../process/compound-engineering-integration.md) for the full path mapping and precedence rules.
+When compound-engineering is in use, additional artifact paths apply (`docs/plans/`, `docs/solutions/`, `docs/ideation/`, and legacy `docs/brainstorms/`). See [process/compound-engineering-integration.md](../../../process/compound-engineering-integration.md) for the full path mapping and precedence rules.
 
-Full standard: [process/documentation-standards.md](../../process/documentation-standards.md)
+Full standard: [process/documentation-standards.md](../../../process/documentation-standards.md)
 
 ## Git Conventions
 
@@ -48,7 +48,7 @@ Full standard: [process/documentation-standards.md](../../process/documentation-
 - **PRs**: Small, focused, one feature/fix per branch
 - **Versioning**: Semantic versioning (vMAJOR.MINOR.PATCH)
 
-Full strategy: [process/git-branching-strategy.md](../../process/git-branching-strategy.md). When CE is in use: [process/compound-engineering-integration.md](../../process/compound-engineering-integration.md).
+Full strategy: [process/git-branching-strategy.md](../../../process/git-branching-strategy.md). When CE is in use: [process/compound-engineering-integration.md](../../../process/compound-engineering-integration.md).
 
 ## Code Quality Principles
 
@@ -58,4 +58,4 @@ Full strategy: [process/git-branching-strategy.md](../../process/git-branching-s
 - Don't cross module boundaries for quick fixes — raise for discussion
 - Validate after every meaningful change
 
-Language-specific standards: [code/](../../code/)
+Language-specific standards: [code/](../../../code/)

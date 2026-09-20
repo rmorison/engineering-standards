@@ -1,0 +1,40 @@
+name: Documentation checks
+
+# This repository is documentation, so Markdown defects are production defects.
+# The checks in scripts/check-docs.mjs each exist because the defect they look
+# for reached the default branch and was found by eye.
+on:
+  pull_request:
+    paths:
+      - '**/*.md'
+      - 'scripts/check-docs.mjs'
+      - 'scripts/package.json'
+      - '.github/workflows/docs.yml'
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - 'scripts/check-docs.mjs'
+      - 'scripts/package.json'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+jobs:
+  check-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Versions are pinned exactly in scripts/package.json. The mermaid pin is
+      # load-bearing: the point of the check is to reproduce the parser that
+      # rejects a diagram, so it must not float with the latest release.
+      - name: Install check dependencies
+        working-directory: scripts
+        run: npm install --no-audit --no-fund
+
+      - name: Check documentation
+        run: node scripts/check-docs.mjs

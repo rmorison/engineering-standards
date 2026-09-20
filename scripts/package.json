@@ -1,0 +1,13 @@
+{
+  "name": "engineering-standards-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Tooling for the documentation checks in .github/workflows/docs.yml. Not published.",
+  "scripts": {
+    "check-docs": "node check-docs.mjs"
+  },
+  "dependencies": {
+    "jsdom": "30.1.0",
+    "mermaid": "11.17.2"
+  }
+}
