@@ -252,7 +252,7 @@ For very small features (1-2 points), a detailed PR description may suffice:
 Use judgment - if the feature needs stakeholder review or has UI implications, write a lightweight spec.
 
 ### Experiments or Spikes
-For exploratory technical work, write a lightweight experiment brief:
+For exploratory technical work, write a lightweight experiment brief in `docs/experiments/`:
 - **Question**: What are we trying to learn?
 - **Approach**: How will we explore this?
 - **Success**: What outcome answers the question?

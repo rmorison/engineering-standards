@@ -7,4 +7,4 @@ This directory holds repository documentation per [`process/documentation-standa
 - **[`engineering/`](./engineering/)** — Architecture decision records, technical design documents
 - **[`plans/`](./plans/)** — Unified plan artifacts (compound-engineering output: `ce-brainstorm` writes requirements-only plans here, `ce-plan` implementation-ready ones)
 
-Other top-level subdirectories (`product/`, `operations/`, `architecture/`) may be added when the relevant content exists. See `process/documentation-standards.md` for the full directory taxonomy.
+Other top-level subdirectories (`product/`, `operations/`, `architecture/`, `experiments/`) may be added when the relevant content exists. See `process/documentation-standards.md` for the full directory taxonomy.

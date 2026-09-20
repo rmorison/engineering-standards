@@ -67,7 +67,7 @@ gitGraph
 
 **How to create**: Use GitHub's "Create a branch" feature directly from the issue
 
-**Type classification**: Use issue labels (`feature`, `bug`, `enhancement`, `documentation`, `refactor`, etc.) instead of branch name prefixes
+**Type classification**: Use issue labels instead of branch name prefixes. [`process/issue-tracking.md`](./issue-tracking.md#label-strategy) defines the set. `feature` and `refactor` are not in it: use `enhancement` and `tech-debt`.
 
 **Lifecycle**:
 1. Create issue, assign labels
@@ -115,9 +115,9 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 
 **Note on squash merging**: When you squash and merge, all individual commits on the branch are combined into a single commit. This means:
 - Individual commit messages are preserved in the squashed commit body
-- The PR title becomes the final commit message summary
+- The PR title is what GitHub builds the final commit message summary from (see [PR Title](#pr-title))
 - Write clear, incremental commits during development for your own tracking
-- Write a clear PR title since it becomes the commit message in `main`
+- Write the PR title to the format in [Commit Messages](#commit-messages); [PR Title](#pr-title) covers exactly how it reaches `main`
 
 ---
 
@@ -129,6 +129,12 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 <type>: <summary in present tense>
 
 [optional body: context, reasoning, references]
+```
+
+Scope is optional. When it tells the reader something the summary does not, add it to the type:
+
+```
+<type>(<scope>): <summary in present tense>
 ```
 
 ### Types
@@ -166,7 +172,8 @@ Fixes: #42
 ### Guidelines
 
 - Use present tense: "add feature" not "added feature"
-- Keep first line ≤50 chars
+- Keep the whole first line to 72 characters or fewer, counting any `type(scope): ` prefix. That is [`gitlint`](https://jorisroovers.com/gitlint/latest/rules/builtin_rules/#t1-title-max-length)'s default `title-max-length`, and it sits under the [Linux kernel](https://www.kernel.org/doc/html/latest/process/submitting-patches.html)'s ceiling of no more than 70-75 characters for a patch summary. Git's own documentation suggests 50 for the whole summary line; this standard relaxes that to 72 to leave room for the type prefix. Note that in the widely cited 50/72 pair the 72 is the body wrap width, not a subject limit
+- The limit applies to the subject as authored. GitHub appends ` (#<number>)` when it squashes, and that suffix is not counted against it
 - Reference issue number and specs when applicable
 - Explain why, not what (code shows what)
 
@@ -178,10 +185,11 @@ See [Conventional Commits](https://www.conventionalcommits.org) for more details
 
 ### PR Title
 
-Use the issue title or a clear summary of the change:
-- ✅ `Add user notification preferences UI`
-- ✅ `Fix login timeout on slow connections`
-- ❌ `Updates` (too vague)
+A PR title must satisfy [Commit Messages](#commit-messages) above. Squash and merge is the recommended default, and GitHub builds the squash subject from the PR title, appending ` (#<number>)` to it, so a PR title that ignores the commit format lands on `main` as a commit that violates it:
+- ✅ `feat: add user notification preferences UI`
+- ✅ `fix: prevent login timeout on slow connections`
+- ❌ `Add user notification preferences UI` (no type prefix)
+- ❌ `Updates` (too vague, and no type prefix)
 
 ### PR Description
 
@@ -240,7 +248,7 @@ Maintain `CHANGELOG.md` or use [GitHub Releases](https://docs.github.com/en/repo
 
 ### Hotfix for Production Bug
 
-1. Create urgent issue with `bug` and `priority:high` labels
+1. Create urgent issue with `bug` and `priority:high` labels (defined in [`process/issue-tracking.md`](./issue-tracking.md#label-strategy))
 2. Branch from `main`: `45-fix-critical-auth-bug`
 3. Fix with minimal changes, add test
 4. Expedited PR review and merge
@@ -258,11 +266,11 @@ Maintain `CHANGELOG.md` or use [GitHub Releases](https://docs.github.com/en/repo
 
 ### Experimental Work
 
-1. Create issue labeled `experiment` or `spike`
-2. Document in `docs/experiments/feature-name.md`
+1. Create issue labeled `spike` (defined in [`process/issue-tracking.md`](./issue-tracking.md#label-strategy))
+2. Document in `docs/experiments/feature-name.md`, the location [`process/documentation-standards.md`](./documentation-standards.md#optional-directories-add-as-needed) declares
 3. Develop on branch, timebox the exploration
 4. **If successful**: Clean up, merge to `main`
-5. **If unsuccessful**: Document findings in issue, close without merging
+5. **If unsuccessful**: Record findings in the brief, close the issue without merging
 
 ---
 

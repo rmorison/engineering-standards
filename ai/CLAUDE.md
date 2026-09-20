@@ -47,9 +47,8 @@ This file holds Layer 1-style quick-reference guidance. Multi-mode rules (standa
 📄 [Full workflow](../process/feature-development-workflow.md) | [Planning standards](../process/project-planning-standards.md) | [CE integration](../process/compound-engineering-integration.md)
 
 ### Issue Organization
-- **Milestones**: Initiatives/releases (e.g., `v2.0-api-redesign`)
-- **Epics**: `[EPIC] Feature Theme` with sub-issues, labels: `epic`, `epic-{slug}`
-- **Implementation Issues**: Point estimates (`points-1` to `points-13`), epic label
+
+Three tiers: milestones for initiatives, epics carrying native sub-issues, and implementation issues. Every label definition, and which labels apply at a given scale and toolchain, lives in one table at [`process/issue-tracking.md`](../process/issue-tracking.md#label-strategy). Do not restate them here.
 
 📄 [Issue tracking details](../process/issue-tracking.md)
 
@@ -57,17 +56,11 @@ This file holds Layer 1-style quick-reference guidance. Multi-mode rules (standa
 - **Branch naming**:
   - **Standards mode**: `{issue-number}-{slugified-title}` (use GitHub's auto-generated names)
   - **When CE is in use**: also accepts topic-style `feat/...` / `fix/...` for `lfg` and `ce-work` autonomous flows without a parent issue. File an issue retroactively if review surfaces something worth tracking.
-- **Commit format**: `type(scope): description` (conventional commits)
+- **Commit format**: conventional. [`process/git-branching-strategy.md`](../process/git-branching-strategy.md#commit-messages) owns the format, the scope policy and the subject limit
 - **Main branch**: Always deployable, all work via PRs
 - **Versioning**: Semantic versioning (vMAJOR.MINOR.PATCH)
 
 📄 [Git branching strategy](../process/git-branching-strategy.md) | [CE integration](../process/compound-engineering-integration.md)
-
-### Common Labels
-- **Category**: `enhancement`, `bug`, `tech-debt`, `documentation`, `testing`
-- **Epic**: `epic`, `epic-{theme-slug}`
-- **Status**: `blocked`
-- **Points**: `points-1`, `points-2`, `points-3`, `points-5`, `points-8`, `points-13` (Fibonacci, 2 pts ≈ 1 day)
 
 ### Documentation Structure
 
@@ -78,6 +71,7 @@ docs/
 │   ├── strategic-vision.md
 │   ├── concepts/{feature}.md
 │   └── features/{feature}.md
+├── experiments/   (experiment and spike briefs)
 └── engineering/
     ├── designs/{feature}.md
     └── adr/{number}-{title}.md

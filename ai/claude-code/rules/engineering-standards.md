@@ -44,7 +44,7 @@ Full standard: [process/documentation-standards.md](../../../process/documentati
 
 - **Branching**: GitHub Flow — `main` is always deployable, all work in feature branches
 - **Branch names**: `{issue-number}-{slugified-title}` (use GitHub auto-generated names). When CE is in use, `lfg`/`ce-work` autonomous flows may produce topic-style branches (`feat/...`, `fix/...`) without a parent issue; see the integration doc.
-- **Commits**: Conventional format — `type(scope): description`
+- **Commits**: conventional format. [process/git-branching-strategy.md](../../../process/git-branching-strategy.md#commit-messages) owns the format, the scope policy and the subject limit
 - **PRs**: Small, focused, one feature/fix per branch
 - **Versioning**: Semantic versioning (vMAJOR.MINOR.PATCH)
 

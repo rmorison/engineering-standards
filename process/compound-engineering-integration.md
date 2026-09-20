@@ -57,6 +57,7 @@ CE-using projects produce artifacts at paths the standards' `docs/` taxonomy doe
 | `docs/engineering/adr/` | shared | Human-authored ADRs. Path identical in standards-mode and CE-mode. |
 | `docs/engineering/designs/` | standards | Human-authored technical design documents. |
 | `docs/product/` | standards | Human-authored product concepts and feature specs. |
+| `docs/experiments/` | standards | Human-authored experiment and spike briefs. |
 
 **When in doubt:** the path in this table is the answer. A `provenance:` frontmatter note overrides it for the rare file that belongs to the other side of the boundary; absent that note, the path governs regardless of who last edited the file.
 
@@ -95,9 +96,9 @@ Adopt solo + AI mode now; introduce epics and milestones when a second contribut
 A minimal pattern that has worked in real use:
 
 - **One umbrella epic per multi-phase plan** (label: `epic`). The epic links to the plan; the plan is the granular tracker via U-IDs. Do not pre-allocate per-U sub-issues.
-- **Sub-issues are reactive**, filed when needed: `bug`, `from-review` (review residuals), `from-deferred-q` (Open Question activations), `tech-debt`, `enhancement`. Add `blocked` when waiting on a dependency.
+- **Sub-issues are reactive**, filed when needed: `bug`, `from-review`, `from-deferred-q`, `tech-debt`, `enhancement`. Add `blocked` when waiting on a dependency. [`process/issue-tracking.md`](./issue-tracking.md#label-strategy) defines each of these, including what `from-review` and `from-deferred-q` mean; this list says when to file one.
 - **Branch naming** follows § 4 below.
-- **Skip:** milestones, point/size labels, theme labels. Use the plan, not GitHub metadata, to express phase + scope.
+- **Skip:** milestones, point/size labels, theme labels, which are exactly the families [`process/issue-tracking.md`](./issue-tracking.md#label-strategy) marks team-scale. Use the plan, not GitHub metadata, to express phase + scope.
 
 ---
 

@@ -1,8 +1,13 @@
 # Issue Tracking and Epic Organization
 
-**Version**: 2.0
-**Date**: 2026-01-01
+**Version**: 2.1
+**Date**: 2026-09-20
 **Status**: Active
+
+**Changes in v2.1**:
+- Label Strategy is now the single owner of every label definition, rendered as one table with a Mode column
+- Added the priority tier, `spike`, and the CE-mode reactive sub-issue labels
+- Marked the team-scale label families, and named `feature`, `refactor` and `experiment` as deliberately not used
 
 **Changes in v2.0**:
 - Adopted GitHub's native sub-issue feature for epic tracking
@@ -54,11 +59,11 @@ gh api repos/owner/repo/milestones \
 
 **Structure**:
 - Issue title: `[EPIC] Feature Theme Name`
-- Labels: `epic`, `epic-{theme-name}`, milestone label
+- Labels: `epic`, plus `epic-{theme-slug}` and the milestone label at team scale (see [Label Strategy](#label-strategy))
 - Body: Overview, scope, acceptance criteria, dependencies, notes
 - Sub-issues: Use GitHub's native sub-issue feature (automatic progress tracking)
 
-**Example**:
+**Example** at team scale, so it carries the theme and milestone labels:
 ```markdown
 Title: [EPIC] Authentication System Overhaul
 
@@ -111,10 +116,10 @@ None
 **Structure**:
 - Standard issue format
 - Reference epic in description: `Part of epic #42`
-- Labels: category label, epic-specific label, milestone label
-- Point estimate using `points-N` label
+- Labels: a category label, plus the epic and milestone labels at team scale (see [Label Strategy](#label-strategy))
+- Point estimate using a `points-` label at team scale. Solo + AI work expresses scope through the plan's U-IDs instead
 
-**Example**:
+**Example** at team scale, so it carries the theme, milestone and point labels:
 ```markdown
 Title: Implement JWT token generation and validation
 
@@ -143,31 +148,30 @@ protected API endpoints.
 
 ## Label Strategy
 
-### Category Labels
-- `enhancement`: New features or improvements
-- `bug`: Bug fixes
-- `tech-debt`: Technical debt work
-- `documentation`: Documentation updates
-- `testing`: Test additions or improvements
+This section is the only place a label is defined. Other documents tell you when to apply a label and link here for its meaning. A label named anywhere in `process/` or `ai/` that is not in this table is a defect in that document, not a label you are missing.
 
-### Epic Labels
-- `epic`: Applied to epic tracking issues
-- `epic-{theme-name}`: Applied to epic AND all child issues for filtering
-  - Example: `epic-auth-system`
-  - Example: `epic-api-redesign`
+**Reading the Mode column.** Two independent axes decide whether a label is yours: **scale** (team-scale, or solo) and **toolchain** (CE-mode, or standards-only). `both` means create it at any scale in either mode. `team-scale` means the three-tier hierarchy above uses it and solo-scale work skips it, at either toolchain. [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 3 prescribes the same skip for CE-mode solo work. `CE-mode` means the label exists only where compound-engineering is in use.
 
-### Milestone Labels
-- `v1.0-ga`: v1.0 release work
-- `v2.0-api-redesign`: v2.0 initiative work
-- Create as needed for major initiatives
+| Label | Meaning | Mode |
+|---|---|---|
+| `enhancement` | New features or improvements | both |
+| `bug` | Bug fixes | both |
+| `tech-debt` | Technical debt work, including refactors | both |
+| `documentation` | Documentation updates | both |
+| `testing` | Test additions or improvements | both |
+| `spike` | Timeboxed exploratory work, per [`process/git-branching-strategy.md`](./git-branching-strategy.md#experimental-work) | both |
+| `priority:high` | Blocks other work, or a defect in production | both |
+| `priority:medium` | Normal scheduling priority | both |
+| `priority:low` | Worth doing, under no schedule pressure | both |
+| `blocked` | Cannot proceed due to an external dependency | both |
+| `epic` | Applied to an epic tracking issue. At solo scale, one umbrella epic per multi-phase plan | both |
+| `epic-{theme-slug}` | Applied to the epic and every child issue, for filtering. Lowercase, hyphen-separated, under 30 characters: `epic-auth-system`, `epic-api-redesign` | team-scale |
+| `v1.0-ga`, `v2.0-api-redesign` | Milestone labels mirroring the GitHub Milestone that defines an initiative. Create as needed | team-scale |
+| `points-1`, `points-2`, `points-3`, `points-5`, `points-8`, `points-13` | Fibonacci estimate where 2 points is roughly 1 day. See [Project Planning Standards](./project-planning-standards.md#story-point-estimation) | team-scale |
+| `from-review` | Sub-issue filed for a review residual | CE-mode |
+| `from-deferred-q` | Sub-issue filed when an Open Question activates | CE-mode |
 
-### Estimation Labels
-- `points-1`, `points-2`, `points-3`, `points-5`, `points-8`, `points-13`
-- Fibonacci scale where 2 points ≈ 1 day of work
-- See [Project Planning Standards](./project-planning-standards.md#story-point-estimation) for detailed estimation guidance
-
-### Status Labels
-- `blocked`: Cannot proceed due to external dependency
+**Deliberately not used.** Three labels appear in older guidance and are not part of this set. Use `enhancement` rather than `feature`. Use `tech-debt` rather than `refactor`, which is a commit type rather than an issue label (see [`process/git-branching-strategy.md`](./git-branching-strategy.md#types)). Use `spike` rather than `experiment`.
 
 ## Traceability Best Practices
 
@@ -184,13 +188,15 @@ protected API endpoints.
 
 ### 2. Consistent Labeling
 
-Apply both generic and specific labels for bulk filtering:
+This practice is team-scale: it depends on the theme and milestone labels that [Label Strategy](#label-strategy) marks team-scale only. Apply both generic and specific labels for bulk filtering:
 - Epic issue: `epic`, `epic-auth-system`, `v2.0-api-redesign`
 - Child issues: `enhancement`, `epic-auth-system`, `v2.0-api-redesign`
 
 **Why labels still matter**: Enable bulk queries and backward compatibility until GitHub CLI fully supports sub-issue queries.
 
 ### 3. Search Queries
+
+These examples filter on team-scale labels. At solo + AI scale the plan is the granular tracker, so the equivalent query is reading the plan's units.
 
 ```bash
 # View epic with progress
@@ -208,7 +214,7 @@ gh issue list --label epic,blocked
 
 ## Epic Issue Template
 
-Use this template when creating epic issues:
+Use this template when creating epic issues at team scale. The `epic-{theme-slug}` and milestone labels it carries are team-scale only; see [Label Strategy](#label-strategy).
 
 ```markdown
 ---
@@ -259,7 +265,7 @@ None
      -f description="API redesign initiative"
    ```
 
-2. **Create epic-specific label**: Label format `epic-{theme-slug}` (lowercase, hyphens, <30 chars), use for epic and all sub-issues
+2. **Create epic-specific label**: `epic-{theme-slug}`, whose format [Label Strategy](#label-strategy) defines. Use it for the epic and all sub-issues
 
 3. **Create epic issue**: Use template above, apply `epic` and `epic-{theme-slug}` labels
 
@@ -400,8 +406,8 @@ Follow these heuristics for appropriate epic sizing:
 
 ## References
 
-- **Git Branching Strategy**: Use `{issue-number}-{slugified-title}` branch names (see `git-branching-strategy.md`)
-- **Commit Messages**: Use conventional commits format (see `git-branching-strategy.md`)
-- **Project Planning**: See `project-planning-standards.md` for estimation guidance
+- **Git Branching Strategy**: Use `{issue-number}-{slugified-title}` branch names (see [`process/git-branching-strategy.md`](./git-branching-strategy.md#feature-branches))
+- **Commit Messages**: see [`process/git-branching-strategy.md`](./git-branching-strategy.md#commit-messages), which owns the commit format
+- **Project Planning**: See [`process/project-planning-standards.md`](./project-planning-standards.md#story-point-estimation) for estimation guidance
 - **GitHub Sub-Issues Documentation**: https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues
 - **GitHub Sub-Issues Blog Post**: https://github.blog/engineering/architecture-optimization/introducing-sub-issues-enhancing-issue-management-on-github/
