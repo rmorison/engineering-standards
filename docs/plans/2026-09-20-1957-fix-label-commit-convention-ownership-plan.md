@@ -227,7 +227,7 @@ U1 before U2 and U3, because both point at what U1 writes. U4 before U5, for the
   3. Keep the instruction at `:243` to apply `priority:high`, now that it is defined, and link on first use. Rewrite `:261` so it names only `spike`, dropping `experiment`, mirroring step 2's removal of `feature` and `refactor` from `:70`.
   4. In `process/compound-engineering-integration.md:98`, keep the policy about when to file each reactive sub-issue and link for the definitions, per KTD4. Reword `:100` so the skip list reads as the strategy's team-scale tagging rather than a deviation from a default.
   5. Adjust `README.md:79`, which restates the five subsection names that U1 replaces with one table.
-- Patterns to follow: the link form at `process/issue-tracking.md:19` and `:167`, a backticked path as link text with a relative target and an anchor.
+- Patterns to follow: write pointers as ``[`process/issue-tracking.md`](./issue-tracking.md#label-strategy)``. No link in the live tree combines both halves yet: `process/issue-tracking.md:19` supplies the backticked-path link text without a fragment, and `:167` supplies the fragment with prose link text.
 - Test scenarios:
   - `ai/CLAUDE.md` contains no label definition, and the pointer that replaces the two deleted blocks resolves.
   - `process/git-branching-strategy.md:70` no longer names `feature` or `refactor`, and `:261` no longer names `experiment`.
