@@ -51,11 +51,12 @@ For commits, `ai/claude-code/rules/engineering-standards.md:47` says `type(scope
 
 - R1. `process/issue-tracking.md` § Label Strategy is the only place in live documentation where a GitHub label is defined. Other documents may instruct a reader to apply a label and must link to § Label Strategy for its definition.
 - R2. Every label named anywhere in live documentation appears in § Label Strategy: the seven currently orphaned (`feature`, `refactor`, `priority:high`, `experiment`, `spike`, `from-review`, `from-deferred-q`) are each either defined there or removed from the document that names them.
-- R3. Every label defined in § Label Strategy is marked with the mode that uses it: available in both modes, team-scale only, or CE-mode only. The solo skip list at `process/compound-engineering-integration.md:100` becomes a restatement of the strategy's own tagging rather than a deviation from it.
+- R3. Every label defined in § Label Strategy is marked with the mode that uses it. The column resolves against the two axes this repository already runs, scale (team-scale versus solo + AI) and toolchain (CE-mode versus standards-mode), and its values are team-scale, CE-mode, and both, where both means create it at any scale in either mode. The solo skip list at `process/compound-engineering-integration.md:100` becomes a restatement of the strategy's own tagging rather than a deviation from it.
 - R4. The priority tier `priority:high`, `priority:medium`, `priority:low` is defined in § Label Strategy, with the meaning each currently carries in practice.
 - R5. One label covers "new capability". `enhancement` is it, and `feature` is named as not used.
 - R6. `refactor` is not an issue label. It is a commit type, and `tech-debt` is the issue label for that work.
 - R7. `spike` is defined in § Label Strategy and `experiment` is named as not used, matching the tracker, where `spike` is live on #32, #33 and #34.
+- R18. No structure bullet, worked example or search-query example in live documentation prescribes a label tagged team-scale without saying so.
 
 **Experiment artifacts**
 
@@ -69,7 +70,7 @@ For commits, `ai/claude-code/rules/engineering-standards.md:47` says `type(scope
 - R12. The subject-length limit is a single number covering the full header including any `type(scope): ` prefix, with a one-line justification that survives checking.
 - R13. The three documents that restate the commit format (`ai/claude-code/rules/engineering-standards.md:47`, `ai/CLAUDE.md:60`, `templates/.claude/skills/review/SKILL.md:36`) each carry a pointer instead. The third is a review checklist shipped to adopters, so leaving it would have adopters' tooling flag commits that follow the corrected standard.
 - R17. Every worked commit example conforms to the rules it illustrates, including the fenced examples at `process/git-branching-strategy.md:150-155` and `:159-163` and the one at `code/python-standards.md:1684`.
-- R14. The PR-title guidance at `process/git-branching-strategy.md:180-184` is consistent with the commit format, given that the document recommends squash-merge at `:113` and states at `:116-120` that the PR title becomes the commit message on `main`.
+- R14. A PR title satisfies § Commit Messages, because the document recommends squash-merge at `process/git-branching-strategy.md:113` and states at `:116-120` that the PR title becomes the commit subject on `main`. The approved examples at `:180-184` carry a type prefix; the commit format is not relaxed to accommodate them.
 
 **Cross-reference integrity**
 
@@ -94,7 +95,7 @@ Out of scope, and deliberately so:
 
 ### Success Criteria
 
-- A reader who bootstraps a label set from § Label Strategy alone and then reads every other document in `process/` and `ai/` encounters no label they do not have and no instruction to apply one that is not defined.
+- A reader who creates the labels tagged for their own mode, then reads every other document in `process/` and `ai/`, encounters no label definition outside § Label Strategy and no instruction to apply a label outside their mode without a scope qualifier.
 - A reader who writes a commit from `process/git-branching-strategy.md` § Commit Messages alone passes the `templates/.claude/skills/review` checklist.
 - The subject-length number can be defended from a primary source without citing the 50/72 convention, which does not say what the draft in #25 says it says.
 
@@ -196,20 +197,22 @@ U1 before U2 and U3, because both point at what U1 writes. U4 before U5, for the
 ### U2. Reconcile the rest of issue-tracking.md with the mode tags
 
 - Goal: the three-tier hierarchy and its examples stop presenting team-scale metadata as the base structure.
-- Requirements: R3, R16
+- Requirements: R3, R16, R18
 - Dependencies: U1
 - Files: `process/issue-tracking.md`
 - Approach:
   1. Qualify the Tier 2 and Tier 3 structure bullets at `:57` and `:114-115`, which list epic, milestone and `points-N` labels as part of the base structure.
   2. Add a scope qualifier to § Consistent Labeling at `:185-191`, whose stated rationale at `:191` is bulk filtering by epic-theme and milestone labels, and to § Search Queries at `:193-207`, whose three `gh` examples all filter on team-scale families.
-  3. Leave `:359-375` § Epic Size Guidelines alone unless a change is unavoidable. The sentence at `:364` is cited as an argument by `process/compound-engineering-integration.md:125`; changing its wording breaks that argument in another live document.
-  4. Turn the three bare-filename pointers at `:403-405` into relative links.
-  5. Decide whether the version header and changelog at `:3-13` gets a new entry. The file is at version 2.0; `process/git-branching-strategy.md` carries no version header, so the two files do not share a convention.
+  3. Precede the two fenced worked examples at `:63-65` and `:117-121` with the same qualifier used for the structure bullets. Both list team-scale labels (`epic-auth-system`, `v2.0-api-redesign`, `points-5`) and the second doubles as a copy-paste template, so keep the examples intact and qualify them rather than editing the labels out.
+  4. Leave `:359-375` § Epic Size Guidelines alone unless a change is unavoidable. The sentence at `:364` is cited as an argument by `process/compound-engineering-integration.md:125`; changing its wording breaks that argument in another live document.
+  5. Turn the three bare-filename pointers at `:403-405` into relative links.
+  6. Add a changelog entry at `:3-13` following the file's own existing version-header convention. This is housekeeping the file already demands; it is not a decision about whether sibling documents should adopt version headers.
 - Patterns to follow: the CE carve-out banner already at `:19`, which is the file's existing way of marking mode-specific guidance.
 - Test scenarios:
   - Reading `:57` and `:114-115` alone, a solo-mode adopter is not told to apply a label the strategy tags team-scale without a qualifier.
   - The sentence `process/compound-engineering-integration.md:125` argues from is still present at `process/issue-tracking.md:364` with its meaning intact.
   - Each of the three former bare-filename pointers at `:403-405` resolves to an existing file.
+  - The fenced examples at `:63-65` and `:117-121` still read as valid templates, and a solo-mode adopter can tell which of their labels do not apply.
 - Verification: no structure bullet or worked example prescribes a team-scale label without saying so.
 
 ### U3. Point the label restatements at the owner
@@ -240,7 +243,7 @@ U1 before U2 and U3, because both point at what U1 writes. U4 before U5, for the
 - Approach:
   1. Change the format at `:129` to make scope optional, showing both `type(scope): description` and `type: description` as valid.
   2. Replace the 50-character limit at `:169` with 72 for the full header, carrying the one-line justification from KTD2. Do not reproduce #25's justification.
-  3. Resolve the internal inconsistency in R14: `:113` recommends squash-merge and `:116-120` says the PR title becomes the commit message, but the approved PR titles at `:180-184` carry no type prefix, so following them produces commits that violate `:129`.
+  3. Rewrite the approved PR-title examples at `:180-184` to carry a type prefix and fit 72 characters, and state in the PR-title section that a title must satisfy § Commit Messages because squash-merge makes it the subject on `main`. This is the direction R14 fixes: the examples move, not the format. It adds an obligation on every adopter PR, so call it out in the PR body rather than letting it land silently.
   4. Check every worked example against the rules as changed. The two fenced examples at `:150-155` and `:159-163` use `type: summary` with no scope, which stays valid under R11; confirm both fit 72 characters. `code/python-standards.md:1684` uses `git commit -m "feat: initial project setup"`, also valid, so confirm rather than change it.
   5. Check whether `docs/engineering/adr/0001-six-layer-ai-architecture.md:80` is falsified by making scope optional. If it is, append a dated amendment; if not, record that it was checked and leave it. `process/compound-engineering-integration.md:223` forbids editing the body either way.
 - Patterns to follow: the amendment already appended to ADR-0001 by #36, if step 5 needs one.
@@ -249,6 +252,7 @@ U1 before U2 and U3, because both point at what U1 writes. U4 before U5, for the
   - `type: description` and `type(scope): description` are both readable as valid from the section alone.
   - Each worked example in the document satisfies the rules the same document states, per R17.
   - The subject-length justification does not claim 72 comes from the 50/72 convention.
+  - Each approved PR-title example at `:180-184` satisfies § Commit Messages as rewritten, prefix included, within 72 characters.
 - Verification: the format, type vocabulary, tense rule and subject limit each appear exactly once in live documentation.
 
 ### U5. Point the commit-format restatements at the owner
@@ -307,7 +311,7 @@ The label and commit sweeps are the kind of check that reports success by findin
 
 ## Definition of Done
 
-- Every requirement R1 through R17 is satisfied, or explicitly deferred in the PR body with a reason.
+- Every requirement R1 through R18 is satisfied, or explicitly deferred in the PR body with a reason.
 - `node scripts/check-docs.mjs` passes.
 - Both #27 and #25 can be closed by this PR. Its body carries the disposition of each acceptance criterion from both issues.
 - The PR body records the subject-length justification and states that #25's proposed justification was checked and not used, so the next reader does not reintroduce it.
