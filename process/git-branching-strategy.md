@@ -117,7 +117,7 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 - Individual commit messages are preserved in the squashed commit body
 - The PR title becomes the final commit message summary
 - Write clear, incremental commits during development for your own tracking
-- Write a clear PR title since it becomes the commit message in `main`
+- Write the PR title to the commit format above, since it becomes the commit message in `main`
 
 ---
 
@@ -127,9 +127,12 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 
 ```
 <type>: <summary in present tense>
+<type>(<scope>): <summary in present tense>
 
 [optional body: context, reasoning, references]
 ```
+
+Scope is optional. Both forms are valid; use a scope when it tells the reader something the summary does not.
 
 ### Types
 
@@ -166,7 +169,7 @@ Fixes: #42
 ### Guidelines
 
 - Use present tense: "add feature" not "added feature"
-- Keep first line ≤50 chars
+- Keep the whole first line to 72 characters or fewer, counting any `type(scope): ` prefix. That is `gitlint`'s default `title-max-length` and sits inside the Linux kernel's 70-75 range for a patch summary. Git's own 50 is a soft limit for a bare summary with no prefix, and in the widely cited 50/72 pair the 72 is the body wrap width, not a subject limit
 - Reference issue number and specs when applicable
 - Explain why, not what (code shows what)
 
@@ -178,10 +181,11 @@ See [Conventional Commits](https://www.conventionalcommits.org) for more details
 
 ### PR Title
 
-Use the issue title or a clear summary of the change:
-- ✅ `Add user notification preferences UI`
-- ✅ `Fix login timeout on slow connections`
-- ❌ `Updates` (too vague)
+A PR title must satisfy [Commit Messages](#commit-messages) above. Squash and merge is the recommended default, and the PR title becomes the commit subject on `main`, so the two cannot disagree:
+- ✅ `feat: add user notification preferences UI`
+- ✅ `fix: prevent login timeout on slow connections`
+- ❌ `Add user notification preferences UI` (no type prefix)
+- ❌ `Updates` (too vague, and no type prefix)
 
 ### PR Description
 
