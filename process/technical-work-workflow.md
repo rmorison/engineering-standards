@@ -6,6 +6,8 @@
 
 This workflow covers work driven by engineering needs rather than product requirements: bug fixes, technical debt reduction, infrastructure improvements, tooling, and security fixes. While the [Feature Development Workflow](./feature-development-workflow.md) covers feature work driven by product stakeholders, technical work is driven by engineering directives and engineers directly.
 
+> **When compound-engineering is in use**: the critical (P0) severity classes defined below — security breach, data loss, authentication bypass — are load-bearing elsewhere. [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 5 requires a second review pass, no same-session merge, and an explicit note for changes in those classes under the solo AI-review discipline. Editing that list changes which work takes the stricter discipline.
+
 **Key difference**: Technical work optimizes for system quality, maintainability, performance, and reliability rather than user-facing features.
 
 ### Workflow Diagram

@@ -58,17 +58,17 @@ This repository names [compound-engineering](https://github.com/EveryInc/compoun
 
 ## How the layers compose
 
-Pipelines are composed at Layer 2 — a sequence of skill invocations carrying an artifact from discovery to compound output:
+Pipelines are composed at Layer 2 — a sequence of skill invocations carrying an artifact from discovery to compound output. A toolkit names these stages its own way; the shape is what the architecture fixes:
 
 ```
-brainstorm  ──▶  plan  ──▶  work  ──▶  doc-review  ──▶  code-review  ──▶  compound
-                  │           │             │                 │
-                  ▼           ▼             ▼                 ▼
-              (Layer 4   Layer 4       Layer 3            Layer 3
-              references) references)   personas          personas
-                                            │                 │
-                                            └─────────────────┴─▶  Layer 5
-                                                                    compound output
+discovery ──▶ planning ──▶ execution ──▶ refinement ──▶ review ──▶ compounding
+                  │            │              │            │
+                  ▼            ▼              ▼            ▼
+               Layer 4      Layer 4        Layer 3      Layer 3
+             references   references      personas     personas
+                                              │            │
+                                              └────────────┴─▶  Layer 5
+                                                                compound output
 ```
 
 Each Layer 2 skill may dispatch Layer 3 personas (for review-shaped skills), load Layer 4 references as depth grows, and produce Layer 5 output when the work yields a durable learning. Layer 1 rules direct default behavior throughout; Layer 6 hooks enforce mechanical invariants at the shell boundary.

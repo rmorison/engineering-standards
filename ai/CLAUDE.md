@@ -174,10 +174,10 @@ Points are for complexity, not hours. Use for planning, not performance measurem
 
 ## When using compound-engineering
 
-When the [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) (CE) plugin is installed, CE skills and persona reviewers are the canonical realization of Layers 2 and 3 of the AI architecture (see [`ai/claude-code/README.md`](./claude-code/README.md)). CE-mode addendums:
+When the [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) (CE) plugin is installed, CE skills, persona reviewers, reference subtrees and compound artifacts are the canonical realization of Layers 2–5 of the AI architecture (see [`ai/claude-code/README.md`](./claude-code/README.md)). CE-mode addendums:
 
 - **Artifact paths**: CE owns `docs/plans/`, `docs/solutions/`, `docs/ideation/` (and legacy `docs/brainstorms/`); standards conventions own human-authored artifacts. Default: the path decides the owner. Override: `provenance:` frontmatter (`ce-plan` or `hand-authored`).
-- **Branch naming**: standards' `{issue-number}-{slugified-title}` applies when an issue exists; topic-style `feat/...` / `fix/...` is acceptable for `lfg` / `ce-work` autonomous flows without a parent issue.
+- **Branch naming**: standards' `{issue-number}-{slugified-title}` applies when an issue exists **and the branch is created before invoking CE** — CE names branches from the work description and never reads an issue number; topic-style `feat/...` / `fix/...` is acceptable for `lfg` / `ce-work` autonomous flows without a parent issue.
 - **Phase 0 (discovery)**: the requirements-only unified plan `ce-brainstorm` writes under `docs/plans/` IS the discovery artifact for the feature workflow; Phase 1 (Product Concept) is seeded from it.
 - **AI-review**: `ce-code-review` and `ce-doc-review` provide review **discipline** (not an enforced merge gate). Failure modes the discipline doesn't catch are named in [`process/compound-engineering-integration.md`](../process/compound-engineering-integration.md).
 

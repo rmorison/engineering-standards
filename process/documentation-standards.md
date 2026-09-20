@@ -129,6 +129,25 @@ Each `docs/` subdirectory should have a `README.md` that:
 - Links to key documents
 - Provides navigation for new contributors
 
+### Automated Checks
+
+This repository's product is Markdown, so a rendering defect is a production defect. `scripts/check-docs.mjs` runs on every pull request touching a `.md` file, and each check exists because the defect it looks for reached the default branch:
+
+| Check | Catches |
+|-------|---------|
+| Mermaid diagrams parse | A diagram that shows an error box instead of a graph on GitHub |
+| Relative links resolve | A link to a moved or renamed file |
+| No blockquote inside a list item | `- >3 months` renders as a quote block with the `>` swallowed |
+| No unmarked marker lists | Marker-prefixed lines with no list marker collapse into one paragraph |
+
+Run them before pushing:
+
+```bash
+npm ci --prefix scripts && node scripts/check-docs.mjs
+```
+
+The Mermaid check calls mermaid's `parse()` rather than rendering, because the two disagree — the render path accepts diagrams GitHub's parser rejects. Dependencies are pinned and installed from a committed lockfile so the check reproduces one specific parser.
+
 ## Maintenance
 
 ### Review Cycle

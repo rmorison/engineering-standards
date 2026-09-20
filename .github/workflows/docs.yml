@@ -29,12 +29,14 @@ jobs:
         with:
           node-version: '22'
 
-      # Versions are pinned exactly in scripts/package.json. The mermaid pin is
-      # load-bearing: the point of the check is to reproduce the parser that
-      # rejects a diagram, so it must not float with the latest release.
+      # npm ci, not npm install: the mermaid pin is load-bearing, since the
+      # point of the check is to reproduce the parser that rejects a diagram.
+      # Pinning it in package.json alone would still let the transitive tree
+      # resolve fresh on every run, so scripts/package-lock.json is committed
+      # (with a .gitignore exception) and installed from.
       - name: Install check dependencies
         working-directory: scripts
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Check documentation
         run: node scripts/check-docs.mjs

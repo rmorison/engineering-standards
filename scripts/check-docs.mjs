@@ -23,15 +23,22 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERBOSE = process.argv.includes('--verbose');
 
+/** Directory names skipped wherever they appear in the tree. */
+const SKIP_ANYWHERE = new Set(['.git', 'node_modules']);
+
 /**
- * Directories whose contents are not subject to these checks.
+ * Specific directories skipped, as repo-relative paths.
  *
  * `archive/` and `docs/plans/` hold point-in-time artifacts. Plans in
  * particular quote text destined for other files, so their paths are relative
  * to a destination the checker cannot know — checking them reports links that
  * are correct where the text will land.
+ *
+ * These are paths rather than names deliberately: matching on the name alone
+ * would also skip a future `process/plans/` or a `scripts/` directory inside a
+ * template, silently and with nothing in the output saying so.
  */
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'archive', 'scripts', 'plans']);
+const SKIP_PATHS = new Set(['archive', 'docs/plans', 'scripts']);
 
 const failures = [];
 const fail = (file, line, check, message) =>
@@ -42,7 +49,9 @@ async function markdownFiles(dir = REPO_ROOT) {
   const found = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
+      if (SKIP_ANYWHERE.has(entry.name)) continue;
+      const rel = relative(REPO_ROOT, join(dir, entry.name));
+      if (SKIP_PATHS.has(rel)) continue;
       found.push(...(await markdownFiles(join(dir, entry.name))));
     } else if (entry.name.endsWith('.md')) {
       found.push(join(dir, entry.name));

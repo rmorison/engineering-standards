@@ -58,6 +58,9 @@ _site/
 # Node (if using any doc tooling)
 node_modules/
 package-lock.json
+# Exception: the doc-check lockfile is committed so CI reproduces the exact
+# parser the mermaid check exists to test against. See .github/workflows/docs.yml.
+!scripts/package-lock.json
 yarn.lock
 
 # Python (if using mkdocs or similar)

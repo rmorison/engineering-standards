@@ -13,6 +13,7 @@ This repository defines engineering standards for building software. The standar
 - **[ai/](./ai/)** - AI assistant configuration and Claude Code integration ([details](./ai/claude-code/README.md))
 - **[templates/](./templates/)** - Project starter kit with Claude Code configuration (`.claude/` directory template)
 - **[agent-transcripts/](./agent-transcripts/)** - Historical development logs
+- **[scripts/](./scripts/)** - Documentation checks run in CI ([how to run them locally](./process/documentation-standards.md#automated-checks))
 
 ## Process Standards
 
@@ -105,14 +106,16 @@ These transcripts provide historical context and reasoning behind the standards,
 
 Defines how AI tooling integrates with software engineering workflows. The architecture is the **abstraction**; specific toolkits — most concretely [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) (CE) for [Claude Code](https://claude.ai/code) — fill the layers as **canonical realizations**. Vendor-neutral baselines live in this repository for projects that don't adopt a specific toolkit.
 
-| # | Layer | Principle | Vendor-neutral baseline | Canonical realization (CE) |
-|---|-------|-----------|-------------------------|----------------------------|
-| 1 | **Rules** | Persistence — always-loaded session context | `ai/claude-code/rules/` | *(not provided by CE)* |
-| 2 | **Workflow Skills** | Composability — multi-step orchestrators | `templates/.claude/skills/` | `/ce-brainstorm`, `/ce-plan`, `/ce-work`, `/ce-doc-review`, `/ce-code-review`, `/ce-debug`, `/ce-compound`, `lfg`, … |
-| 3 | **Persona Agents** | Perspective — multiple expertises | `templates/.claude/agents/` | ~20 CE persona reviewers (coherence, feasibility, adversarial, security, …) |
-| 4 | **References** | Progressivity — context grows with workflow depth | *(none yet)* | CE skills' `references/*.md` subtrees |
-| 5 | **Compound / Learnings** | Compounding — institutional knowledge accumulates | *(none yet)* | `docs/solutions/`, `ce-compound`, `ce-compound-refresh` |
-| 6 | **Hooks** | Determinism — non-AI enforcement at zero context cost | `templates/.claude/hooks/` | *(not provided by CE)* |
+| # | Layer | Principle | Vendor-neutral baseline |
+|---|-------|-----------|-------------------------|
+| 1 | **Rules** | Persistence — always-loaded session context | `ai/claude-code/rules/` |
+| 2 | **Workflow Skills** | Composability — multi-step orchestrators | `templates/.claude/skills/` |
+| 3 | **Persona Agents** | Perspective — multiple expertises | `templates/.claude/agents/` |
+| 4 | **References** | Progressivity — context grows with workflow depth | *(none yet)* |
+| 5 | **Compound / Learnings** | Compounding — institutional knowledge accumulates | *(none yet)* |
+| 6 | **Hooks** | Determinism — non-AI enforcement at zero context cost | `templates/.claude/hooks/` |
+
+CE fills Layers 2–5. What it puts in each slot — skills, personas, reference subtrees, artifact paths — lives in [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md), which tracks it against a stated CE version. Layers 1 and 6 stay owned by your project's `.claude/`.
 
 **Key principle**: Context is expensive — only load what's needed, when it's needed. The six layers each specialize this principle for a different context-cost slot.
 
