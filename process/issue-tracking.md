@@ -16,7 +16,7 @@
 
 This document defines how to organize issues, track epics, and manage multi-issue initiatives in GitHub. It provides a lightweight, scalable approach using GitHub's native features.
 
-> **When compound-engineering is in use**: solo + AI work often runs at a smaller scale than the three-tier hierarchy below assumes. The standard already carries solo carve-outs at the Epic Size Guidelines section (below) — "<3 issues: probably doesn't need an epic, just use labels", "<1 month: might not need epic structure". For CE-using solo projects, plan files (`docs/plans/...`) serve as the granular tracker via U-IDs, with reactive sub-issues filed for review residuals, bugs, and Open Question activations. See [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 3 for the full ticket-policy pattern.
+> **When compound-engineering is in use**: solo + AI work often runs at a smaller scale than the three-tier hierarchy below assumes. The standard already carries solo carve-outs at the Epic Size Guidelines section (below) — "Fewer than 3 issues: probably doesn't need an epic, just use labels", "<1 month: might not need epic structure". For CE-using solo projects, plan files (`docs/plans/...`) serve as the granular tracker via U-IDs, with reactive sub-issues filed for review residuals, bugs, and Open Question activations. See [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 3 for the full ticket-policy pattern.
 
 ## Three-Tier Hierarchy
 
@@ -371,21 +371,22 @@ Follow these heuristics for appropriate epic sizing:
 - Exception: epics with many small, similar tasks (e.g., "Migrate all API endpoints to v2")
 
 **Duration**: 1-3 months typical
-- <1 month: might not need epic structure
-- >3 months: consider splitting to enable incremental delivery
+- `<1 month`: might not need epic structure
+- `>3 months`: consider splitting to enable incremental delivery
 
 ## Why This Approach?
 
 ### Advantages
-✅ **Scalable**: Unlimited epics (unlike milestones, which have ~100 limit)
-✅ **Automatic Traceability**: Sub-issues create explicit parent-child relationships
-✅ **Automatic Progress**: GitHub tracks completion (e.g., "5 of 6 completed")
-✅ **No Manual Sync**: Sub-issue relationships are data-backed, not markdown-based
-✅ **Flexibility**: Full markdown for context, discussions in comments
-✅ **Searchable**: Labels enable bulk filtering across epics
-✅ **Native**: No external tools required, pure GitHub features
-✅ **Visual Hierarchy**: Parent badges, sub-issue browsing, cross-repo support
-✅ **API Support**: GraphQL queries for programmatic access
+
+- ✅ **Scalable**: Unlimited epics (unlike milestones, which have ~100 limit)
+- ✅ **Automatic Traceability**: Sub-issues create explicit parent-child relationships
+- ✅ **Automatic Progress**: GitHub tracks completion (e.g., "5 of 6 completed")
+- ✅ **No Manual Sync**: Sub-issue relationships are data-backed, not markdown-based
+- ✅ **Flexibility**: Full markdown for context, discussions in comments
+- ✅ **Searchable**: Labels enable bulk filtering across epics
+- ✅ **Native**: No external tools required, pure GitHub features
+- ✅ **Visual Hierarchy**: Parent badges, sub-issue browsing, cross-repo support
+- ✅ **API Support**: GraphQL queries for programmatic access
 
 ### Rejected Alternatives
 
