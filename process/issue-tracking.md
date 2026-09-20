@@ -1,8 +1,13 @@
 # Issue Tracking and Epic Organization
 
-**Version**: 2.0
-**Date**: 2026-01-01
+**Version**: 2.1
+**Date**: 2026-09-20
 **Status**: Active
+
+**Changes in v2.1**:
+- Label Strategy is now the single owner of every label definition, rendered as one table with a Mode column
+- Added the priority tier, `spike`, and the CE-mode reactive sub-issue labels
+- Marked the team-scale label families, and named `feature`, `refactor` and `experiment` as deliberately not used
 
 **Changes in v2.0**:
 - Adopted GitHub's native sub-issue feature for epic tracking
@@ -54,11 +59,11 @@ gh api repos/owner/repo/milestones \
 
 **Structure**:
 - Issue title: `[EPIC] Feature Theme Name`
-- Labels: `epic`, `epic-{theme-name}`, milestone label
+- Labels: `epic`, plus `epic-{theme-slug}` and the milestone label at team scale (see [Label Strategy](#label-strategy))
 - Body: Overview, scope, acceptance criteria, dependencies, notes
 - Sub-issues: Use GitHub's native sub-issue feature (automatic progress tracking)
 
-**Example**:
+**Example** at team scale, so it carries the theme and milestone labels:
 ```markdown
 Title: [EPIC] Authentication System Overhaul
 
@@ -111,10 +116,10 @@ None
 **Structure**:
 - Standard issue format
 - Reference epic in description: `Part of epic #42`
-- Labels: category label, epic-specific label, milestone label
-- Point estimate using `points-N` label
+- Labels: a category label, plus the epic and milestone labels at team scale (see [Label Strategy](#label-strategy))
+- Point estimate using a `points-` label at team scale. Solo + AI work expresses scope through the plan's U-IDs instead
 
-**Example**:
+**Example** at team scale, so it carries the theme, milestone and point labels:
 ```markdown
 Title: Implement JWT token generation and validation
 
@@ -183,13 +188,15 @@ This section is the only place a label is defined. Other documents tell you when
 
 ### 2. Consistent Labeling
 
-Apply both generic and specific labels for bulk filtering:
+This practice is team-scale: it depends on the theme and milestone labels that [Label Strategy](#label-strategy) marks team-scale only. Apply both generic and specific labels for bulk filtering:
 - Epic issue: `epic`, `epic-auth-system`, `v2.0-api-redesign`
 - Child issues: `enhancement`, `epic-auth-system`, `v2.0-api-redesign`
 
 **Why labels still matter**: Enable bulk queries and backward compatibility until GitHub CLI fully supports sub-issue queries.
 
 ### 3. Search Queries
+
+These examples filter on team-scale labels. At solo + AI scale the plan is the granular tracker, so the equivalent query is reading the plan's units.
 
 ```bash
 # View epic with progress
@@ -207,7 +214,7 @@ gh issue list --label epic,blocked
 
 ## Epic Issue Template
 
-Use this template when creating epic issues:
+Use this template when creating epic issues at team scale. The `epic-{theme-slug}` and milestone labels it carries are team-scale only; see [Label Strategy](#label-strategy).
 
 ```markdown
 ---
@@ -399,8 +406,8 @@ Follow these heuristics for appropriate epic sizing:
 
 ## References
 
-- **Git Branching Strategy**: Use `{issue-number}-{slugified-title}` branch names (see `git-branching-strategy.md`)
-- **Commit Messages**: Use conventional commits format (see `git-branching-strategy.md`)
-- **Project Planning**: See `project-planning-standards.md` for estimation guidance
+- **Git Branching Strategy**: Use `{issue-number}-{slugified-title}` branch names (see [`process/git-branching-strategy.md`](./git-branching-strategy.md#feature-branches))
+- **Commit Messages**: see [`process/git-branching-strategy.md`](./git-branching-strategy.md#commit-messages), which owns the commit format
+- **Project Planning**: See [`process/project-planning-standards.md`](./project-planning-standards.md#story-point-estimation) for estimation guidance
 - **GitHub Sub-Issues Documentation**: https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues
 - **GitHub Sub-Issues Blog Post**: https://github.blog/engineering/architecture-optimization/introducing-sub-issues-enhancing-issue-management-on-github/
