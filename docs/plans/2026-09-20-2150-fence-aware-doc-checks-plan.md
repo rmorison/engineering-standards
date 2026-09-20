@@ -23,8 +23,8 @@ trip the checker it was describing.
 A second gap sits in the same function. `scripts/check-docs.mjs:116` excludes
 same-file anchors at the regex (`(?!https?:|mailto:|#)`), and `:117` strips the
 fragment off cross-file links (`match[1].split('#')[0]`). Anchors are therefore
-never checked in either direction. The repository currently carries **19
-cross-file anchor links and 15 same-file anchor links**, almost all of them
+never checked in either direction. The repository currently carries **18
+cross-file anchor links and 16 same-file anchor links**, almost all of them
 carrying the "one document owns a rule, the others link to it" pattern that
 issue #27 established. CI verifies none of them. One dead anchor
 (`#branch-naming`, where the heading is `Feature Branches`) was caught by hand
@@ -64,6 +64,12 @@ Both gaps are in `checkLinks`. Fixing them separately means two passes over the
 same function and two probes over the same corpus. The anchor gap is also the
 larger one by count: 34 unverified anchor links against zero current instances
 of the inline-code-span case.
+
+The 18/16 split above is counted, not grepped. The first pass read it off
+`grep -n`, which reports matching *lines*: `process/git-branching-strategy.md:120`
+carries two same-file anchors on one line and was counted once. The totals
+reconcile against the checker itself — main's version reports 192 links
+including one inside a fence, and 192 − 1 + 16 = 207.
 
 ### KD2 — Vendor `github-slugger`, do not hand-roll the slugifier *(session-settled: user-directed)*
 
