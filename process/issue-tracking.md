@@ -143,31 +143,30 @@ protected API endpoints.
 
 ## Label Strategy
 
-### Category Labels
-- `enhancement`: New features or improvements
-- `bug`: Bug fixes
-- `tech-debt`: Technical debt work
-- `documentation`: Documentation updates
-- `testing`: Test additions or improvements
+This section is the only place a label is defined. Other documents tell you when to apply a label and link here for its meaning. A label named anywhere in `process/` or `ai/` that is not in this table is a defect in that document, not a label you are missing.
 
-### Epic Labels
-- `epic`: Applied to epic tracking issues
-- `epic-{theme-name}`: Applied to epic AND all child issues for filtering
-  - Example: `epic-auth-system`
-  - Example: `epic-api-redesign`
+**Reading the Mode column.** Two independent axes decide whether a label is yours: **scale** (team-scale, or solo + AI) and **toolchain** (CE-mode, or standards-only). `both` means create it at any scale in either mode. `team-scale` means the three-tier hierarchy above uses it and solo + AI work skips it, which is what [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 3 already prescribes. `CE-mode` means the label exists only where compound-engineering is in use.
 
-### Milestone Labels
-- `v1.0-ga`: v1.0 release work
-- `v2.0-api-redesign`: v2.0 initiative work
-- Create as needed for major initiatives
+| Label | Meaning | Mode |
+|---|---|---|
+| `enhancement` | New features or improvements | both |
+| `bug` | Bug fixes | both |
+| `tech-debt` | Technical debt work, including refactors | both |
+| `documentation` | Documentation updates | both |
+| `testing` | Test additions or improvements | both |
+| `spike` | Timeboxed exploratory work, per [`process/git-branching-strategy.md`](./git-branching-strategy.md#experimental-work) | both |
+| `priority:high` | Blocks other work, or a defect in production | both |
+| `priority:medium` | Normal scheduling priority | both |
+| `priority:low` | Worth doing, under no schedule pressure | both |
+| `blocked` | Cannot proceed due to an external dependency | both |
+| `epic` | Applied to an epic tracking issue. At solo + AI scale, one umbrella epic per multi-phase plan | both |
+| `epic-{theme-slug}` | Applied to the epic and every child issue, for filtering. Lowercase, hyphen-separated, under 30 characters: `epic-auth-system`, `epic-api-redesign` | team-scale |
+| `v1.0-ga`, `v2.0-api-redesign` | Milestone labels mirroring the GitHub Milestone that defines an initiative. Create as needed | team-scale |
+| `points-1`, `points-2`, `points-3`, `points-5`, `points-8`, `points-13` | Fibonacci estimate where 2 points is roughly 1 day. See [Project Planning Standards](./project-planning-standards.md#story-point-estimation) | team-scale |
+| `from-review` | Sub-issue filed for a review residual | CE-mode |
+| `from-deferred-q` | Sub-issue filed when an Open Question activates | CE-mode |
 
-### Estimation Labels
-- `points-1`, `points-2`, `points-3`, `points-5`, `points-8`, `points-13`
-- Fibonacci scale where 2 points ≈ 1 day of work
-- See [Project Planning Standards](./project-planning-standards.md#story-point-estimation) for detailed estimation guidance
-
-### Status Labels
-- `blocked`: Cannot proceed due to external dependency
+**Deliberately not used.** Three labels appear in older guidance and are not part of this set. Use `enhancement` rather than `feature`. Use `tech-debt` rather than `refactor`, which is a commit type rather than an issue label (see [`process/git-branching-strategy.md`](./git-branching-strategy.md#types)). Use `spike` rather than `experiment`.
 
 ## Traceability Best Practices
 
