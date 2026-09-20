@@ -16,18 +16,18 @@ This strategy follows **[GitHub Flow](https://docs.github.com/en/get-started/usi
 gitGraph
     commit id: "initial"
     commit id: "stable"
-    branch 1-add-user-auth
-    checkout 1-add-user-auth
+    branch "1-add-user-auth"
+    checkout "1-add-user-auth"
     commit id: "add login"
     commit id: "add tests"
     checkout main
-    merge 1-add-user-auth tag: "v1.1.0"
+    merge "1-add-user-auth" tag: "v1.1.0"
     commit id: "hotfix" type: HIGHLIGHT
-    branch 2-add-notifications
-    checkout 2-add-notifications
+    branch "2-add-notifications"
+    checkout "2-add-notifications"
     commit id: "email notifs"
     checkout main
-    merge 2-add-notifications tag: "v1.2.0"
+    merge "2-add-notifications" tag: "v1.2.0"
 ```
 
 ## Guiding Principles

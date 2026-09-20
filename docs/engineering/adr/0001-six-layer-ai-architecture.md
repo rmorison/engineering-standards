@@ -98,3 +98,22 @@ This is not exclusive: the architecture is intentionally vendor-neutral. Adopter
 - **Agent-native foundation:** https://every.to/guides/agent-native — the conceptual antecedent that informed both the four-layer model and CE.
 - **Archived prior proposals:** [`archive/`](../../../archive/) — three earlier `ai/*.md` documents that proposed building agent-native abstractions in this repository rather than adopting an existing toolkit. Preserved as the evaluative framework that informed this decision.
 - **Real-world deployment example:** `books-ops` (private rmorison repository) — informed the integration doc's wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Named as deployment context, not as a documentation reference.
+
+---
+
+## Amendment — 2026-09-20: upgrade discipline revised
+
+Everything above is left as written on 2026-05-03. This amendment corrects one forward-looking rule that observation has since falsified, per the convention in [`process/documentation-standards.md`](../../../process/documentation-standards.md) — when a decision changes, add an entry rather than edit history.
+
+**What was falsified.** The **Upgrade discipline** paragraph and the **Maintenance liability** note both predicted that within-3.x drift would be skill-name churn, absorbed by a one-row edit to the cross-reference table. An audit of CE 3.27.0 against the 3.1.0 this ADR was written for found the opposite: across 26 minor releases **no skill was renamed**, while
+
+- the skill count grew by roughly a fifth,
+- the persona roster grew and moved into per-skill reference subtrees, with about a third of the personas named in the architecture README no longer present,
+- `ce-brainstorm`'s output path moved out of `docs/brainstorms/` entirely,
+- `lfg` gained a shipping tail that opens a pull request and watches CI.
+
+Names held; behavior and output paths moved. The one-row insurance was written against the vector that did not drift, and the cross-reference table was not where the damage landed — it landed in the layer table, the artifact-path table, and five documents restating them.
+
+**The rule now.** Re-verify the layer table, the artifact-path table, and the skill cross-reference table together against the installed CE on each minor upgrade, then grep the repository for what restates them. [`process/compound-engineering-integration.md`](../../../process/compound-engineering-integration.md) carries this as its **Version drift** note and records the CE version it was last verified against; that note is authoritative over the Upgrade discipline paragraph above.
+
+**What is unchanged.** The decision itself stands, and the audit strengthened it. The six-layer model absorbed 26 minor releases of upstream change without a structural revision: no layer was added, removed, or redefined, and every drifted claim was an inventory detail rather than a category error. Pinning to 3.x and re-evaluating the canonical-realization claim at 4.x also stands.

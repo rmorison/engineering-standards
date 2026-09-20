@@ -45,7 +45,7 @@ Repository documentation lives under `docs/` with the following top-level direct
   - Monitoring and alerting setup
   - Infrastructure as code documentation
 
-> **When compound-engineering is in use**: CE-skill outputs add the following paths to the documentation tree — `docs/ideation/`, `docs/brainstorms/`, `docs/plans/` (subsumes `docs/planning/`), `docs/solutions/`. See [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 2 for the full path mapping and precedence rule.
+> **When compound-engineering is in use**: CE-skill outputs add the following paths to the documentation tree — `docs/ideation/`, `docs/plans/` (subsumes `docs/planning/`; carries both `ce-brainstorm` and `ce-plan` output), `docs/solutions/`. Legacy `docs/brainstorms/` is still read but no longer written. See [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 2 for the full path mapping and precedence rule.
 
 ## File Naming Conventions
 
@@ -128,6 +128,25 @@ Each `docs/` subdirectory should have a `README.md` that:
 - Explains what goes in that directory
 - Links to key documents
 - Provides navigation for new contributors
+
+### Automated Checks
+
+This repository's product is Markdown, so a rendering defect is a production defect. `scripts/check-docs.mjs` runs on every pull request touching a `.md` file, and each check exists because the defect it looks for reached the default branch:
+
+| Check | Catches |
+|-------|---------|
+| Mermaid diagrams parse | A diagram that shows an error box instead of a graph on GitHub |
+| Relative links resolve | A link to a moved or renamed file |
+| No blockquote inside a list item | `- >3 months` renders as a quote block with the `>` swallowed |
+| No unmarked marker lists | Marker-prefixed lines with no list marker collapse into one paragraph |
+
+Run them before pushing:
+
+```bash
+npm ci --prefix scripts && node scripts/check-docs.mjs
+```
+
+The Mermaid check calls mermaid's `parse()` rather than rendering, because the two disagree — the render path accepts diagrams GitHub's parser rejects. Dependencies are pinned and installed from a committed lockfile so the check reproduces one specific parser.
 
 ## Maintenance
 

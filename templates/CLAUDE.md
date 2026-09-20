@@ -41,7 +41,8 @@ specific toolkits realize the layers:
   compound-engineering is installed, CE skills (`/ce-brainstorm`,
   `/ce-plan`, `/ce-work`, `/ce-doc-review`, `/ce-code-review`, etc.)
   and CE persona reviewers are the canonical realization of those
-  layers.
+  layers. See `process/compound-engineering-integration.md` for what
+  CE puts in each slot.
 - **Layers 4 (References) and 5 (Compound)** are realized by CE today;
   non-CE projects may leave them empty or fill with hand-rolled
   implementations.

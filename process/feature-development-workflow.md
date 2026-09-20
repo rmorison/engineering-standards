@@ -47,7 +47,7 @@ flowchart LR
 
 **Time**: Hours to days
 
-> **When compound-engineering is in use**: Phase 0 (discovery) is realized by `ce-brainstorm`, which produces `docs/brainstorms/<topic>-requirements.md`. That artifact IS the Phase 0 / discovery output for CE-using projects, and Phase 1 (Product Concept) is seeded from it rather than starting cold. See [`process/compound-engineering-integration.md`](./compound-engineering-integration.md).
+> **When compound-engineering is in use**: Phase 0 (discovery) is realized by `ce-brainstorm`, which produces a requirements-only unified plan under `docs/plans/`. That artifact IS the Phase 0 / discovery output for CE-using projects, and Phase 1 (Product Concept) is seeded from it rather than starting cold. Legacy `docs/brainstorms/*-requirements.md` files remain valid input to `ce-plan` but are no longer written. See [`process/compound-engineering-integration.md`](./compound-engineering-integration.md).
 
 **Example**:
 ```markdown

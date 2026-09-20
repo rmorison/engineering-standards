@@ -567,7 +567,7 @@ Archive (3 prior proposals, currently untracked per `git status`):
 - `git mv` would fail on untracked files. Use: `mkdir -p archive && mv ai/<file>.md archive/<file>.md`, then `git add archive/`. The archival commit is these files' first appearance in history.
 - Banner each archived file (relative path `../docs/engineering/adr/...`):
   ```
-  > **Implementation strategy superseded by [ADR-0001: Six-Layer AI Architecture](../docs/engineering/adr/0001-six-layer-ai-architecture.md).**
+  > **Implementation strategy superseded by [ADR-0001: Six-Layer AI Architecture](../engineering/adr/0001-six-layer-ai-architecture.md).**
   >
   > This document analyzed agent-native principles and proposed building these abstractions in this repo. We instead adopted the 6-layer AI architecture (this ADR) with [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) as the canonical realization of Layers 2 and 3. Kept here as the evaluative framework that informed the architecture — the analysis remains the lens for re-evaluating CE adoption if circumstances change. See `process/compound-engineering-integration.md` for the operational doc.
   ```
