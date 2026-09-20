@@ -47,9 +47,8 @@ This file holds Layer 1-style quick-reference guidance. Multi-mode rules (standa
 📄 [Full workflow](../process/feature-development-workflow.md) | [Planning standards](../process/project-planning-standards.md) | [CE integration](../process/compound-engineering-integration.md)
 
 ### Issue Organization
-- **Milestones**: Initiatives/releases (e.g., `v2.0-api-redesign`)
-- **Epics**: `[EPIC] Feature Theme` with sub-issues, labels: `epic`, `epic-{slug}`
-- **Implementation Issues**: Point estimates (`points-1` to `points-13`), epic label
+
+Three tiers: milestones for initiatives, epics carrying native sub-issues, and implementation issues. Every label definition, and which labels apply at a given scale and toolchain, lives in one table at [`process/issue-tracking.md`](../process/issue-tracking.md#label-strategy). Do not restate them here.
 
 📄 [Issue tracking details](../process/issue-tracking.md)
 
@@ -62,12 +61,6 @@ This file holds Layer 1-style quick-reference guidance. Multi-mode rules (standa
 - **Versioning**: Semantic versioning (vMAJOR.MINOR.PATCH)
 
 📄 [Git branching strategy](../process/git-branching-strategy.md) | [CE integration](../process/compound-engineering-integration.md)
-
-### Common Labels
-- **Category**: `enhancement`, `bug`, `tech-debt`, `documentation`, `testing`
-- **Epic**: `epic`, `epic-{theme-slug}`
-- **Status**: `blocked`
-- **Points**: `points-1`, `points-2`, `points-3`, `points-5`, `points-8`, `points-13` (Fibonacci, 2 pts ≈ 1 day)
 
 ### Documentation Structure
 

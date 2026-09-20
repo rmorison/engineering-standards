@@ -76,7 +76,7 @@ Branch management and version control workflow:
 How to organize issues, track epics, and manage multi-issue initiatives in GitHub:
 - **Three-tier hierarchy** - Milestones (initiatives), epics (feature themes), implementation issues
 - **Epic structure** - Native GitHub sub-issues with automatic progress tracking
-- **Label strategy** - Category, epic, milestone, estimation, and status labels
+- **Label strategy** - One table defining every label, tagged by the scale and toolchain it applies to
 - **Epic lifecycle** - Creating, amending, closing, and cancelling epics
 - **Cross-epic dependencies** - Documenting and handling blocking relationships
 

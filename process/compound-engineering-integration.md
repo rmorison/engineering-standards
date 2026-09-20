@@ -95,9 +95,9 @@ Adopt solo + AI mode now; introduce epics and milestones when a second contribut
 A minimal pattern that has worked in real use:
 
 - **One umbrella epic per multi-phase plan** (label: `epic`). The epic links to the plan; the plan is the granular tracker via U-IDs. Do not pre-allocate per-U sub-issues.
-- **Sub-issues are reactive**, filed when needed: `bug`, `from-review` (review residuals), `from-deferred-q` (Open Question activations), `tech-debt`, `enhancement`. Add `blocked` when waiting on a dependency.
+- **Sub-issues are reactive**, filed when needed: `bug`, `from-review`, `from-deferred-q`, `tech-debt`, `enhancement`. Add `blocked` when waiting on a dependency. [`process/issue-tracking.md`](./issue-tracking.md#label-strategy) defines each of these, including what `from-review` and `from-deferred-q` mean; this list says when to file one.
 - **Branch naming** follows § 4 below.
-- **Skip:** milestones, point/size labels, theme labels. Use the plan, not GitHub metadata, to express phase + scope.
+- **Skip:** milestones, point/size labels, theme labels, which are exactly the families [`process/issue-tracking.md`](./issue-tracking.md#label-strategy) marks team-scale. Use the plan, not GitHub metadata, to express phase + scope.
 
 ---
 

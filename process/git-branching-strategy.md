@@ -67,7 +67,7 @@ gitGraph
 
 **How to create**: Use GitHub's "Create a branch" feature directly from the issue
 
-**Type classification**: Use issue labels (`feature`, `bug`, `enhancement`, `documentation`, `refactor`, etc.) instead of branch name prefixes
+**Type classification**: Use issue labels instead of branch name prefixes. [`process/issue-tracking.md`](./issue-tracking.md#label-strategy) defines the set. `feature` and `refactor` are not in it: use `enhancement` and `tech-debt`.
 
 **Lifecycle**:
 1. Create issue, assign labels
@@ -240,7 +240,7 @@ Maintain `CHANGELOG.md` or use [GitHub Releases](https://docs.github.com/en/repo
 
 ### Hotfix for Production Bug
 
-1. Create urgent issue with `bug` and `priority:high` labels
+1. Create urgent issue with `bug` and `priority:high` labels (defined in [`process/issue-tracking.md`](./issue-tracking.md#label-strategy))
 2. Branch from `main`: `45-fix-critical-auth-bug`
 3. Fix with minimal changes, add test
 4. Expedited PR review and merge
@@ -258,7 +258,7 @@ Maintain `CHANGELOG.md` or use [GitHub Releases](https://docs.github.com/en/repo
 
 ### Experimental Work
 
-1. Create issue labeled `experiment` or `spike`
+1. Create issue labeled `spike` (defined in [`process/issue-tracking.md`](./issue-tracking.md#label-strategy))
 2. Document in `docs/experiments/feature-name.md`
 3. Develop on branch, timebox the exploration
 4. **If successful**: Clean up, merge to `main`
