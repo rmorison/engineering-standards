@@ -55,6 +55,7 @@ CE-using projects produce artifacts at paths the standards' `docs/` taxonomy doe
 | `docs/dogfood-reports/` | CE | `ce-dogfood` output — browser QA reports on a branch. |
 | `docs/feedback-sweep/` | CE | `ce-sweep` state — ingested Slack/GitHub feedback and its rolling plan. |
 | `docs/engineering/adr/` | shared | Human-authored ADRs. Path identical in standards-mode and CE-mode. |
+| `docs/experiments/` | standards | Human-authored experiment and spike briefs. Path identical in standards-mode and CE-mode. |
 | `docs/engineering/designs/` | standards | Human-authored technical design documents. |
 | `docs/product/` | standards | Human-authored product concepts and feature specs. |
 

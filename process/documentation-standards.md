@@ -39,6 +39,11 @@ Repository documentation lives under `docs/` with the following top-level direct
   - Estimates and sequencing
   - Retrospectives and post-mortems
 
+- **`docs/experiments/`** - Experiment and spike briefs
+  - One brief per timeboxed exploration
+  - Question, approach, success signal, and timebox
+  - Findings recorded in the brief when the exploration closes
+
 - **`docs/operations/`** - Deployment, monitoring, and operational knowledge
   - Deployment guides
   - Runbooks and incident response

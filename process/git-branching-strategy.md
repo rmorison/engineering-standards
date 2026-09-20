@@ -263,7 +263,7 @@ Maintain `CHANGELOG.md` or use [GitHub Releases](https://docs.github.com/en/repo
 ### Experimental Work
 
 1. Create issue labeled `spike` (defined in [`process/issue-tracking.md`](./issue-tracking.md#label-strategy))
-2. Document in `docs/experiments/feature-name.md`
+2. Document in `docs/experiments/feature-name.md`, the location [`process/documentation-standards.md`](./documentation-standards.md#optional-directories-add-as-needed) declares
 3. Develop on branch, timebox the exploration
 4. **If successful**: Clean up, merge to `main`
 5. **If unsuccessful**: Document findings in issue, close without merging
