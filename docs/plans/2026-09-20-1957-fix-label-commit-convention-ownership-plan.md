@@ -33,7 +33,7 @@ This applies the pattern #36 established for artifact paths to the two rules tha
 
 The label strategy and the commit convention are each stated in several documents, and the copies have diverged.
 
-For labels, `process/issue-tracking.md` § Label Strategy defines 15 labels and 2 open families. Seven labels are prescribed elsewhere and defined nowhere in it, and `ai/CLAUDE.md:66-70` carries a near-complete second copy that already omits the milestone family. Meanwhile three label families the strategy does define are used by nothing on the tracker, because `process/compound-engineering-integration.md:100` tells solo work to skip them. The strategy is simultaneously incomplete and over-prescriptive, and neither fact is visible from inside it.
+For labels, `process/issue-tracking.md` § Label Strategy defines 15 labels and 2 open families. Seven labels are prescribed elsewhere and defined nowhere in it, and `ai/CLAUDE.md:66-70` carries a near-complete second copy that already omits the milestone family. Meanwhile several label families the strategy does define are used by nothing on the tracker, because `process/compound-engineering-integration.md:100` tells solo work to skip milestones, point and size labels, and theme labels. The bare `epic` label is not on that skip list; `:97` prescribes it for solo work. The strategy is simultaneously incomplete and over-prescriptive, and neither fact is visible from inside it.
 
 For commits, `ai/claude-code/rules/engineering-standards.md:47` says `type(scope): description` while `process/git-branching-strategy.md:129` says `<type>: <summary>` with a subject limit of 50. The rule file is always loaded into agent context, so an agent and a human reading the standards are given different instructions about the same artifact. The 50-character limit is followed by 7 of this repository's last 34 commits.
 
@@ -78,7 +78,7 @@ For commits, `ai/claude-code/rules/engineering-standards.md:47` says `type(scope
 
 ### Scope Boundaries
 
-In scope: Markdown under `process/`, `ai/`, `templates/`, and the root `README.md`.
+In scope: Markdown under `process/`, `ai/`, `templates/`, the root `README.md`, and `docs/README.md`. `code/python-standards.md:1684` is inspected under R17 but not edited.
 
 Out of scope, and deliberately so:
 
@@ -112,16 +112,16 @@ Out of scope, and deliberately so:
 
 ### Key Technical Decisions
 
-- KTD1. One owning section per rule, cited by relative path plus anchor from everywhere else. This instantiates KD1 and the pattern #36 established for the artifact table. Governs R1, R10, R15.
+- KTD1. One owning section per rule, cited by relative path plus anchor from everywhere else. This applies the pattern #36 established for the artifact table. Governs R1, R10, R15.
 - KTD2. The subject-length limit is 72 characters for the full header, including any `type(scope): ` prefix, justified as gitlint's default and within the Linux kernel's 70-75 range. Do not justify it as "the widely used convention" — #25 proposes that wording and it is wrong, because 72 in the 50/72 convention is the body wrap. Governs R12.
-- KTD3. `feature` and `refactor` are removed from `process/git-branching-strategy.md:70` rather than added to § Label Strategy, because both are commit types from the vocabulary at `:138-145` that leaked into a label list. This resolves #27's first item on principle instead of arbitrating between two label names. Governs R5, R6.
+- KTD3. `feature` and `refactor` are both removed from `process/git-branching-strategy.md:70` rather than added to § Label Strategy, for two different reasons. `refactor` is a commit type from the vocabulary at `:138-145` that leaked into a label list, and `tech-debt` is the issue label for that work. `feature` is not a commit type at all: that vocabulary spells it `feat:`. It goes because `enhancement` already covers new capability, which is the arbitration #27's first item asked for. Governs R5, R6.
 - KTD4. § Label Strategy owns label *definitions*; documents that own a workflow keep their *usage policy* and link for the definition. So `process/compound-engineering-integration.md` keeps the solo ticket policy that says when to file a `from-review` issue, and § Label Strategy gains the definition of what `from-review` means, tagged CE-mode. Governs R1, R3.
-- KTD5. `ai/CLAUDE.md:49-52` and `:66-70` are deleted and replaced with a pointer, not corrected. Correcting them recreates the copy that drifted. Governs R13, and the same reasoning applies to the label block.
+- KTD5. `ai/CLAUDE.md:60` is deleted and replaced with a pointer, not corrected. Correcting it recreates the copy that drifted. Governs R13, and the same reasoning applies to the label blocks at `:49-52` and `:66-70`.
 - KTD6. Mode tagging is rendered as a column in the § Label Strategy table rather than as separate per-mode sections, so a reader sees every label in one list and cannot bootstrap a partial set by reading one section.
 
 ### Assumptions
 
-- The tracker's live label set matches what the open issues show: `documentation`, `bug`, `enhancement`, `tech-debt`, `spike`, and the three `priority:*` labels. This was read from open issues, not from repository settings. If settings carry labels no issue uses, R3's "in use" tagging needs a second pass.
+- The tracker's live label set matches what the open issues show: `documentation`, `bug`, `enhancement`, `tech-debt`, `spike`, and the three `priority:*` labels. This was read from open issues, not from repository settings. If settings carry labels no issue uses, R3's mode tagging needs a second pass.
 - `testing` and `blocked` are defined in § Label Strategy and appear on no open issue. They are treated as available-in-both-modes rather than team-scale, because neither is tied to the three-tier hierarchy. Confirm during U1.
 - The ADR's "conventional commits" phrase at `:80` is broad enough that making scope optional does not falsify it, so no amendment is needed. U4 verifies this rather than assuming it.
 
@@ -183,14 +183,14 @@ U1 before U2 and U3, because both point at what U1 writes. U4 before U5, for the
   1. Convert the five label subsections at `:144-170` into one table with columns for label, meaning, and mode. Mode values are both, team-scale, and CE-mode. KTD6 governs the single-table shape.
   2. Add `priority:high`, `priority:medium`, `priority:low` with the meaning they carry in practice, tagged both.
   3. Add `spike` tagged both, and `from-review` and `from-deferred-q` tagged CE-mode, with definitions taken from `process/compound-engineering-integration.md:98`.
-  4. Tag the epic, milestone and estimation families team-scale, matching the skip list at `process/compound-engineering-integration.md:100`.
-  5. Add a short note naming `feature`, `refactor` and `experiment` as deliberately not used, with one clause each on what replaces them, so a reader arriving from an older document knows they are not missing a label.
+  4. Split the epic family. Tag the bare `epic` label available in both modes, because `process/compound-engineering-integration.md:97` prescribes one umbrella epic per multi-phase plan for solo + AI work. Tag `epic-{theme-slug}`, the milestone family and the estimation family team-scale, which is what the skip list at `:100` actually names: milestones, point/size labels, theme labels.
+  5. Add a short note naming `feature`, `refactor` and `experiment` as deliberately not used, with the replacement for each: `enhancement` for `feature`, `tech-debt` for `refactor` as an issue label, and `spike` for `experiment`. A reader arriving from an older document then knows they are not missing a label.
   6. Move the `epic-{theme-slug}` format rule from `:262` into the table's entry for that family, since `:262` is currently the only place it is stated. Use `epic-{theme-slug}` as the single placeholder spelling. Three are live and it is the most used, at `:216`, `:262`, `:264` and `ai/CLAUDE.md:68`, against two uses of `epic-{theme-name}` and one of `epic-{slug}`.
 - Patterns to follow: the artifact table at `process/compound-engineering-integration.md` § 2, which is the repository's existing example of a table that governs rather than describes.
 - Test scenarios:
-  - A search for each of the 22 label names across `process/`, `ai/`, `templates/` and `README.md` returns exactly one definition, inside the § Label Strategy table.
+  - A search for each of the 22 label names across `process/`, `ai/`, `templates/` and `README.md` returns exactly one entry in § Label Strategy: a table row, or the deliberately-not-used note for `feature`, `refactor` and `experiment`. `refactor` also appears outside it as a commit type in the vocabulary at `process/git-branching-strategy.md:138-145`, which is correct and expected.
   - The same search run with a pattern that only matches backticked names still finds `process/issue-tracking.md:65` and `:121`, where labels appear unbackticked inside fenced examples. If it does not, the pattern is wrong, not the tree.
-  - Every label observed on an open issue (`documentation`, `bug`, `enhancement`, `tech-debt`, `spike`, the three `priority:*`) appears in the table tagged as in use.
+  - Every label observed on an open issue (`documentation`, `bug`, `enhancement`, `tech-debt`, `spike`, the three `priority:*`) appears in the table tagged both.
 - Verification: the table carries a mode for every row, and no label definition remains outside it.
 
 ### U2. Reconcile the rest of issue-tracking.md with the mode tags
@@ -221,13 +221,13 @@ U1 before U2 and U3, because both point at what U1 writes. U4 before U5, for the
 - Approach:
   1. Delete the label blocks at `ai/CLAUDE.md:49-52` and `:66-70` and replace them with a single pointer. Per KTD5, do not correct them in place.
   2. Rewrite `process/git-branching-strategy.md:70` to drop `feature` and `refactor` per KTD3 and link to § Label Strategy instead of listing labels.
-  3. Leave the instruction at `:243` to apply `priority:high` and at `:261` to apply `spike`, now that both are defined, and link on first use.
+  3. Keep the instruction at `:243` to apply `priority:high`, now that it is defined, and link on first use. Rewrite `:261` so it names only `spike`, dropping `experiment`, mirroring step 2's removal of `feature` and `refactor` from `:70`.
   4. In `process/compound-engineering-integration.md:98`, keep the policy about when to file each reactive sub-issue and link for the definitions, per KTD4. Reword `:100` so the skip list reads as the strategy's team-scale tagging rather than a deviation from a default.
   5. Adjust `README.md:79`, which restates the five subsection names that U1 replaces with one table.
 - Patterns to follow: the link form at `process/issue-tracking.md:19` and `:167`, a backticked path as link text with a relative target and an anchor.
 - Test scenarios:
   - `ai/CLAUDE.md` contains no label definition, and the pointer that replaces the two deleted blocks resolves.
-  - `process/git-branching-strategy.md:70` no longer names `feature` or `refactor`.
+  - `process/git-branching-strategy.md:70` no longer names `feature` or `refactor`, and `:261` no longer names `experiment`.
   - `process/compound-engineering-integration.md:100` reads as the strategy's own team-scale tagging rather than a deviation from a default.
 - Verification: a sweep for each label name returns only definitions inside § Label Strategy, plus usage instructions that link to it.
 
@@ -243,7 +243,7 @@ U1 before U2 and U3, because both point at what U1 writes. U4 before U5, for the
   3. Resolve the internal inconsistency in R14: `:113` recommends squash-merge and `:116-120` says the PR title becomes the commit message, but the approved PR titles at `:180-184` carry no type prefix, so following them produces commits that violate `:129`.
   4. Check every worked example against the rules as changed. The two fenced examples at `:150-155` and `:159-163` use `type: summary` with no scope, which stays valid under R11; confirm both fit 72 characters. `code/python-standards.md:1684` uses `git commit -m "feat: initial project setup"`, also valid, so confirm rather than change it.
   5. Check whether `docs/engineering/adr/0001-six-layer-ai-architecture.md:80` is falsified by making scope optional. If it is, append a dated amendment; if not, record that it was checked and leave it. `process/compound-engineering-integration.md:223` forbids editing the body either way.
-- Patterns to follow: the amendment already appended to ADR-0001 by #36, if step 4 needs one.
+- Patterns to follow: the amendment already appended to ADR-0001 by #36, if step 5 needs one.
 - Test scenarios:
   - A subject of exactly 72 characters is valid and 73 is not, under the limit as written.
   - `type: description` and `type(scope): description` are both readable as valid from the section alone.
@@ -283,7 +283,7 @@ U1 before U2 and U3, because both point at what U1 writes. U4 before U5, for the
 - Test scenarios:
   - `docs/experiments/` resolves to the same location from all five documents.
   - The § 2 artifact table row assigns it an owner, so the path-decides-ownership rule covers it.
-- Verification: declared in exactly one document, linked from the other four.
+- Verification: declared in `process/documentation-standards.md` and as a row in the `process/compound-engineering-integration.md` § 2 artifact table per R8, matching how `docs/product/` is already carried in both, and linked from the other three.
 
 ---
 
@@ -307,7 +307,7 @@ The label and commit sweeps are the kind of check that reports success by findin
 
 ## Definition of Done
 
-- Every requirement R1 through R16 is satisfied, or explicitly deferred in the PR body with a reason.
+- Every requirement R1 through R17 is satisfied, or explicitly deferred in the PR body with a reason.
 - `node scripts/check-docs.mjs` passes.
 - Both #27 and #25 can be closed by this PR. Its body carries the disposition of each acceptance criterion from both issues.
 - The PR body records the subject-length justification and states that #25's proposed justification was checked and not used, so the next reader does not reintroduce it.
