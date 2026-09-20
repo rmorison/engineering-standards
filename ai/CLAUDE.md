@@ -56,7 +56,7 @@ Three tiers: milestones for initiatives, epics carrying native sub-issues, and i
 - **Branch naming**:
   - **Standards mode**: `{issue-number}-{slugified-title}` (use GitHub's auto-generated names)
   - **When CE is in use**: also accepts topic-style `feat/...` / `fix/...` for `lfg` and `ce-work` autonomous flows without a parent issue. File an issue retroactively if review surfaces something worth tracking.
-- **Commit format**: `type(scope): description` (conventional commits)
+- **Commit format**: conventional. [`process/git-branching-strategy.md`](../process/git-branching-strategy.md#commit-messages) owns the format, the scope policy and the subject limit
 - **Main branch**: Always deployable, all work via PRs
 - **Versioning**: Semantic versioning (vMAJOR.MINOR.PATCH)
 

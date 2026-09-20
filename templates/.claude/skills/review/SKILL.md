@@ -14,6 +14,10 @@ https://raw.githubusercontent.com/rmorison/engineering-standards/main/process/fe
 https://raw.githubusercontent.com/rmorison/engineering-standards/main/code/python-standards.md
 </web_fetch>
 
+<web_fetch>
+https://raw.githubusercontent.com/rmorison/engineering-standards/main/process/git-branching-strategy.md
+</web_fetch>
+
 2. Identify what to review:
    - If the user specifies files or a PR, review those
    - If no target is specified, review staged or uncommitted changes (`git diff` and `git diff --cached`)
@@ -33,7 +37,7 @@ https://raw.githubusercontent.com/rmorison/engineering-standards/main/code/pytho
    - Error handling at system boundaries, not everywhere
 
    **Git hygiene**
-   - Commits follow conventional format: `type(scope): description`
+   - Commits follow the commit format in the branching strategy fetched above, including its scope policy and subject limit
    - Changes are focused — one concern per commit
    - No unrelated changes mixed in
 
