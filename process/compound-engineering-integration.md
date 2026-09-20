@@ -55,9 +55,9 @@ CE-using projects produce artifacts at paths the standards' `docs/` taxonomy doe
 | `docs/dogfood-reports/` | CE | `ce-dogfood` output — browser QA reports on a branch. |
 | `docs/feedback-sweep/` | CE | `ce-sweep` state — ingested Slack/GitHub feedback and its rolling plan. |
 | `docs/engineering/adr/` | shared | Human-authored ADRs. Path identical in standards-mode and CE-mode. |
-| `docs/experiments/` | standards | Human-authored experiment and spike briefs. Path identical in standards-mode and CE-mode. |
 | `docs/engineering/designs/` | standards | Human-authored technical design documents. |
 | `docs/product/` | standards | Human-authored product concepts and feature specs. |
+| `docs/experiments/` | standards | Human-authored experiment and spike briefs. |
 
 **When in doubt:** the path in this table is the answer. A `provenance:` frontmatter note overrides it for the rare file that belongs to the other side of the boundary; absent that note, the path governs regardless of who last edited the file.
 

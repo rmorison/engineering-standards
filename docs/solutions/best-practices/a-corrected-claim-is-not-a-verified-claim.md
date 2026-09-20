@@ -71,7 +71,7 @@ second fix:     git suggests 50 for the whole summary line; this standard
 The three clauses that were sound the whole time, and stayed:
 
 - `gitlint`'s `TitleMaxLength` default is 72, in `gitlint-core/gitlint/rules.py`
-- The Linux kernel's `Documentation/process/submitting-patches.rst` requires a summary of 70 to 75 characters
+- The Linux kernel's `Documentation/process/submitting-patches.rst` caps a patch summary at "no more than 70-75 characters"
 - In the 50/72 convention, 72 is the body wrap width
 
 Their soundness is what made the fourth clause hard to see.

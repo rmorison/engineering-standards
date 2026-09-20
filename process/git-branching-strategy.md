@@ -115,9 +115,9 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 
 **Note on squash merging**: When you squash and merge, all individual commits on the branch are combined into a single commit. This means:
 - Individual commit messages are preserved in the squashed commit body
-- The PR title becomes the final commit message summary
+- The PR title is what GitHub builds the final commit message summary from (see [PR Title](#pr-title))
 - Write clear, incremental commits during development for your own tracking
-- Write the PR title to the format in [Commit Messages](#commit-messages), since it becomes the commit message in `main`
+- Write the PR title to the format in [Commit Messages](#commit-messages); [PR Title](#pr-title) covers exactly how it reaches `main`
 
 ---
 
@@ -172,7 +172,8 @@ Fixes: #42
 ### Guidelines
 
 - Use present tense: "add feature" not "added feature"
-- Keep the whole first line to 72 characters or fewer, counting any `type(scope): ` prefix. That is `gitlint`'s default `title-max-length` and sits inside the Linux kernel's 70-75 range for a patch summary. Git's own documentation suggests 50 for the whole summary line; this standard relaxes that to 72 to leave room for the type prefix. Note that in the widely cited 50/72 pair the 72 is the body wrap width, not a subject limit
+- Keep the whole first line to 72 characters or fewer, counting any `type(scope): ` prefix. That is [`gitlint`](https://jorisroovers.com/gitlint/latest/rules/builtin_rules/#t1-title-max-length)'s default `title-max-length`, and it sits under the [Linux kernel](https://www.kernel.org/doc/html/latest/process/submitting-patches.html)'s ceiling of no more than 70-75 characters for a patch summary. Git's own documentation suggests 50 for the whole summary line; this standard relaxes that to 72 to leave room for the type prefix. Note that in the widely cited 50/72 pair the 72 is the body wrap width, not a subject limit
+- The limit applies to the subject as authored. GitHub appends ` (#<number>)` when it squashes, and that suffix is not counted against it
 - Reference issue number and specs when applicable
 - Explain why, not what (code shows what)
 

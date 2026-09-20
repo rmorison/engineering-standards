@@ -150,7 +150,7 @@ protected API endpoints.
 
 This section is the only place a label is defined. Other documents tell you when to apply a label and link here for its meaning. A label named anywhere in `process/` or `ai/` that is not in this table is a defect in that document, not a label you are missing.
 
-**Reading the Mode column.** Two independent axes decide whether a label is yours: **scale** (team-scale, or solo + AI) and **toolchain** (CE-mode, or standards-only). `both` means create it at any scale in either mode. `team-scale` means the three-tier hierarchy above uses it and solo + AI work skips it, which is what [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 3 already prescribes. `CE-mode` means the label exists only where compound-engineering is in use.
+**Reading the Mode column.** Two independent axes decide whether a label is yours: **scale** (team-scale, or solo) and **toolchain** (CE-mode, or standards-only). `both` means create it at any scale in either mode. `team-scale` means the three-tier hierarchy above uses it and solo-scale work skips it, at either toolchain. [`process/compound-engineering-integration.md`](./compound-engineering-integration.md) § 3 prescribes the same skip for CE-mode solo work. `CE-mode` means the label exists only where compound-engineering is in use.
 
 | Label | Meaning | Mode |
 |---|---|---|
@@ -164,7 +164,7 @@ This section is the only place a label is defined. Other documents tell you when
 | `priority:medium` | Normal scheduling priority | both |
 | `priority:low` | Worth doing, under no schedule pressure | both |
 | `blocked` | Cannot proceed due to an external dependency | both |
-| `epic` | Applied to an epic tracking issue. At solo + AI scale, one umbrella epic per multi-phase plan | both |
+| `epic` | Applied to an epic tracking issue. At solo scale, one umbrella epic per multi-phase plan | both |
 | `epic-{theme-slug}` | Applied to the epic and every child issue, for filtering. Lowercase, hyphen-separated, under 30 characters: `epic-auth-system`, `epic-api-redesign` | team-scale |
 | `v1.0-ga`, `v2.0-api-redesign` | Milestone labels mirroring the GitHub Milestone that defines an initiative. Create as needed | team-scale |
 | `points-1`, `points-2`, `points-3`, `points-5`, `points-8`, `points-13` | Fibonacci estimate where 2 points is roughly 1 day. See [Project Planning Standards](./project-planning-standards.md#story-point-estimation) | team-scale |
