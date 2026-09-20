@@ -265,7 +265,7 @@ None
      -f description="API redesign initiative"
    ```
 
-2. **Create epic-specific label**: Label format `epic-{theme-slug}` (lowercase, hyphens, <30 chars), use for epic and all sub-issues
+2. **Create epic-specific label**: `epic-{theme-slug}`, whose format [Label Strategy](#label-strategy) defines. Use it for the epic and all sub-issues
 
 3. **Create epic issue**: Use template above, apply `epic` and `epic-{theme-slug}` labels
 
