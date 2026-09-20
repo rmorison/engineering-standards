@@ -27,7 +27,7 @@ For the architecture itself, see [`ai/claude-code/README.md`](../ai/claude-code/
 | # | Layer | Principle | What CE provides |
 |---|-------|-----------|------------------|
 | 1 | Rules | Persistence | *Not provided.* The standards repo's [`ai/claude-code/rules/*.md`](../ai/claude-code/rules/) retains ownership. Rule files carry one-line CE-aware pointers, not multi-mode policy. |
-| 2 | Workflow Skills | Composability | 36 skills covering discovery, planning, execution, review, debugging, and compounding. Pipeline shape: `ce-brainstorm → ce-plan → ce-work → ce-doc-review → ce-code-review → ce-compound`. The `lfg` skill routes a request to the skills whose job it is and carries a code change through to an open PR. |
+| 2 | Workflow Skills | Composability | 36 skills covering discovery, planning, execution, review, debugging, and compounding. CE's own core loop is `ce-brainstorm → ce-plan → ce-work → ce-simplify-code → ce-code-review → ce-compound`; `ce-doc-review` is reached for on demand rather than every iteration. The `lfg` skill routes a request to the skills whose job it is and carries a code change through to an open PR. |
 | 3 | Persona Agents | Perspective | 27 specialized review personas, held as reference files inside `ce-code-review` (16), `ce-doc-review` (8), and `ce-simplify-code` (3). Each review skill activates a subset per document or diff rather than dispatching all of them: in `ce-doc-review` only coherence and feasibility run every time, the rest on matching signals. The roster lives in CE's internals and carries no stability contract — the durable interface is the skill invocation, not the persona names. |
 | 4 | References | Progressivity | Each skill ships a `references/*.md` subtree loaded progressively as workflow depth grows. The pattern keeps Layer 2 skills lean at the entry point. |
 | 5 | Compound / Learnings | Compounding | `ce-compound` captures learnings from completed work into `docs/solutions/`. `ce-compound-refresh` audits and consolidates. The compound output is itself a Layer 5 artifact. |
@@ -45,11 +45,15 @@ CE-using projects produce artifacts at paths the standards' `docs/` taxonomy doe
 
 | Path | Owner | Producer / notes |
 |------|-------|------------------|
-| `docs/ideation/` | CE | `ce-ideate` output |
+| `docs/ideation/` | CE | `ce-ideate` output, written here when the artifact root exists and to a CE temp path otherwise |
 | `docs/plans/` | CE | Every unified plan artifact, whichever skill wrote it. `ce-plan` output — implementation-ready, carrying Implementation Units and acceptance criteria. Subsumes the standards' `docs/planning/` for CE-using projects. |
 | `docs/plans/YYYY-MM-DD-HHMM-<type>-<topic>-plan.md` | CE | `ce-brainstorm` output as of CE 3.x, in the same directory — a requirements-only unified plan (`artifact_contract: ce-unified-plan/v1`, `product_contract_source: ce-brainstorm`) carrying a Product Contract but no Implementation Units. **Serves as the Phase 0 / discovery artifact** for [`process/feature-development-workflow.md`](./feature-development-workflow.md); Phase 1 (Product Concept) is seeded from it. |
 | `docs/brainstorms/` | CE (legacy) | Historical `*-requirements.{md,html}` files. `ce-plan` still accepts them as input; `ce-brainstorm` no longer writes here. |
-| `docs/solutions/` | CE | Layer 5 artifacts produced by `ce-compound` and `ce-compound-refresh`. No standards analog yet. |
+| `docs/solutions/` | CE | Layer 5 artifacts produced by `ce-compound` and `ce-compound-refresh`, and read by many other skills as grounding. No standards analog yet. |
+| `docs/explainers/` | CE | `ce-explain` output — standalone teaching artifacts. No standards analog yet. |
+| `docs/pulse-reports/` | CE | `ce-product-pulse` output — time-windowed reports on usage, performance and errors. |
+| `docs/dogfood-reports/` | CE | `ce-dogfood` output — browser QA reports on a branch. |
+| `docs/feedback-sweep/` | CE | `ce-sweep` state — ingested Slack/GitHub feedback and its rolling plan. |
 | `docs/engineering/adr/` | shared | Human-authored ADRs. Path identical in standards-mode and CE-mode. |
 | `docs/engineering/designs/` | standards | Human-authored technical design documents. |
 | `docs/product/` | standards | Human-authored product concepts and feature specs. |
@@ -152,23 +156,61 @@ Where a human reviewer is available, these classes take human approval and the a
 
 ## 6. CE skill ↔ standards doc cross-reference
 
-The table below maps the CE pipeline and git-adjacent skills (Layer 2) that the standards docs govern — not all 36 CE ships. Behavior is described alongside each skill name so the mapping survives a rename.
+CE groups its own skills by purpose, and this section follows that grouping so the mapping stays checkable against upstream. The tables below cover the groups whose skills touch a standards convention. The rest — testing and design, collaboration, and workflow utilities — produce no artifact these standards govern and need no reconciliation; they are listed at the end so the omission is deliberate rather than an oversight.
+
+### Core loop
+
+The six steps of every iteration, in CE's terms.
 
 | CE skill | Behavior | Standards doc(s) it operates within |
 |----------|----------|------------------------------------|
-| `ce-ideate` | Open-ended ideation; produces `docs/ideation/` artifacts | Pre-Phase 1 of [`process/feature-development-workflow.md`](./feature-development-workflow.md) |
 | `ce-brainstorm` | Structured requirements gathering; produces a requirements-only unified plan at `docs/plans/YYYY-MM-DD-HHMM-<type>-<topic>-plan.md`. Legacy `docs/brainstorms/*-requirements.md` files remain valid input to `ce-plan` but are no longer written | **Phase 0** of [`process/feature-development-workflow.md`](./feature-development-workflow.md); Phase 1 is seeded from the brainstorm output |
 | `ce-plan` | Produces implementation plans at `docs/plans/...` with U-IDs and acceptance criteria | Phases 3–4 of [`process/feature-development-workflow.md`](./feature-development-workflow.md); subsumes `docs/planning/` for CE-using projects |
-| `ce-work` | Executes a plan; manages task state and incremental commits | Phase 5 of [`process/feature-development-workflow.md`](./feature-development-workflow.md) |
-| `ce-doc-review` | Dispatches Layer 3 persona reviewers against a plan or requirements doc; produces P0–P3 findings | Phase 4 review surface (plans, designs, ADRs) |
+| `ce-work` | Executes an implementation-ready plan; manages task state and incremental commits | Phase 5 of [`process/feature-development-workflow.md`](./feature-development-workflow.md) |
+| `ce-simplify-code` | Refines freshly written code for reuse, clarity and efficiency with behavior preserved, before review | Phase 5, between implementation and review. Complements the quality principles in [`code/`](../code/) |
 | `ce-code-review` | Dispatches Layer 3 persona reviewers against a code diff; produces P0–P3 findings | Phase 5 review surface (code review, the AI-review discipline above) |
-| `ce-debug` | Systematic root-cause investigation; produces a debug record | Bug-fix work in [`process/technical-work-workflow.md`](./technical-work-workflow.md) |
 | `ce-compound` | Captures learnings from completed work into `docs/solutions/` (Layer 5 output) | Phase 6 (validation/iteration) of [`process/feature-development-workflow.md`](./feature-development-workflow.md), or post-incident |
+
+### Around the loop
+
+Anchors and feeds that keep the loop grounded.
+
+| CE skill | Behavior | Standards doc(s) it operates within |
+|----------|----------|------------------------------------|
+| `ce-strategy` | Creates and maintains `STRATEGY.md`, the upstream anchor `ce-ideate`, `ce-brainstorm` and `ce-plan` read as grounding | No standards analog. Sits above [`process/feature-development-workflow.md`](./feature-development-workflow.md) |
+| `ce-product-pulse` | Time-windowed report on usage, performance, errors and follow-ups; writes `docs/pulse-reports/` | Feeds reactive issue creation under § 3 above |
+| `ce-sweep` | Ingests Slack and GitHub feedback, acknowledges at source, maintains a rolling `lfg`-ready plan | Feeds reactive issue creation under § 3 above |
 | `ce-compound-refresh` | Audits and consolidates `docs/solutions/`; supersedes outdated learnings | Maintenance of Layer 5 artifacts |
-| `ce-commit` / `ce-commit-push-pr` | Creates commits and opens PRs | Commit-message and PR conventions in [`process/git-branching-strategy.md`](./git-branching-strategy.md) |
-| `ce-worktree` | Creates isolated worktrees and branches | Branch naming per § 4 above — supply the name when an issue exists |
-| `ce-resolve-pr-feedback` / `ce-babysit-pr` | Resolves review feedback and drives a PR to merge-ready | PR review and merge gates in [`process/git-branching-strategy.md`](./git-branching-strategy.md) |
-| `lfg` | Routes a request to the CE skill whose job it is rather than running a fixed chain. On a code change: plans, implements, simplifies, runs `ce-code-review` and applies eligible findings, then pushes a branch, opens a PR and watches CI — leaving only the merge. `ce-brainstorm` runs only when a human is present; `ce-compound` only when the run produced durable reasoning | The full feature workflow, executed without per-step confirmation, through to an open PR |
+
+### On demand
+
+Reached for when a specific need arises, not on every iteration.
+
+| CE skill | Behavior | Standards doc(s) it operates within |
+|----------|----------|------------------------------------|
+| `ce-ideate` | Optional step before `ce-brainstorm`; generates and critiques grounded ideas, writing a ranked artifact to `docs/ideation/` | Pre-Phase 1 of [`process/feature-development-workflow.md`](./feature-development-workflow.md) |
+| `ce-doc-review` | Dispatches Layer 3 persona reviewers against a plan or requirements doc; produces P0–P3 findings | Phase 4 review surface (plans, designs, ADRs) |
+| `ce-debug` | Systematic root-cause investigation; produces a causal chain and optional fix | Bug-fix work in [`process/technical-work-workflow.md`](./technical-work-workflow.md) |
+| `ce-explain` | Evidence-backed explanation of how something works and why; may write `docs/explainers/` | Complements [`process/documentation-standards.md`](./documentation-standards.md); explainers are a CE-owned path |
+| `ce-bakeoff` / `ce-pov` / `ce-prototype` / `ce-optimize` | Develop competing approaches, judge a supplied subject, build a throwaway prototype, or hold a measured improvement to a target | Decision support during Phases 1–4; no artifact the standards govern beyond the plan each feeds |
+
+### Git workflow
+
+| CE skill | Behavior | Standards doc(s) it operates within |
+|----------|----------|------------------------------------|
+| `ce-commit` / `ce-commit-push-pr` | Local commits, or working changes through to an open PR | Commit-message and PR conventions in [`process/git-branching-strategy.md`](./git-branching-strategy.md) |
+| `ce-worktree` | Isolates work in a git worktree, choosing a branch name from the work description | Branch naming per § 4 above — supply the name when an issue exists |
+| `ce-resolve-pr-feedback` / `ce-babysit-pr` | Resolves review feedback in one pass; watches an open PR over time and routes CI failures to `ce-debug` | PR review and merge gates in [`process/git-branching-strategy.md`](./git-branching-strategy.md). Neither merges without a grant |
+
+### Autonomous
+
+| CE skill | Behavior | Standards doc(s) it operates within |
+|----------|----------|------------------------------------|
+| `lfg` | Routes a request to the CE skill whose job it is rather than running a fixed chain. On a code change: plans, implements, runs `ce-simplify-code`, runs `ce-code-review` and applies eligible findings, captures learnings when the run warrants it, then pushes a branch, opens a PR and watches CI — leaving only the merge. `ce-brainstorm` runs only when a human is present | The full feature workflow, executed without per-step confirmation, through to an open PR |
+
+### Groups with no standards boundary
+
+CE's **testing and design**, **collaboration**, and **workflow utilities** groups cover browser and simulator testing, UX polish, publishing and handoff, prose rewriting, setup and skill maintenance. They produce no artifact these standards govern, so they need no path mapping or convention reconciliation here. Two are worth knowing about anyway: `ce-setup` creates or repairs the repo's `.compound-engineering/config.yaml`, which is where `docs_root` is set (see § 2), and `ce-dogfood` writes `docs/dogfood-reports/`.
 
 **Version drift.** Renaming is not the drift vector to plan for. Between CE 3.1.0 (which this doc was first written against) and 3.27.0, no skill was renamed — but the skill count grew, the persona roster moved and grew, `ce-brainstorm`'s output path changed, and `lfg` gained a shipping tail. Behavior and output paths are what move, and they move § 1, § 2 and § 6 together rather than one row at a time. Re-verify all three tables against the installed CE on each minor upgrade, and update the **Verified against** line in the header when you do.
 
