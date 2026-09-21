@@ -97,7 +97,7 @@ This is not exclusive: the architecture is intentionally vendor-neutral. Adopter
 - **Compound-engineering plugin:** https://github.com/EveryInc/compound-engineering-plugin (v3.1.0).
 - **Agent-native foundation:** https://every.to/guides/agent-native — the conceptual antecedent that informed both the four-layer model and CE.
 - **Archived prior proposals:** [`archive/`](../../../archive/) — three earlier `ai/*.md` documents that proposed building agent-native abstractions in this repository rather than adopting an existing toolkit. Preserved as the evaluative framework that informed this decision.
-- **Real-world deployment example:** `books-ops` (private rmorison repository) — informed the integration doc's wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Named as deployment context, not as a documentation reference.
+- **Real-world deployment example:** a private downstream project — informed the integration doc's wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Named as deployment context, not as a documentation reference.
 
 ---
 
@@ -117,3 +117,9 @@ Names held; behavior and output paths moved. The one-row insurance was written a
 **The rule now.** Re-verify the layer table, the artifact-path table, and the skill cross-reference table together against the installed CE on each minor upgrade, then grep the repository for what restates them. [`process/compound-engineering-integration.md`](../../../process/compound-engineering-integration.md) carries this as its **Version drift** note and records the CE version it was last verified against; that note is authoritative over the Upgrade discipline paragraph above.
 
 **What is unchanged.** The decision itself stands, and the audit strengthened it. The six-layer model absorbed 26 minor releases of upstream change without a structural revision: no layer was added, removed, or redefined, and every drifted claim was an inventory detail rather than a category error. Pinning to 3.x and re-evaluating the canonical-realization claim at 4.x also stands.
+
+---
+
+## Amendment — 2026-09-21: identifying detail redacted
+
+The References list above named a private downstream project by repository name. That name was removed on 2026-09-21 so this public record discloses nothing about a repository its readers cannot open. No decision, claim, consequence, or date in this ADR changed — the redaction alters what the record *discloses*, not what it *decided*, and the reference still says what the deployment contributed. Git history retains the original text.

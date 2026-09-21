@@ -227,7 +227,7 @@ CE's **testing and design**, **collaboration**, and **workflow utilities** group
 
 ## Real-world deployment example
 
-This integration doc was informed by `books-ops`, a private `rmorison` repository that ran the full `ce-brainstorm → ce-plan → ce-doc-review → lfg` pipeline against a real workload. The wording of the layer-realization mapping, the Ticket Policy block, and the AI-review discipline framing reflects iteration through that deployment. `books-ops` is named here as deployment context, not as a documentation reference; everything load-bearing in this doc is inlined directly so a public reader without `rmorison` access can apply it end-to-end.
+This integration doc was informed by a private downstream project that ran the full `ce-brainstorm → ce-plan → ce-doc-review → lfg` pipeline against a real workload. The wording of the layer-realization mapping, the Ticket Policy block, and the AI-review discipline framing reflects iteration through that deployment. The deployment is given here as context, not as a documentation reference; everything load-bearing in this doc is inlined directly so any public reader can apply it end-to-end.
 
 ---
 
