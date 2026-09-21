@@ -8,14 +8,16 @@ abandoned: 2026-05-03
 origin: https://github.com/rmorison/engineering-standards/issues/22
 ---
 
+> **Redaction note — 2026-09-21.** Identifying details were removed from this record for public consumption: the name of a private downstream repository, two links to a file inside it, and the line-range citations that located sections of that file. No decision, date, requirement, or rationale was altered — the redaction changes what this record discloses, not what it decided — and git history retains the original text.
+
 > **Status: abandoned.** This plan iterated three rounds of multi-persona doc-review under shifting architectural framings:
-> 1. **Round 1**: "supersede the 4-layer with CE" — surfaced books-ops privacy, AI-review-as-gate overclaim, vendor coupling concerns.
+> 1. **Round 1**: "supersede the 4-layer with CE" — surfaced the private-repository privacy concern, AI-review-as-gate overclaim, vendor coupling concerns.
 > 2. **Round 2**: "CE as specialization of Layers 2 and 3" — surfaced that CE doesn't fit the 4-layer cleanly (personas aren't standalone agents; depth gap is 10x; Layer 1 inlining violates compact-pointer purpose).
 > 3. **Round 3**: "morph the 4-layer to fit CE" — at this point the work had grown beyond CE integration into **architectural redesign with publishable framing**. The plan was no longer right-sized for what's actually being built.
 >
 > **Superseded by**: a fresh plan around the **6-layer AI architecture** (Rules / Workflow Skills / Persona Agents / References / Compound / Hooks) with CE as the canonical realization. The new plan frames the architecture as the abstraction and CE as one (highly developed) realization — supports the user's potential technical article *"Abstracting the Every Compound Engineering Model for LLM Based Engineering"* and the repo's encompassing-standard direction.
 >
-> Preserved here as iteration history: the operational findings (path mappings, branch-naming reconciliation, AI-review-as-discipline framing, books-ops privacy resolution by inlining, archive-prior-proposals-to-top-level) remain valid input to the new plan; the architectural framing was wrong, the operational details were right.
+> Preserved here as iteration history: the operational findings (path mappings, branch-naming reconciliation, AI-review-as-discipline framing, the private-repository privacy resolution by inlining, archive-prior-proposals-to-top-level) remain valid input to the new plan; the architectural framing was wrong, the operational details were right.
 
 # feat: Integrate compound-engineering practices with the standards repo (abandoned)
 
@@ -25,7 +27,7 @@ Make the relationship between this repo's engineering standards and the compound
 
 This framing — **abstraction (the 4-layer model) + specialization (CE as the deep implementation of Layers 2 and 3 when present)** — is load-bearing for the integration. The top-level docs (`README.md`, `ai/CLAUDE.md`, `ai/claude-code/README.md`) explicitly stress this layering so new adopters understand the architecture before any specific workflow.
 
-The plan delivers: an ADR establishing the layering, a process doc that inlines its own load-bearing content (so a public reader can apply it without 404'ing on a private books-ops link), inline-replace fixes for conflicting *content* in `ai/CLAUDE.md` and `ai/claude-code/rules/` (the always-loaded Layer 1 files), archival of three prior agent-native proposals to top-level `archive/`, a CE-as-specialization subsection added to README and `ai/claude-code/README.md`, a CE-aware section in `templates/CLAUDE.md`, and cross-references in the five existing process docs. Solo / AI-driven workflows become a first-class scale alongside the team-scale assumptions that pervade the current standards.
+The plan delivers: an ADR establishing the layering, a process doc that inlines its own load-bearing content (so a public reader can apply it without 404'ing on a link into a private downstream project), inline-replace fixes for conflicting *content* in `ai/CLAUDE.md` and `ai/claude-code/rules/` (the always-loaded Layer 1 files), archival of three prior agent-native proposals to top-level `archive/`, a CE-as-specialization subsection added to README and `ai/claude-code/README.md`, a CE-aware section in `templates/CLAUDE.md`, and cross-references in the five existing process docs. Solo / AI-driven workflows become a first-class scale alongside the team-scale assumptions that pervade the current standards.
 
 **Critically, the lightweight skills (`/spec`, `/plan`, `/review`) and agents (`code-reviewer`, `spec-writer`) are NOT archived** — they are the vendor-neutral baseline of Layers 2 and 3. CE specializes those layers when installed; both remain available, with CE-using projects defaulting to the deeper CE skills.
 
@@ -37,7 +39,7 @@ A second, deliberately humbler framing: the AI-review process described here is 
 
 ## Problem Frame
 
-Both systems ship in the same repos today (e.g., `books-ops`) with no documented relationship:
+Both systems ship in the same repos today (e.g., a private downstream project) with no documented relationship:
 
 - Standards prescribe `docs/product/`, `docs/engineering/designs/`, `docs/engineering/adr/`, `docs/planning/`. CE writes to `docs/ideation/`, `docs/brainstorms/`, `docs/plans/`, `docs/solutions/`. Direct path conflict at `docs/plans/` vs `docs/planning/`. No standards analog for `docs/solutions/`.
 - Standards' three-tier issue hierarchy (Milestone → Epic → Implementation) is right for 3-5-person teams. CE plan files use U-IDs as the unit tracker; pre-allocating sub-issues per U duplicates state and drifts from the plan. Standards already have implicit solo carve-outs (`process/issue-tracking.md`'s "<3 issues: just use labels" / "<1 month: might not need epic structure") but they aren't surfaced.
@@ -47,7 +49,7 @@ Both systems ship in the same repos today (e.g., `books-ops`) with no documented
 - Three untracked `ai/` proposals (`adoption-roadmap.md`, `agent-native-improvements.md`, `top-3-enhancements.md`) document a path-not-taken: building agent-native abstractions ourselves rather than adopting CE directly. They need clear supersession **and** physical relocation outside the agent-context tree (top-level `archive/`, not `ai/archive/`) so recursive agent globs and template-copying adopters don't ingest them.
 - **Newly merged into `main` (PRs #16, #19, #21) and discovered after initial planning**: a 4-layer AI architecture (Rules + Skills + Agents + Hooks) that — once correctly understood — does NOT compete with CE; it provides the taxonomy CE specializes. The 4-layer model defines four context-cost slots; CE is a deep implementation of two of them (Skills and Agents) that loads when the plugin is installed. The genuine integration tasks remaining are: (a) Layer 1 *content* conflicts — `ai/claude-code/rules/engineering-standards.md` hardcodes the standards-only `docs/` tree and unqualified branch-naming, and `ai/claude-code/rules/sdlc-workflow.md`'s "wait for explicit confirmation before proceeding" contradicts CE's `lfg` autonomous flow; the layer itself is correct, the content needs CE-aware updates; (b) Layer 2/3 default selection — adopters need to know which deep implementation fills Layers 2 and 3 (CE if installed, vendor-neutral templates otherwise); (c) discoverability — the README's "AI / Claude Code Integration" section currently describes the 4-layer model without naming CE as the specialization, so CE adopters don't see the relationship; (d) cross-references in the five existing process docs.
 
-The `books-ops` project (its `CLAUDE.md` is private, inaccessible to non-rmorison readers) absorbed all five gaps locally during real use of the ideation → brainstorm → plan → ce-doc-review → lfg pipeline. Its absorbed wording is battle-tested. **Because `engineering-standards` is a public, copyable template repo, the integration doc inlines the load-bearing content (Documentation Paths table, Review Discipline paragraph, Ticket Policy block) directly rather than pointing readers at a 404.** books-ops is named as a real-world deployment example, not as a canonical reference.
+The private downstream project (its `CLAUDE.md` is private, inaccessible to non-rmorison readers) absorbed all five gaps locally during real use of the ideation → brainstorm → plan → ce-doc-review → lfg pipeline. Its absorbed wording is battle-tested. **Because `engineering-standards` is a public, copyable template repo, the integration doc inlines the load-bearing content (Documentation Paths table, Review Discipline paragraph, Ticket Policy block) directly rather than pointing readers at a 404.** It is named as a real-world deployment example, not as a canonical reference.
 
 ---
 
@@ -56,13 +58,13 @@ The `books-ops` project (its `CLAUDE.md` is private, inaccessible to non-rmoriso
 - R1. Document the decision to integrate CE with the standards, with rationale and pointers (issue #22 acceptance criterion: ADR).
 - R2. Produce an integration process doc with five sections: artifact location mapping, issue-tracking modes, branch-naming reconciliation, solo-scale adaptations, CE skill ↔ standards doc cross-reference (issue #22 acceptance criterion).
 - R3. Add minimal cross-references to the five named existing process docs (issue #22 acceptance criterion).
-- R4. Reference at least one downstream project (`books-ops`) as the integration's working example (issue #22 acceptance criterion).
+- R4. Reference at least one downstream project (the private downstream project) as the integration's working example (issue #22 acceptance criterion).
 - R5. Add no weakening of team-scale standards; the solo-mode track adds, never replaces (issue #22 acceptance criterion).
-- R6. Add `docs/solutions/` to the path mapping as a CE-owned path with no standards analog (Claude review gap #1; books-ops absorbed).
-- R7. Define the AI-review **discipline** (not enforced gate) — what `ce-code-review` + `ce-doc-review` checks, what failure modes the substitution invites, and explicitly state that the discipline is process-level, not enforced by repo configuration (Claude review gap #2; books-ops left undefined; doc-review surfaced enforcement and failure-mode gaps).
-- R8. Update `ai/CLAUDE.md` to **inline-replace the conflicting Quick Reference content** (workflow paths, branch-naming rule) for CE-mode and add the precedence section. Side-by-side override is rejected because it leaves contradictory standards-path content above the override (Claude review gap #3; books-ops absorbed locally; doc-review identified that side-by-side fails for agents reading top-down).
-- R9. Declare `docs/brainstorms/` (the `ce-brainstorm` output) as the Phase 0 / discovery artifact for `process/feature-development-workflow.md`, with Phase 1 seeded from it. Closes the overlap with issue #12 (Claude review gap #4; books-ops absorbed).
-- R10. Reframe `process/git-branching-strategy.md`'s "❌ Branches Without Issues" anti-pattern to allow topic-style naming for `lfg` / `ce-work` flows without a parent issue (Claude review gap #5; books-ops absorbed).
+- R6. Add `docs/solutions/` to the path mapping as a CE-owned path with no standards analog (Claude review gap #1; the private downstream project absorbed).
+- R7. Define the AI-review **discipline** (not enforced gate) — what `ce-code-review` + `ce-doc-review` checks, what failure modes the substitution invites, and explicitly state that the discipline is process-level, not enforced by repo configuration (Claude review gap #2; the private downstream project left undefined; doc-review surfaced enforcement and failure-mode gaps).
+- R8. Update `ai/CLAUDE.md` to **inline-replace the conflicting Quick Reference content** (workflow paths, branch-naming rule) for CE-mode and add the precedence section. Side-by-side override is rejected because it leaves contradictory standards-path content above the override (Claude review gap #3; the private downstream project absorbed locally; doc-review identified that side-by-side fails for agents reading top-down).
+- R9. Declare `docs/brainstorms/` (the `ce-brainstorm` output) as the Phase 0 / discovery artifact for `process/feature-development-workflow.md`, with Phase 1 seeded from it. Closes the overlap with issue #12 (Claude review gap #4; the private downstream project absorbed).
+- R10. Reframe `process/git-branching-strategy.md`'s "❌ Branches Without Issues" anti-pattern to allow topic-style naming for `lfg` / `ce-work` flows without a parent issue (Claude review gap #5; the private downstream project absorbed).
 - R11. Supersede the three prior `ai/` proposal docs by relocating them to top-level `archive/` (outside the agent-context `ai/` tree) and adding banners pointing at the new ADR. User selected archive-with-banner; doc-review surfaced that placing them under `ai/archive/` keeps them in agent-recursive globs and in the copyable template tree, which defeats the goal — so the location moves to top-level `archive/`.
 
 - R12. Defend the choice to couple the engineering standards to one specific AI-workflow plugin (CE/EveryInc) rather than describe vendor-neutral patterns. The ADR carries a "Why this plugin specifically" subsection that names the alternative considered (vendor-neutral patterns + CE as one realization), explains why direct adoption beats neutrality for the rmorison use case, and states the upgrade discipline relative to CE's release cadence (doc-review product-lens finding).
@@ -97,7 +99,7 @@ The `books-ops` project (its `CLAUDE.md` is private, inaccessible to non-rmoriso
 
 ### Relevant Code and Patterns
 
-- `books-ops/CLAUDE.md` — the canonical working example. Sections to lift: Documentation Paths table, Review Gate paragraph, Ticket Policy, branch-naming carve-out. Adapt wording from books-ops-specific to integration-doc-generic.
+- The private project's `CLAUDE.md` — the canonical working example. Sections to lift: Documentation Paths table, Review Gate paragraph, Ticket Policy, branch-naming carve-out. Adapt wording from deployment-specific to integration-doc-generic.
 - `ai/CLAUDE.md` lines 22–66 — Quick Reference / Documentation Structure block that hardcodes the standards paths. The new "When using compound-engineering" section overrides this block.
 - `process/feature-development-workflow.md` lines 40–70 — Phase 1 (Product Concept) block (heading through the Example) is the seam where Phase 0 (CE brainstorm) attaches. The cross-ref note goes near the top of this Phase block.
 - `process/issue-tracking.md` lines 359–373 — already-existing solo carve-outs ("<3 issues: just use labels", "<1 month: might not need epic structure"). The integration doc cites these as the foundation for solo mode rather than inventing new ones.
@@ -108,7 +110,7 @@ The `books-ops` project (its `CLAUDE.md` is private, inaccessible to non-rmoriso
 ### Institutional Learnings
 
 - The three archived `ai/` proposals (`adoption-roadmap.md`, `agent-native-improvements.md`, `top-3-enhancements.md`) document the path-not-taken: building our own agent-native abstractions (workflows, learnings dirs, JSON indices, parity matrix). The decision to adopt CE directly supersedes these. Their analysis of agent-native principles remains valid — what changed is the implementation strategy. The archive banners (U4) preserve this context.
-- The `books-ops` integration was forced through the full pipeline (ideation → brainstorm → plan → ce-doc-review → lfg) and surfaced all five Claude-reviewer gaps in real use. Treating books-ops' absorbed wording as the source of truth is faster and lower-risk than re-deriving from first principles.
+- The private downstream project's integration was forced through the full pipeline (ideation → brainstorm → plan → ce-doc-review → lfg) and surfaced all five Claude-reviewer gaps in real use. Treating the private project's absorbed wording as the source of truth is faster and lower-risk than re-deriving from first principles.
 
 ### External References
 
@@ -178,11 +180,11 @@ The `books-ops` project (its `CLAUDE.md` is private, inaccessible to non-rmoriso
 - Create the two README stubs to honor `process/documentation-standards.md` line 125.
 - Use the lightweight ADR format described in `process/documentation-standards.md` (Decision / Context / Consequences / References). Keep it ≤2 pages.
 - **Decision**: adopt compound-engineering (CE) v3.1.0+ as the deep specialization of Layers 2 (Skills) and 3 (Agents) of this repo's 4-layer AI architecture. State the layering explicitly: the 4-layer model is the abstraction; CE fills Layers 2 and 3 with deep, vendor-coupled implementations when the plugin is installed. The vendor-neutral baseline (`templates/.claude/skills/`, `templates/.claude/agents/`) remains the default for projects without CE. Layer 1 (Rules) and Layer 4 (Hooks) are unchanged; their content is updated to be CE-aware where it conflicts (R14).
-- **Context**: PRs #16/#19/#21 (~5 weeks ago) shipped the 4-layer model. CE is in active use across `rmorison` projects (most concretely `books-ops`). The relationship between the two has been re-derived per project. This ADR establishes the architectural layering that resolves the re-derivation tax.
+- **Context**: PRs #16/#19/#21 (~5 weeks ago) shipped the 4-layer model. CE is in active use across `rmorison` projects (most concretely the private downstream project). The relationship between the two has been re-derived per project. This ADR establishes the architectural layering that resolves the re-derivation tax.
 - **The layering — Why this framing (R15)**: subsection establishing the 4-layer abstraction + CE specialization explicitly. Layer 1 (Rules) holds always-loaded session context; Layer 2 (Skills) is on-demand workflows; Layer 3 (Agents) is specialized subagents; Layer 4 (Hooks) is deterministic shell-level enforcement. CE provides Layer 2 and Layer 3 implementations that are deeper than the templates' vendor-neutral defaults (~30 skills vs 3, ~20 persona reviewers vs 2). CE doesn't ship Layer 1 or Layer 4 content; those continue to come from this repo. The 4-layer principle ("context is expensive — only load what's needed, when it's needed") is exactly CE's design philosophy; CE embodies it more deeply than the 4-layer's own thin skills did.
 - **Why CE rather than building the depth ourselves (R12)**: subsection defending the choice to install CE as the Layer 2/3 specialization rather than expanding the vendor-neutral skills toward CE-level depth. Alternative considered: build deeper Layer 2 and Layer 3 implementations in `templates/.claude/skills/` and `templates/.claude/agents/`, vendor-neutral. Rejected because (a) CE already provides this depth and is actively maintained, (b) duplicating it would be a maintenance liability against an evolving target, (c) the layering preserves vendor-neutrality at the 4-layer's own depth — adopters who don't run CE retain a working baseline. **Upgrade discipline**: pin to CE 3.x; re-evaluate at 4.x.
 - **Consequences**: list what changes (Layer 2/3 default-when-CE-installed, solo-mode is first-class, AI-review **discipline** — not enforced gate, precedence rule with provenance clause for artifact paths), what stays unchanged (ADR location, semver, conventional commits, PR-based merges, code quality principles, the 4-layer model itself, the vendor-neutral templates), and explicitly note the maintenance liability the vendor coupling creates at the specialization layer.
-- **References**: issue #22, the integration doc (U2), PRs #16/#19/#21 (the 4-layer model — referenced as foundational, not superseded), the three archived `ai/*.md` proposals (superseded — they proposed building agent-native abstractions ourselves rather than using the 4-layer + CE specialization framing), and books-ops as a real-world deployment example (qualified: "private repo, named for context not as a reference").
+- **References**: issue #22, the integration doc (U2), PRs #16/#19/#21 (the 4-layer model — referenced as foundational, not superseded), the three archived `ai/*.md` proposals (superseded — they proposed building agent-native abstractions ourselves rather than using the 4-layer + CE specialization framing), and the private downstream project as a real-world deployment example (qualified: "private repo, named for context not as a reference").
 - Number 0001 since no ADRs exist yet in this repo.
 
 **Patterns to follow:**
@@ -200,13 +202,13 @@ The `books-ops` project (its `CLAUDE.md` is private, inaccessible to non-rmoriso
 - Consequences explicitly distinguish "review discipline" from "enforced merge gate."
 - The 4-layer's principle ("context is expensive — only load what's needed") is restated and credited as CE's design philosophy too.
 - Pointer to `process/compound-engineering-integration.md` (U2) is present.
-- References include issue #22, PRs #16/#19/#21 (foundational, not superseded), the three archived prior proposals, and books-ops qualified as real-world deployment, not canonical reference.
+- References include issue #22, PRs #16/#19/#21 (foundational, not superseded), the three archived prior proposals, and the private downstream project qualified as real-world deployment, not canonical reference.
 
 ---
 
 - U2. **Process doc — compound-engineering integration (self-contained, not pointer-only)**
 
-**Goal:** Operational reference that resolves the path conflicts, ceremony scaling, branch-naming reconciliation, and AI-review discipline. **The doc is self-contained**: it inlines the load-bearing tables and paragraphs (Documentation Paths, Review Discipline, Ticket Policy) directly so a public reader without rmorison access can apply it without 404ing on books-ops links.
+**Goal:** Operational reference that resolves the path conflicts, ceremony scaling, branch-naming reconciliation, and AI-review discipline. **The doc is self-contained**: it inlines the load-bearing tables and paragraphs (Documentation Paths, Review Discipline, Ticket Policy) directly so a public reader without rmorison access can apply it without 404ing on links into the private downstream project.
 
 **Requirements:** R2, R4, R5, R6, R7, R12, R13
 
@@ -218,7 +220,7 @@ The `books-ops` project (its `CLAUDE.md` is private, inaccessible to non-rmoriso
 **Approach:**
 - Header section: scope statement, audience ("projects using compound-engineering — most concretely the `rmorison` projects, but the integration is intended to be readable and usable by any adopter"), and the precedence rule with provenance clause (R13).
 - Five sections per issue #22:
-  1. **Artifact location mapping** — full table including `docs/solutions/` row (R6). Inline the table content directly into the integration doc (do not point at books-ops). State the precedence rule and the provenance clause (first-skill-touched-the-file; explicit `provenance:` frontmatter override). Sample row format mirrors books-ops' battle-tested table:
+  1. **Artifact location mapping** — full table including `docs/solutions/` row (R6). Inline the table content directly into the integration doc (do not point at the private downstream project). State the precedence rule and the provenance clause (first-skill-touched-the-file; explicit `provenance:` frontmatter override). Sample row format mirrors the private project's battle-tested table:
 
      | Path | Owner | Producer |
      | --- | --- | --- |
@@ -230,7 +232,7 @@ The `books-ops` project (its `CLAUDE.md` is private, inaccessible to non-rmoriso
      | `docs/engineering/designs/` | standards | human-authored design docs |
      | `docs/product/` | standards | human-authored product concepts and feature specs |
 
-  2. **Issue-tracking modes** — three modes: team-scale (full three-tier hierarchy from `process/issue-tracking.md`), solo + AI (reactive issue creation, plan U-IDs as unit tracker), hybrid (solo today, team tomorrow — adopt lean now, add epics/milestones when a second contributor arrives). Cite the existing solo carve-outs in `process/issue-tracking.md` lines 359–373 ("<3 issues: just use labels", "<1 month: might not need epic structure") as the foundation rather than inventing new ones. Inline a minimal Ticket Policy block (umbrella epic per multi-phase plan, sub-issues reactive, U-aligned branch naming) so adopters do not need to read books-ops to see the pattern.
+  2. **Issue-tracking modes** — three modes: team-scale (full three-tier hierarchy from `process/issue-tracking.md`), solo + AI (reactive issue creation, plan U-IDs as unit tracker), hybrid (solo today, team tomorrow — adopt lean now, add epics/milestones when a second contributor arrives). Cite the existing solo carve-outs in `process/issue-tracking.md` lines 359–373 ("<3 issues: just use labels", "<1 month: might not need epic structure") as the foundation rather than inventing new ones. Inline a minimal Ticket Policy block (umbrella epic per multi-phase plan, sub-issues reactive, U-aligned branch naming) so adopters do not need to read the private downstream project to see the pattern.
 
   3. **Branch-naming reconciliation** — issue-numbered when an issue exists, topic-style (`feat/...`, `fix/...`) when produced by `lfg` / `ce-work` without a parent issue. Standards' rule applies once an issue is opened. State that this works in concert with U5's anti-pattern reframe.
 
@@ -240,8 +242,8 @@ The `books-ops` project (its `CLAUDE.md` is private, inaccessible to non-rmoriso
      - When a human reviewer onboards, the standards' "Require at least 1 approval" rule re-engages and AI-review becomes complementary.
 
   5. **Compound-engineering skill ↔ standards doc cross-reference** — table mapping CE skills (`ce-brainstorm`, `ce-plan`, `ce-work`, `ce-code-review`, `ce-doc-review`, `lfg`, `ce-compound`, `ce-compound-refresh`, `ce-debug`) to the standards docs they operate within. **Each row describes behavior alongside the skill name** (e.g., "the skill that produces a brainstorm requirements doc — currently `ce-brainstorm` — seeds Phase 1 of `process/feature-development-workflow.md`"). For meta-skills with no artifact output (e.g., `ce-compound-refresh`, `ce-debug`), the row says so explicitly so the table does not read as half-filled. Note the upgrade discipline: pin to CE 3.x; re-evaluate at 4.x major version.
-- Footer: **"Real-world deployment example"** subsection (renamed from "Working example") naming `books-ops` with one paragraph qualifying it as a private rmorison deployment, not as a doc reference. No line-range citations.
-- Use repo-relative paths everywhere. Do not point at the books-ops repo for content the integration doc itself should carry.
+- Footer: **"Real-world deployment example"** subsection (renamed from "Working example") naming the private downstream project with one paragraph qualifying it as a private rmorison deployment, not as a doc reference. No line-range citations.
+- Use repo-relative paths everywhere. Do not point at the private downstream project for content the integration doc itself should carry.
 
 **Patterns to follow:**
 - `process/issue-tracking.md` voice and structure for the issue-tracking modes section.
@@ -253,10 +255,10 @@ The `books-ops` project (its `CLAUDE.md` is private, inaccessible to non-rmoriso
 **Verification:**
 - All five sections present.
 - `docs/solutions/` row in the mapping table; precedence rule + provenance clause stated explicitly.
-- Documentation Paths table is inlined (not linked to books-ops).
+- Documentation Paths table is inlined (not linked to the private downstream project).
 - AI-review discipline section names: (a) what's checked, (b) the four failure modes, (c) explicit "discipline, not enforced gate" framing.
 - Ticket Policy block inlined so adopters can apply without external reference.
-- `books-ops` named only as real-world deployment, never as canonical reference.
+- The private downstream project named only as real-world deployment, never as canonical reference.
 - A reader without rmorison repo access can apply the integration doc end-to-end.
 - No team-scale standards weakened — re-reading every cross-reference shows additive language ("when in solo CE mode...") rather than subtractive ("the standard no longer applies").
 - Skill name changes within CE 3.x wouldn't break the doc (behaviors described alongside names).
@@ -285,7 +287,7 @@ For **`ai/CLAUDE.md`**:
 - **Replace** the Feature Development Workflow numbered list (lines ~24–29) with a two-mode version: standards-mode list (unchanged) and CE-mode list (Phase 0 = `docs/brainstorms/`, Phase 1 seeded from brainstorm, Phase 3-4 outputs at CE-mode paths). This addresses R9 directly in the highest-leverage file.
 - **Insert** a new "When using compound-engineering" section after the existing Quick Reference block containing: (a) one-line precedence statement with provenance clause summary; (b) pointer to the ADR (U1) and integration doc (U2); (c) one-paragraph framing of AI-review as discipline (not gate); (d) link to the integration doc for the full path-ownership table.
 - Update the Quick Links section at the bottom to include the new ADR and integration doc.
-- Do NOT cite `books-ops/CLAUDE.md` from `ai/CLAUDE.md` — the integration doc is the authoritative reference for CE-mode behavior.
+- Do NOT cite the private project's `CLAUDE.md` from `ai/CLAUDE.md` — the integration doc is the authoritative reference for CE-mode behavior.
 
 For **`ai/claude-code/rules/engineering-standards.md`** (always-loaded):
 - **Replace** the hardcoded `docs/` tree block (lines 27–37) with a two-mode version mirroring the `ai/CLAUDE.md` treatment: "Standards mode" tree (unchanged), "When using compound-engineering" tree (CE paths). Pointer to integration doc.
@@ -519,7 +521,7 @@ Banner for each archived file (relative path `../docs/engineering/adr/...` — f
 
 | Risk | Mitigation |
 |------|------------|
-| The integration doc tries to be both prescriptive (override standards) and descriptive (document books-ops) and reads confusingly. | Clear section structure: prescriptive material in the five named sections; books-ops mentioned only in a "Real-world deployment example" footer with no line-range citations. Load-bearing tables and paragraphs are inlined, not pointed at. Re-read for tone in Phase 5.1. |
+| The integration doc tries to be both prescriptive (override standards) and descriptive (document the private downstream project) and reads confusingly. | Clear section structure: prescriptive material in the five named sections; the private downstream project mentioned only in a "Real-world deployment example" footer with no line-range citations. Load-bearing tables and paragraphs are inlined, not pointed at. Re-read for tone in Phase 5.1. |
 | `ai/CLAUDE.md` rewrite breaks non-CE adopters who copy this template. | Inline replacement uses explicit "Standards mode (default):" / "When using compound-engineering:" sub-blocks; both modes remain visible. A non-CE adopter's reading is unchanged in semantics — only the structure is reframed. |
 | CE skill names change in a future plugin version, breaking the cross-reference table in U2. | Describe behavior alongside skill names ("the skill that produces a brainstorm requirements doc — currently `ce-brainstorm`"). Localizes the rot. Upgrade discipline pinned at CE 3.x with re-evaluation at 4.x major version (R12). |
 | AI-review discipline (R7) is misread as an enforced gate, leading to false confidence. | The integration doc explicitly frames the discipline as "process discipline, not enforced by repo configuration." Failure modes named explicitly (cross-PR scope drift, self-grading loops, product-positioning regressions, same-intent author/reviewer). Adopters know what they're trading. |
@@ -527,15 +529,15 @@ Banner for each archived file (relative path `../docs/engineering/adr/...` — f
 | Layer-architecture framing is novel to this repo and may not land if not stressed in top-level docs. | U1 (ADR), U3 (`ai/claude-code/README.md`, `ai/CLAUDE.md`), U7 (README), U8 (`templates/CLAUDE.md`) all explicitly state the layering. The framing is repeated across the doc surface so a reader who lands anywhere sees it. |
 | Vendor coupling to CE/EveryInc creates a maintenance liability against a roadmap the repo doesn't control. | ADR carries a "Why this plugin specifically" subsection (R12) defending the choice and stating the upgrade discipline. The standards repo's audience is small enough to make pinning lower-cost than maintaining vendor-neutral abstractions. Re-evaluation point: CE 4.x major version. |
 | Precedence rule edge cases (co-authored docs, human-edited CE artifacts) leave provenance ambiguous in practice. | Provenance clause (R13) defines first-skill-touched-the-file as the default with explicit `provenance:` frontmatter override as the escape hatch. Stated in both the ADR and the integration doc. |
-| books-ops working example is private; non-rmorison readers cannot verify referenced content. | Resolved by inlining all load-bearing content (Documentation Paths table, Review Discipline, Ticket Policy) directly into the integration doc. books-ops named only as "real-world deployment example" with no line-range citations. The integration doc is now self-contained for any public reader. |
+| The private downstream project working example is private; non-rmorison readers cannot verify referenced content. | Resolved by inlining all load-bearing content (Documentation Paths table, Review Discipline, Ticket Policy) directly into the integration doc. It is named only as "real-world deployment example" with no line-range citations. The integration doc is now self-contained for any public reader. |
 | Three `ai/*.md` archived files are currently untracked; the archival commit looks unusual in history. | U4 approach explicitly addresses this: archival commit is the files' first appearance in history; no `git mv` for that batch (would fail on untracked files); banner makes the supersession explicit. The skill/agent batch IS tracked and uses `git mv` to preserve history. |
-| Re-deriving "what fills Layer 2 / 3" per project remains a per-adopter decision. | The ADR + integration doc document the layering once; adopters copy `templates/CLAUDE.md` (with the AI Architecture section from U8) which carries the framing forward into their project. Books-ops becomes the working reference for "CE installed → CE specializes Layers 2/3." |
+| Re-deriving "what fills Layer 2 / 3" per project remains a per-adopter decision. | The ADR + integration doc document the layering once; adopters copy `templates/CLAUDE.md` (with the AI Architecture section from U8) which carries the framing forward into their project. The private downstream project becomes the working reference for "CE installed → CE specializes Layers 2/3." |
 
 ---
 
 ## Documentation / Operational Notes
 
-- After merge: notify books-ops to refresh its CLAUDE.md to point at the now-published integration doc instead of the in-flight #22 reference. Books-ops' `CLAUDE.md` already says "see engineering-standards#22 for the in-flight upstream proposal" in two places; those become "see `process/compound-engineering-integration.md`." books-ops can also drop its locally-absorbed Documentation Paths table since the integration doc now carries it canonically.
+- After merge: notify the private downstream project so it can refresh its CLAUDE.md to point at the now-published integration doc instead of the in-flight #22 reference. Its `CLAUDE.md` already says "see engineering-standards#22 for the in-flight upstream proposal" in two places; those become "see `process/compound-engineering-integration.md`." It can also drop its locally-absorbed Documentation Paths table since the integration doc now carries it canonically.
 - No CI changes, no migrations, no runtime impact. Pure documentation and three file relocations.
 - Issue #12 (Add Phase 0 to feature workflow): R9 partially addresses it for CE-mode adopters by declaring `docs/brainstorms/` as the Phase 0 artifact. Before closing #12, verify whether its acceptance language requires Phase 0 for non-CE adopters too — if so, leave it open and capture the gap as a follow-up.
 - Issues #16, #19, #21 (the 4-layer architecture): not closed by this PR. The ADR builds on their architecture (4-layer model is the abstraction; CE specializes Layers 2/3) — those issues remain valid completed work. No supersession comment needed; the relationship is described in the ADR and the integration doc.
@@ -546,11 +548,11 @@ Banner for each archived file (relative path `../docs/engineering/adr/...` — f
 ## Sources & References
 
 - **Origin issue:** [rmorison/engineering-standards#22](https://github.com/rmorison/engineering-standards/issues/22)
-- **Real-world deployment example:** `books-ops` (private rmorison repo) — informed the integration doc's wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Not a doc reference; the integration doc inlines its own load-bearing content so public readers do not need books-ops access.
+- **Real-world deployment example:** a private downstream project — informed the integration doc's wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Not a doc reference; the integration doc inlines its own load-bearing content so public readers do not need access to it.
 - **Related issue:** [rmorison/engineering-standards#12](https://github.com/rmorison/engineering-standards/issues/12) (Phase 0 — partially addressed by R9 for CE-mode adopters; verify acceptance language before closing)
 - **Built on:** [rmorison/engineering-standards#16](https://github.com/rmorison/engineering-standards/issues/16) (4-layer AI architecture), [#19](https://github.com/rmorison/engineering-standards/issues/19) (README documentation of #16), [#21](https://github.com/rmorison/engineering-standards/issues/21) (PascalCase hook fix). The 4-layer model is the abstraction this plan extends with CE as the deep specialization of Layers 2 and 3.
 - **CE plugin:** https://github.com/EveryInc/compound-engineering-plugin (v3.1.0; upgrade discipline pinned at 3.x with re-evaluation at 4.x)
 - **Agent-native foundation:** https://every.to/guides/agent-native (the framework that informed the now-archived prior proposals; retained as the evaluative lens for re-evaluating CE adoption)
 - **Archived prior `ai/` proposals:** `archive/adoption-roadmap.md`, `archive/agent-native-improvements.md`, `archive/top-3-enhancements.md` (after U4 — top-level `archive/`)
 - **Affected files:** `process/feature-development-workflow.md`, `process/issue-tracking.md`, `process/project-planning-standards.md`, `process/documentation-standards.md`, `process/git-branching-strategy.md`, `ai/CLAUDE.md`, `ai/claude-code/rules/engineering-standards.md`, `ai/claude-code/rules/sdlc-workflow.md`, `ai/claude-code/README.md`, `templates/CLAUDE.md`, `README.md`
-- **Doc-review provenance:** plan revised 2026-05-03 after two rounds of multi-persona review (coherence, feasibility, product-lens, scope-guardian, adversarial). Round 1 fixes: books-ops privacy resolved by inlining, AI-review reframed as discipline not gate, vendor coupling defended in ADR, precedence-rule provenance clause added, archives moved to top-level `archive/`. Round 2 surfaced the layer-architecture framing: the 4-layer model (PRs #16/#19/#21) and CE are at different levels of abstraction — 4-layer is the taxonomy of context-cost slots; CE is the deep specialization of Layers 2 and 3. Plan revised around this framing: dropped R15 (lightweight skill/agent archival) entirely, simplified R16 (additive README, not rewrite), reframed Key Technical Decisions, U1, U3, U4, U7, U8 around layering. Remaining round-2 findings (issue supersession comments, templates/README.md staleness, provenance frontmatter brittleness, archive directory naming) captured in Open Questions / From 2026-05-03 doc-review (deferred) where applicable; many became moot once R15 was dropped.
+- **Doc-review provenance:** plan revised 2026-05-03 after two rounds of multi-persona review (coherence, feasibility, product-lens, scope-guardian, adversarial). Round 1 fixes: the private-repository privacy resolved by inlining, AI-review reframed as discipline not gate, vendor coupling defended in ADR, precedence-rule provenance clause added, archives moved to top-level `archive/`. Round 2 surfaced the layer-architecture framing: the 4-layer model (PRs #16/#19/#21) and CE are at different levels of abstraction — 4-layer is the taxonomy of context-cost slots; CE is the deep specialization of Layers 2 and 3. Plan revised around this framing: dropped R15 (lightweight skill/agent archival) entirely, simplified R16 (additive README, not rewrite), reframed Key Technical Decisions, U1, U3, U4, U7, U8 around layering. Remaining round-2 findings (issue supersession comments, templates/README.md staleness, provenance frontmatter brittleness, archive directory naming) captured in Open Questions / From 2026-05-03 doc-review (deferred) where applicable; many became moot once R15 was dropped.
