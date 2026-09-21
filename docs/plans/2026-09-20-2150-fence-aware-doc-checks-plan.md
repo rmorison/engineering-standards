@@ -55,6 +55,9 @@ which needs it for the same reason checks 2 and 3 do.
 | R13 | The `printf` workaround in the learning document reverts to a plain `echo`, and the paragraph recording the fence gap as unfixed is updated. |
 | R14 | `process/documentation-standards.md` describes what the checks now cover. |
 | R15 | An unterminated code fence fails rather than silently removing the rest of the file from checks 2 through 4. |
+| R16 | Heading slugs are computed from the text GitHub renders, not the Markdown source. |
+| R17 | Fence delimiters follow CommonMark closely enough that a four-backtick escape, a tilde fence and an info-string line are each handled correctly. |
+| R18 | A fence opened inside a fence of the same length is reported, because the outer block ends early and the rest of the example lands in the document as live Markdown. |
 
 ## Key Decisions
 
@@ -71,6 +74,14 @@ carries two same-file anchors on one line and was counted once. The totals
 reconcile against the checker itself — main's version reports 192 links
 including one inside a fence, and 192 − 1 + 16 = 207.
 
+That two-term form is incomplete, as the review on PR #41 pointed out. `main`
+scans the raw line; this scans `masked`, so the identity is
+`192 − (in-fence) − (in-code-span) + (same-file) = 207` and reduces to the
+two-term version only because the third term is zero today. The arithmetic as
+first written would have balanced even if masking had silently dropped a link,
+which is the same class of defect as a check that reports green without being
+sensitive to the thing it claims to measure.
+
 ### KD2 — Vendor `github-slugger`, do not hand-roll the slugifier *(session-settled: user-directed)*
 
 A false-positive-prone anchor check is worse than no anchor check: it trains
@@ -85,6 +96,19 @@ Probed against the headings above it produces `-long-lived-feature-branches`,
 `main---the-production-branch`, `cicd`, `phase-1-name-x-points`, and the
 `acceptance-criteria` / `acceptance-criteria-1` pair. Fidelity by construction
 rather than by re-derivation.
+
+Choosing a faithful slugger is not sufficient, because what is fed to it also
+has to be faithful. Review caught 13 headings — every `###` section of
+`README.md` and `code/README.md` — that are themselves links. GitHub slugs the
+rendered text, so `### [Database Standards](./database-standards.md)` anchors at
+`#database-standards`, while the raw source yields
+`database-standardsdatabase-standardsmd`. The slugger only deletes characters,
+so it can never recover from being handed the URL. Link syntax is reduced to its
+text before slugging (R16). Backticks, `**` and `_` need no such treatment.
+
+Note that `masked` is the wrong input here: it would turn
+`` ### `main` - The Production Branch `` into `xxxxxx---the-production-branch`
+and break a heading that is correct today.
 
 It also fits the pattern `.github/workflows/docs.yml` already documents: pinned
 in `scripts/package.json`, installed from the committed `scripts/package-lock.json`
@@ -129,9 +153,14 @@ Add a `markdownLines(file)` reader returning one record per line:
   filler. Check 2 uses this.
 - `fenced` — whether the line sits inside a fenced code block.
 
-Fence detection keeps check 4's existing rule (a trimmed line starting with
-```` ``` ```` toggles), because the corpus has 9059 backtick fences and zero
-tilde or indented fences. The fence delimiter lines themselves count as fenced.
+Fence detection follows CommonMark rather than check 4's bare toggle. The plan
+first kept the toggle on the grounds that the corpus had 9059 plain backtick
+fences and no tilde or indented ones — and this very document broke it in the
+same commit, by quoting a fence the only way prose can. Three rules, each
+earning its place from a real file: an opening backtick fence's info string may
+not contain a backtick, a closer matches the opener's marker and is at least as
+long, and a closer carries no info string. Delimiter lines themselves count as
+fenced.
 
 Cache results in a module-level `Map` keyed by path; the file set is fixed for
 a run.
@@ -145,16 +174,29 @@ one.
 Skipping fenced lines creates a new way for a file to drop out of the checks
 quietly: an unterminated fence makes everything after it look like one long
 example. That is the same silent-skip defect the basename skip list already
-shipped once, so add a fifth check that counts fence delimiters per file and
-fails on an odd count.
+shipped once, so add a fifth check reporting any fence that is never closed. It
+runs over the anchor targets as well as the checked files: a file in
+`docs/plans/` is skipped as a link source but its headings are still read, so an
+unterminated fence there hides the headings being looked for.
 
-Satisfies R1, R2, R3, R4, R5, R6, R15.
+Getting the delimiter rule right immediately found a live defect the toggle had
+hidden. `code/python-standards.md:1325` opens a ```` ```markdown ```` block for
+a README template whose own examples are three-backtick fences. Fences do not
+nest, so GitHub ends the outer block at the template's first bare delimiter and
+renders four of the template's headings — `### Usage`, `## Development`,
+`## Documentation`, `## License` — as real headings of the standards document,
+with real anchors. Fixed by making the outer fence four backticks, and check 5
+now reports the pattern so the next pasted template cannot repeat it (R18).
+
+Satisfies R1, R2, R3, R4, R5, R6, R15, R17, R18.
 
 ### U2 — Anchor verification
 
 Add a `headingSlugs(file)` collector: walk `markdownLines(file)`, skip `fenced`
 records, match ATX headings (`/^#{1,6}\s+(.*)$/`), and feed the text through a
 fresh `GithubSlugger` per file so duplicate disambiguation matches GitHub's.
+Reduce inline link and image syntax to its text first, because GitHub slugs what
+it renders (R16, and KD2).
 
 Widen check 2's regex to admit same-file anchors, and keep the fragment instead
 of discarding it:
@@ -171,7 +213,7 @@ count anchor-bearing links in the summary line.
 Add `github-slugger` at `2.0.0` to `scripts/package.json` and regenerate
 `scripts/package-lock.json` with `npm install`, so `npm ci` in CI resolves it.
 
-Satisfies R7, R8, R9, R10.
+Satisfies R7, R8, R9, R10, R16.
 
 ### U3 — Prove it fails before trusting it passes
 
@@ -207,7 +249,9 @@ Satisfies R14.
 
 | ID | Item |
 |----|------|
-| KTD1 | Fence detection is a toggle, not CommonMark. A fence opened with four backticks and closed with three would be mis-tracked. Zero instances in the corpus; revisit if one appears. |
+| KTD1 | Fence detection covers the CommonMark rules this corpus exercises, not all of them. Indented fences (up to three leading spaces are legal) are matched by `trim()` rather than deliberately, and an indented code block is not recognised at all. Zero instances. |
+| KTD1a | Setext-style and HTML headings are invisible to the slug collector, so an anchor into one reads as dead. Zero instances; ATX only. |
+| KTD1b | Check 5 catches an unterminated fence and a same-length nesting. A *balanced but misaligned* pair — one block losing its closer and a later one its opener — still passes parity. Narrower than the two cases covered, and the bare-closer rule makes it harder to reach. |
 | KTD2 | Inline code-span masking uses a single-backtick pattern. Double-backtick spans (`` `` ` `` ``) are not masked. Zero instances in the corpus. |
 | KTD3 | Anchors on non-Markdown targets and directories are skipped rather than verified. There is nothing to verify them against without rendering. |
 | KTD4 | Setext headings (`===` / `---` underlines) are not collected. The repository uses ATX exclusively. |
@@ -216,8 +260,11 @@ Satisfies R14.
 
 ## System-Wide Impact
 
-- `.github/workflows/docs.yml` already triggers on `scripts/package.json`, so
-  the new dependency is covered without a workflow change.
+- `.github/workflows/docs.yml` triggers on `scripts/package.json`, which covers
+  the new dependency. It did **not** trigger on `scripts/package-lock.json`,
+  which is the file `npm ci` installs from, so a lockfile-only change ran
+  nothing. Added to both path filters in `d79e5c3`. This bullet originally said
+  no workflow change was needed; that was wrong.
 - Every existing anchor link in the repository becomes load-bearing on first
   run. Any that are already dead will surface as failures in this change's own
   PR — which is the point, and they get fixed here.
@@ -229,7 +276,11 @@ Satisfies R14.
 
 1. `node scripts/check-docs.mjs --verbose` reports a non-zero anchor count and
    passes on a clean tree.
-2. The four U3 probes behave as specified.
+2. The U3 probes behave as specified.
 3. An unterminated fence fails; closing it passes.
-4. CI green on the PR, which exercises the checker on the full corpus including
+4. A heading that is itself a link is reachable by its rendered slug, and a
+   four-backtick escape does not open a fence.
+5. Reverting the `code/python-standards.md` template fence reproduces two
+   `[fence]` failures; restoring it clears them.
+6. CI green on the PR, which exercises the checker on the full corpus including
    the reverted learning document.

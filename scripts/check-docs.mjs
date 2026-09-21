@@ -12,9 +12,10 @@
  *   4. No run of marker-prefixed lines collapses into one paragraph.
  *   5. Every code fence is closed.
  *
- * Checks 2 through 4 read prose only: fenced code blocks and inline code spans
- * are examples, and an example of a defect is not a defect. That is what lets
- * the documentation show what each check catches.
+ * Checks 2 through 4 skip fenced code blocks, and check 2 also ignores inline
+ * code spans: an example of a defect is not a defect, which is what lets the
+ * documentation show what each check catches. Checks 3 and 4 read the raw line,
+ * since a leading code span already displaces the marker they look for.
  *
  * Usage:  node scripts/check-docs.mjs [--verbose]
  * Exits non-zero if any check fails.
@@ -73,7 +74,13 @@ async function markdownFiles(dir = REPO_ROOT) {
 /** An inline code span, backticks included. */
 const CODE_SPAN = /`[^`\n]*`/g;
 
-const lineCache = new Map();
+/** A fenced-code delimiter: three or more backticks or tildes, plus its info string. */
+const FENCE_DELIMITER = /^(`{3,}|~{3,})(.*)$/;
+
+const fileCache = new Map();
+
+/** Files whose headings were consulted to verify an anchor. */
+const anchorTargets = new Set();
 
 /**
  * A Markdown file as records, one per line, each carrying where the line sits.
@@ -96,32 +103,77 @@ const lineCache = new Map();
  * start of the line: "- `foo` > bar" would collapse to "-  > bar" and report a
  * blockquote that is not there. Check 3 reads `raw` for the same reason, since
  * wrapping the comparison in backticks is the fix it prescribes.
+ *
+ * Delimiters follow CommonMark rather than "the line starts with three
+ * backticks". Three rules earn their place, each because the loose version was
+ * wrong about a file in this repository:
+ *
+ *   - An opening backtick fence's info string may not contain a backtick. This
+ *     is what keeps ```` ``` ```` — how prose here quotes a fence — from
+ *     reading as an opener. A document about a fence checker is exactly where
+ *     that escape appears.
+ *   - A closer matches the opener's marker and is at least as long, so a three
+ *     backtick line inside a four backtick fence stays content.
+ *   - A closer carries no info string, so an opener can never be mistaken for
+ *     one. That is what stops a missing closer from inverting every later
+ *     region of the file.
+ *
+ * Returns the lines, the line number of a fence that is never closed, and any
+ * line where a fence is opened inside a fence of the same length. Check 5
+ * reports both: each one silently redraws where the examples in a file are.
  */
-function markdownLines(file) {
-  const cached = lineCache.get(file);
+function readMarkdown(file) {
+  const cached = fileCache.get(file);
   if (cached) return cached;
 
-  let inFence = false;
+  let open = null; // { marker, length, line } while a fence is open
+  const nested = [];
   const lines = readFileSync(file, 'utf8')
     .split('\n')
     .map((raw, i) => {
-      const isDelimiter = raw.trim().startsWith('```');
-      if (isDelimiter) inFence = !inFence;
+      const match = FENCE_DELIMITER.exec(raw.trim());
+      let isDelimiter = false;
+
+      if (match) {
+        const [marker, length, info] = [match[1][0], match[1].length, match[2].trim()];
+        if (open === null) {
+          if (marker !== '`' || !info.includes('`')) {
+            open = { marker, length, line: i + 1 };
+            isDelimiter = true;
+          }
+        } else if (marker === open.marker && length >= open.length && info === '') {
+          open = null;
+          isDelimiter = true;
+        } else if (marker === open.marker && length >= open.length) {
+          // An opener inside a block it cannot nest in. The author meant to
+          // show a fence; the renderer will end the outer block at the next
+          // bare delimiter instead, spilling the rest of the example into the
+          // document as live Markdown.
+          nested.push(i + 1);
+        }
+      }
+
       return {
         number: i + 1,
         raw,
         masked: raw.replace(CODE_SPAN, (span) => 'x'.repeat(span.length)),
         // A delimiter belongs to its own block, so an info string like
         // ```mermaid is not prose either.
-        fenced: inFence || isDelimiter,
+        fenced: open !== null || isDelimiter,
       };
     });
 
-  lineCache.set(file, lines);
-  return lines;
+  const result = { lines, unterminatedFence: open === null ? null : open.line, nested };
+  fileCache.set(file, result);
+  return result;
 }
 
 const ATX_HEADING = /^#{1,6}\s+(.+)$/;
+
+/** Inline link and image syntax, reduced to the text GitHub renders. */
+const INLINE_LINK = /!?\[([^\]]*)\]\([^)]*\)/g;
+const REFERENCE_LINK = /!?\[([^\]]*)\]\[[^\]]*\]/g;
+
 const slugCache = new Map();
 
 /**
@@ -139,6 +191,14 @@ const slugCache = new Map();
  * `## Acceptance Criteria` headings inside fenced issue templates. Collecting
  * them would also shift the `-1`, `-2` suffixes the slugger appends to real
  * duplicates.
+ *
+ * Link syntax is reduced to its text first, because GitHub slugs what it
+ * renders. `### [Database Standards](./database-standards.md)` is anchored at
+ * `#database-standards`; the slugger only deletes characters and never removes
+ * a substring, so feeding it the source yields
+ * `database-standardsdatabase-standardsmd` — a live anchor reported dead, which
+ * is the outcome choosing a real slugger was meant to avoid. Backticks, `**`
+ * and `_` need no such treatment: the slugger deletes them without residue.
  */
 function headingSlugs(file) {
   const cached = slugCache.get(file);
@@ -146,10 +206,12 @@ function headingSlugs(file) {
 
   const slugger = new GithubSlugger();
   const slugs = new Set();
-  for (const line of markdownLines(file)) {
+  for (const line of readMarkdown(file).lines) {
     if (line.fenced) continue;
     const heading = ATX_HEADING.exec(line.raw);
-    if (heading) slugs.add(slugger.slug(heading[1].trim()));
+    if (!heading) continue;
+    const text = heading[1].trim().replace(INLINE_LINK, '$1').replace(REFERENCE_LINK, '$1');
+    slugs.add(slugger.slug(text));
   }
 
   slugCache.set(file, slugs);
@@ -223,7 +285,7 @@ function checkLinks(files) {
   let checked = 0;
   let anchors = 0;
   for (const file of files) {
-    for (const line of markdownLines(file)) {
+    for (const line of readMarkdown(file).lines) {
       if (line.fenced) continue;
       for (const match of line.masked.matchAll(RELATIVE_LINK)) {
         const [target, fragment] = splitAnchor(match[1]);
@@ -238,6 +300,7 @@ function checkLinks(files) {
         if (!fragment) continue;
         if (!resolved.endsWith('.md') || !statSync(resolved).isFile()) continue;
         anchors++;
+        anchorTargets.add(resolved);
         if (!headingSlugs(resolved).has(fragment)) {
           fail(file, line.number, 'anchor',
             `no heading generates this anchor: ${target}#${fragment}`);
@@ -257,7 +320,7 @@ function checkLinks(files) {
  */
 function checkAccidentalBlockquotes(files) {
   for (const file of files) {
-    for (const line of markdownLines(file)) {
+    for (const line of readMarkdown(file).lines) {
       if (line.fenced) continue;
       if (/^\s*[-*+]\s*>/.test(line.raw)) {
         fail(file, line.number, 'blockquote',
@@ -286,7 +349,7 @@ function checkUnmarkedLists(files) {
       }
       run = [];
     };
-    for (const line of markdownLines(file)) {
+    for (const line of readMarkdown(file).lines) {
       if (!line.fenced && MARKER.test(line.raw)) run.push(line.number);
       else flush();
     }
@@ -301,14 +364,28 @@ function checkUnmarkedLists(files) {
  * the remainder of the file look like one long example and those checks quietly
  * stop reporting on it. A silent skip is the defect this repository has already
  * shipped once, from a directory skip list that matched more than it claimed.
- * Counting delimiters is enough: they toggle, so an odd count cannot close.
+ *
+ * The second case is a fence opened inside a fence of the same length, which is
+ * how a quoted template breaks: fences do not nest, so the renderer ends the
+ * outer block early and the rest of the template lands in the document as live
+ * Markdown. `code/python-standards.md` shipped that way, leaking four headings
+ * out of a README template. The fix is a longer outer fence.
+ *
+ * Runs over the anchor targets as well as the checked files. A file in
+ * `archive/` or `docs/plans/` is skipped as a link *source*, but its headings
+ * are still read to verify anchors pointing into it, so a broken fence there
+ * would hide the very headings being looked for.
  */
 function checkFencesClosed(files) {
-  for (const file of files) {
-    const delimiters = markdownLines(file).filter((line) => line.raw.trim().startsWith('```'));
-    if (delimiters.length % 2 !== 0) {
-      fail(file, delimiters[delimiters.length - 1].number, 'fence',
-        'unterminated code fence — the rest of the file is skipped by the other checks');
+  for (const file of new Set([...files, ...anchorTargets])) {
+    const { unterminatedFence, nested } = readMarkdown(file);
+    if (unterminatedFence !== null) {
+      fail(file, unterminatedFence, 'fence',
+        'code fence is never closed — the rest of the file is skipped by the other checks');
+    }
+    for (const line of nested) {
+      fail(file, line, 'fence',
+        'fence opened inside a fence of the same length — the outer one ends early; make it longer');
     }
   }
 }
@@ -322,8 +399,8 @@ checkFencesClosed(files);
 
 if (VERBOSE || failures.length === 0) {
   console.log(
-    `Checked ${files.length} Markdown files: ${diagrams} Mermaid diagram(s), ` +
-    `${links.checked} relative link(s), ${links.anchors} anchor(s).`);
+    `Checked ${files.length} Markdown files: ${diagrams} Mermaid diagram(s) and ` +
+    `${links.checked} relative link(s), ${links.anchors} of them carrying a verified anchor.`);
 }
 
 if (failures.length > 0) {
