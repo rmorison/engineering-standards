@@ -1322,7 +1322,7 @@ docker run -it --rm -v $(pwd)/src:/app/src project-name:latest
 
 ### README.md Template
 
-```markdown
+````markdown
 # Project Name
 
 Brief description (1-2 sentences).
@@ -1377,7 +1377,7 @@ See `docs/` directory for:
 ## License
 
 [License Name] - See LICENSE file
-```
+````
 
 ### API Documentation
 

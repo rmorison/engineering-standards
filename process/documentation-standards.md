@@ -142,8 +142,23 @@ This repository's product is Markdown, so a rendering defect is a production def
 |-------|---------|
 | Mermaid diagrams parse | A diagram that shows an error box instead of a graph on GitHub |
 | Relative links resolve | A link to a moved or renamed file |
+| Link anchors name a real heading | A link to `#section` whose heading was renamed, in this file or another |
 | No blockquote inside a list item | `- >3 months` renders as a quote block with the `>` swallowed |
 | No unmarked marker lists | Marker-prefixed lines with no list marker collapse into one paragraph |
+| Every code fence is closed | An unterminated fence makes the rest of the file invisible to the checks above |
+| No fence nested in one the same length | A quoted template whose own fences are the same length ends early, spilling the rest into the document |
+
+The anchor check matters here because this repository routes rules through "one
+document owns it, the others link to it": renaming a heading breaks links in
+files that did not change. Slugs come from `github-slugger`, the library
+GitHub's own Markdown pipeline uses, so what CI accepts is what GitHub renders.
+
+The link, blockquote and marker-list checks skip fenced code blocks, and the
+link check also ignores inline code spans. That is deliberate: documentation has
+to be able to show a defect without committing one, and a check that cannot be
+shown its own defect is a check nobody can plant a defect in. The blockquote and
+marker-list checks read the raw line, because a leading code span already
+displaces the marker they look for.
 
 Run them before pushing:
 

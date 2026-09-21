@@ -86,19 +86,26 @@ created only for the probe, because its basename `plans` was on the skip list:
 
 ```bash
 mkdir -p process/plans
-printf '[broken]%s\n' '(./does-not-exist.md)' > process/plans/probe.md
+echo '[broken](./does-not-exist.md)' > process/plans/probe.md
 node scripts/check-docs.mjs   # reported green
 rm -rf process/plans
 ```
 
-The fix matches repo-relative paths, and the same probe now fails as it should. See
-`scripts/check-docs.mjs:29-41`, where the comment records why these are paths and not names.
+The fix matches repo-relative paths, and the same probe now fails as it should. See the
+`SKIP_PATHS` comment in `scripts/check-docs.mjs`, which records why these are paths and not
+names.
 
-The `printf` above is split so the probe link is not literal markdown. Writing this document
-surfaced a fourth instance of the same problem: the link check reads every line of every file,
-including fenced code blocks, so it cannot distinguish an example of a broken link from a
-broken link. Check 4 in the same file tracks fences; check 2 does not. That is still true of
-the check today; it is recorded here rather than fixed, because fixing it is a code change.
+Writing this document surfaced a fourth instance of the same problem, and the paragraph you
+are reading is the evidence. The probe above was originally a `printf` split across two
+arguments, contorted so its broken link would not be literal Markdown: the link check read
+every line of every file, fenced code blocks included, so it could not distinguish an example
+of a broken link from a broken link. Check 4 tracked fences; check 2 did not.
+
+Issue #37 fixed it. Fence tracking now lives in one place and every check that needs to tell
+prose from an example reads it, so the probe is a plain `echo` again. The same pass found that
+the check had never verified a link's anchor either — `#branch-naming`, pointing at a heading
+renamed to "Feature Branches", had already shipped green and was caught by eye. A check that
+cannot be shown its own defect is a check nobody can plant a defect in.
 
 ### `git check-ignore -v` exits 0 for both answers
 
