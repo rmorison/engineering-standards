@@ -17,7 +17,7 @@ origin: https://github.com/rmorison/engineering-standards/issues/24
 - Authority: the R-IDs govern the kit's behavior. Where the issue's text and the Claude Code documentation disagree, the documentation wins and the R records what was found.
 - Execution profile: edits under `templates/.claude/`, `templates/README.md`, `templates/CLAUDE.md`, plus one new script under `scripts/` and a CI job. No changes to `process/`, `ai/`, or the ADR.
 - Stop conditions: stop and ask if the captured hook payload (U3) contradicts this plan's assumed field names in a way that changes what the hooks can check; stop and ask if the pre-fix settings file turns out to have disabled the whole settings file, since that changes what the fix restores and what the PR body must say.
-- Finishes the work: `ce-work` or a human on branch `24-template-claude-settings-json-hooks-never-fire`, shipped as one PR closing #24, and #28 as well if the fold-in recommendation in Scope Boundaries is accepted.
+- Finishes the work: `ce-work` or a human on branch `24-template-claude-settings-json-hooks-never-fire`, shipped as one PR closing #24 and, per D1, #28 as well.
 
 ---
 
