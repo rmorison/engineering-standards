@@ -22,6 +22,11 @@ iteratively against U-IDs and acceptance criteria; the `lfg` autonomous
 flow runs without per-step confirmation when a complete plan exists.
 See `process/compound-engineering-integration.md`.
 
+### Permissions and Hooks
+What the permission rules in `.claude/settings.json` do and do not stop is
+stated once, in [`templates/README.md`](README.md#permissions-and-hooks); read
+it before widening the allow list.
+
 ### Standards References
 - Feature workflow: process/feature-development-workflow.md
 - Documentation: process/documentation-standards.md
