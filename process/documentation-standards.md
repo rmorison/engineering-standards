@@ -187,9 +187,9 @@ Run them before pushing:
 npm ci --prefix scripts && node scripts/check-docs.mjs
 ```
 
-The last row is not a Markdown check. `scripts/check-template-kit.mjs` runs as a
-second job in the same workflow, over every `.claude/settings.json` in the tree,
-because the starter kit in `templates/.claude/` is copied into adopters'
+The template kit row is not a Markdown check. `scripts/check-template-kit.mjs`
+runs as a second job in the same workflow, over every `.claude/settings.json` in
+the tree, because the starter kit in `templates/.claude/` is copied into adopters'
 projects and both of its hook entries were malformed from the day it shipped. It
 needs no dependencies:
 
