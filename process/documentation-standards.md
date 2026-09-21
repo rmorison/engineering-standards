@@ -148,6 +148,7 @@ This repository's product is Markdown, so a rendering defect is a production def
 | Every code fence is closed | An unterminated fence makes the rest of the file invisible to the checks above |
 | No fence nested in one the same length | A quoted template whose own fences are the same length ends early, spilling the rest into the document |
 | No absolute home-directory path | A path out of a contributor's machine, disclosing a local username and directory layout to every reader of a public repository |
+| Template kit hook entries register | A `.claude/settings.json` hook entry with no `hooks` array, an unknown key on the matcher, or a command naming a script that is not in the tree |
 
 The anchor check matters here because this repository routes rules through "one
 document owns it, the others link to it": renaming a heading breaks links in
@@ -184,6 +185,16 @@ Run them before pushing:
 
 ```bash
 npm ci --prefix scripts && node scripts/check-docs.mjs
+```
+
+The last row is not a Markdown check. `scripts/check-template-kit.mjs` runs as a
+second job in the same workflow, over every `.claude/settings.json` in the tree,
+because the starter kit in `templates/.claude/` is copied into adopters'
+projects and both of its hook entries were malformed from the day it shipped. It
+needs no dependencies:
+
+```bash
+node scripts/check-template-kit.mjs
 ```
 
 The Mermaid check calls mermaid's `parse()` rather than rendering, because the two disagree — the render path accepts diagrams GitHub's parser rejects. Dependencies are pinned and installed from a committed lockfile so the check reproduces one specific parser.
