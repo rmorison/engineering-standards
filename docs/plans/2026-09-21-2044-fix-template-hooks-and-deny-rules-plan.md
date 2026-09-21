@@ -86,7 +86,7 @@ The permission block has a different shape of problem. Nothing in the repository
 
 ### Scope Boundaries
 
-In scope: `templates/.claude/settings.json`, both files under `templates/.claude/hooks/`, `templates/README.md`, `templates/CLAUDE.md`, one new file under `scripts/`, and `.github/workflows/docs.yml`.
+In scope: `templates/.claude/settings.json`, both files under `templates/.claude/hooks/`, `templates/README.md`, `templates/CLAUDE.md`, one new file under `scripts/`, `.github/workflows/docs.yml`, and `process/documentation-standards.md`.
 
 Out of scope, and deliberately so:
 
@@ -97,9 +97,9 @@ Out of scope, and deliberately so:
 
 #### Deferred to Follow-Up Work
 
-- Rewriting `templates/README.md` as a whole, which is #28. This plan writes one new section into that file and changes nothing else in it. See the recommendation below.
+Nothing from #28 is deferred. It was originally listed here and has since been folded in; see D1 and U6.
 
-**Recommendation: fold #28 into the same PR.** Both issues say so, and #28 says it directly: "a README rewrite that documents the hooks should not land describing hooks that do not fire." The converse also holds. U5 writes a permission section into a document whose closing line still reads "**Placeholder** - Templates will be added as common patterns emerge from project work," which is incoherent on its face. If the fold-in is declined, U5 still lands as written and the incoherence is #28's to resolve; nothing in this plan depends on it.
+**#28 is folded into this PR as U6.** Both issues say so, and #28 says it directly: "a README rewrite that documents the hooks should not land describing hooks that do not fire." The converse also holds. U2 writes a permission section into a document whose closing line still reads "**Placeholder** - Templates will be added as common patterns emerge from project work," which is incoherent on its face. U6 resolves that, and is severable: dropping it leaves U2 and the rest of this plan intact, with the incoherence returning to #28.
 
 ### Success Criteria
 
@@ -133,7 +133,7 @@ Out of scope, and deliberately so:
 
 Each of these is a point where a blocking question would have been asked. They are recorded rather than resolved.
 
-- A1. #28 is recommended for the same PR but not assumed. U5 is written so it lands either way.
+- A1. Resolved by D1: #28 is folded into this PR and is U6. U2 is written so it lands either way, so dropping U6 leaves this plan intact.
 - A2. `example-block.py` keeps its `time.sleep(` example rule. Converting it to a Bash command check would make the permission statement self-demonstrating, and would also delete the Write/Edit example the kit teaches. Judged the larger change and the wrong trade for a starter kit.
 - A3. The `tool_input` field names are `file_path`, `content`, `old_string` and `new_string`. This is what this session's own tool schemas carry, and the hooks documentation's worked example uses `tool_input.command` for Bash in the same shape. It is nonetheless an assumption about a payload nobody in this planning run has seen, which is exactly why R6 exists and why U3 opens by capturing one. If the capture disagrees, the capture wins.
 - A4. The guard runs as a second job inside `.github/workflows/docs.yml` rather than a new workflow file, so the existing `check-docs` job keeps its name for any branch protection that references it. The workflow's display name, "Documentation checks", becomes slightly narrow; judged not worth a rename that would change a check name.
@@ -141,6 +141,15 @@ Each of these is a point where a blocking question would have been asked. They a
 - A6. One PR, branch `24-template-claude-settings-json-hooks-never-fire`, per the standards-mode naming at `ai/CLAUDE.md`.
 - A7. The narrowed git allow list is `status`, `diff`, `log`, `show`, `add`, `commit`, `branch`, `switch`, `checkout`, `stash`, `fetch`, `pull`, `restore`. Chosen as the set a routine session needs without a human decision. `push` is deliberately absent. This is a judgement call about someone else's daily workflow and is the single item in this plan most likely to want adjusting.
 - A8. The scratch-project verification in U4 is run by a human or an agent with a Claude Code session available. If the implementer has no such session, U4 steps 2 through 5 cannot be executed and the unit's offline half is not a substitute; say so rather than marking the criterion met.
+
+### Sign-Off Record
+
+The four decisions this plan referred to the repository owner were settled on 2026-09-21, each as recommended. They are recorded here because a plan that reads as undecided invites the next reader to relitigate it.
+
+- D1. **#28 is folded into this PR**, as U6. Resolves A1 and the Deferred to Follow-Up Work entry. U6 is severable.
+- D2. **The deny entries stay as written and are documented as advisory; the allow list narrows.** Confirms KTD2. The rejected alternative — adding `Bash(rm -fr:*)` and `Bash(git push -f:*)` — is recorded in KTD2 along with the reason it was rejected, which is that a longer list reads as a complete one.
+- D3. **The narrowed git allow list is A7 as written**, with `push` absent. A7 flagged itself as the item most likely to want adjusting; it was accepted unchanged, so an implementer who finds it obstructive should raise it rather than quietly widen it.
+- D4. **The recurrence guard is the purpose-built structural check**, not validation against the published JSON schema. Confirms KTD4.
 
 ### High-Level Technical Design
 
@@ -173,7 +182,7 @@ Two properties of that order are what the permission statement has to convey. Th
 
 ### Sequencing
 
-U1 before U3, because U3 opens by capturing a payload from a hook that has to be registered to produce one. U3 before U4. U5 after U1 and U3, because its proof step needs both the post-fix files to check and the pre-fix shape to check against. U2 depends on nothing and can land in any position.
+U1 before U3, because U3 opens by capturing a payload from a hook that has to be registered to produce one. U3 before U4. U5 after U1 and U3, because its proof step needs both the post-fix files to check and the pre-fix shape to check against. U2 depends on nothing and can land in any position. U6 comes after U1, U2 and U3, because it describes a starter kit whose hooks and permission rules those units change, and describing them before they are correct is the failure #28 exists to stop.
 
 ---
 
@@ -291,18 +300,40 @@ U1 before U3, because U3 opens by capturing a payload from a hook that has to be
   - A settings file that is not valid JSON is reported rather than throwing.
 - Verification: the six scenarios above, and a CI run on the PR showing both jobs green.
 
+### U6. Describe the starter kit that exists
+
+- Goal: `templates/README.md` describes the kit in the directory rather than the empty placeholder it was written for, and every path in it resolves.
+- Requirements: #28's four acceptance criteria. This unit is governed by that issue, not by this plan's R-numbers, which is what makes it severable.
+- Dependencies: U1, U2, U3
+- Files: `templates/README.md`
+- Approach:
+  1. Remove the closing "**Placeholder** - Templates will be added as common patterns emerge from project work" line. The directory has held a working starter kit since it shipped.
+  2. Rewrite the body to describe what `.claude/` actually provides — `settings.json`, `agents/`, `hooks/`, `skills/`, and `templates/CLAUDE.md` — and which architecture layers each fills. Mirror the root `README.md` framing rather than restating it; the root README already covers this correctly and a second full statement is the duplication #27 settled against.
+  3. Drop the "Future Templates" section, or reframe it with file references that resolve. It names `code/python.md`, `code/typescript.md` and `code/go.md`; none exist, and the real file is `code/python-standards.md`.
+  4. Remove the "black/ruff" formatter mention. `code/python-standards.md` specifies ruff as both linter and formatter; black is not part of the standard.
+  5. Leave the `## Permissions and hooks` section U2 wrote alone. U2 owns it; this unit owns the document around it.
+- Patterns to follow: the root `README.md` description of `templates/` and its copy-and-customise instructions, which are accurate and are what this file should point at rather than reproduce.
+- Test scenarios:
+  - No occurrence of "Placeholder" as a status line.
+  - No reference to `code/python.md`, `code/typescript.md` or `code/go.md`.
+  - No reference to black as a formatter.
+  - Every relative link resolves, which `node scripts/check-docs.mjs` now verifies including anchors.
+  - Read against the root `README.md`, the two describe the same directory.
+- Verification: `node scripts/check-docs.mjs` passes, and each of #28's four acceptance criteria is checked off against the rewritten file.
+
 ---
 
 ## Verification Contract
 
 | Gate | Command or method | Applies to |
 |---|---|---|
-| Documentation checks | `npm ci --prefix scripts && node scripts/check-docs.mjs` | U2, U5 |
+| Documentation checks | `npm ci --prefix scripts && node scripts/check-docs.mjs` | U2, U5, U6 |
 | Template kit checks | `node scripts/check-template-kit.mjs` | U1, U3, U5 |
 | Offline hook probes | pipe each U3 scenario payload to the script, read the exit code | U3, U4 |
 | End-to-end hook probe | scratch project, `/hooks`, negative probe, positive probe, reversal | U1, U3, U4 |
 | Pre-fix reversal | restore the pre-fix shape in the scratch project and in a temporary tree; confirm the hook does not block and the kit check fails | U4, U5 |
 | Allow-list sweep | confirm no `allow` entry matches `git push`, `git push -f`, or `git push origin +main` | U2 |
+| Stale-reference sweep | confirm `templates/README.md` names no nonexistent standards file, no black, and no placeholder status | U6 |
 
 Two of these need care.
 
@@ -321,4 +352,5 @@ The end-to-end probe has a subtler version of the same problem. A hook that is r
 - No file in `templates/` contains `TOOL_NAME`, `TOOL_INPUT`, `MultiEdit`, or a hook usage example in the pre-fix shape.
 - No allow entry auto-approves a push.
 - #24 can be closed by this PR, with the disposition of each of its four acceptance criteria stated. The PR body notes that the issue described two defects and the work found three, and names the third.
+- #28 can be closed by the same PR, with its four acceptance criteria stated, unless U6 was dropped — in which case the PR body says so and #28 stays open.
 - Nothing from the scratch project is committed, and no probe payload, temporary hook, or reverted settings file is left in the diff.
