@@ -124,7 +124,7 @@ The requirements derive from the rescoped issue's acceptance criteria plus opera
 
 - Compound-engineering plugin: https://github.com/EveryInc/compound-engineering-plugin (v3.1.0)
 - Every.to agent-native foundation: https://every.to/guides/agent-native (informed both the 4-layer design and CE itself)
-- Books-ops working example: private rmorison repo at `/home/rod/Projects/github.com/rmorison/books-ops` — informed the integration doc's wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Not a doc reference for content; the integration doc inlines its own load-bearing material.
+- Private downstream working example: a private repository, not publicly accessible — informed the integration doc's wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Not a doc reference for content; the integration doc inlines its own load-bearing material.
 
 ---
 
