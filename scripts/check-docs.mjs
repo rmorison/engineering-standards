@@ -11,11 +11,16 @@
  *   3. No list item opens a blockquote by accident.
  *   4. No run of marker-prefixed lines collapses into one paragraph.
  *   5. Every code fence is closed.
+ *   6. No absolute home-directory path appears in the Markdown corpus.
  *
  * Checks 2 through 4 skip fenced code blocks, and check 2 also ignores inline
  * code spans: an example of a defect is not a defect, which is what lets the
  * documentation show what each check catches. Checks 3 and 4 read the raw line,
  * since a leading code span already displaces the marker they look for.
+ *
+ * Check 6 inverts both of those conventions deliberately, and check 6's own
+ * comment says why: an example of a leaked path is still a leaked path, and the
+ * directories the others skip are where such a path is most likely to sit.
  *
  * Usage:  node scripts/check-docs.mjs [--verbose]
  * Exits non-zero if any check fails.
@@ -55,15 +60,22 @@ const failures = [];
 const fail = (file, line, check, message) =>
   failures.push({ file: relative(REPO_ROOT, file), line, check, message });
 
-/** Every Markdown file in the repository, minus SKIP_DIRS. */
-async function markdownFiles(dir = REPO_ROOT) {
+/**
+ * Every Markdown file in the repository, minus SKIP_ANYWHERE.
+ *
+ * `SKIP_PATHS` applies unless a caller turns it off. Check 6 turns it off: it
+ * looks for a leaked value rather than a rendering defect, and the three skipped
+ * directories are precisely where such a value hides, so a leak check that
+ * inherited the skip list would report green on the files it exists for.
+ */
+async function markdownFiles(dir = REPO_ROOT, { skipPaths = true } = {}) {
   const found = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
       if (SKIP_ANYWHERE.has(entry.name)) continue;
       const rel = relative(REPO_ROOT, join(dir, entry.name));
-      if (SKIP_PATHS.has(rel)) continue;
-      found.push(...(await markdownFiles(join(dir, entry.name))));
+      if (skipPaths && SKIP_PATHS.has(rel)) continue;
+      found.push(...(await markdownFiles(join(dir, entry.name), { skipPaths })));
     } else if (entry.name.endsWith('.md')) {
       found.push(join(dir, entry.name));
     }
@@ -390,17 +402,76 @@ function checkFencesClosed(files) {
   }
 }
 
+/**
+ * An absolute home-directory path: a `/home/` or `/Users/` root followed by a
+ * user directory. The leading separator may not be preceded by a path
+ * character, so a relative link into a `home/` subdirectory is not a match.
+ *
+ * The pattern is a shape, never a list of values. A denylist of the strings
+ * that must not appear would have to contain them, which makes the guard the
+ * leak it guards against.
+ */
+const ABSOLUTE_HOME_PATH = /(?<![A-Za-z0-9._~-])\/(?:home|Users)\/[A-Za-z0-9._-]+\//;
+
+/**
+ * Check 6 — no absolute home-directory path in the Markdown corpus.
+ *
+ * This repository is public and asks to be copied. An absolute path out of a
+ * contributor's machine discloses a local username and directory layout to
+ * every reader, and it reached `main` once already, in a plan file.
+ *
+ * Two scoping decisions invert this file's conventions, both on purpose:
+ *
+ *   - It reads fenced lines. Checks 2 through 4 skip them because an example of
+ *     a broken link is not a broken link. That reasoning does not carry: an
+ *     example of a leaked path still discloses the path.
+ *   - Its file universe ignores `SKIP_PATHS`. `archive/`, `docs/plans/` and
+ *     `scripts/` are skipped as link sources, and are also where a leak is most
+ *     likely to sit — the one that shipped was in `docs/plans/`.
+ *
+ * The universe is every Markdown file in the tree, matching the `**\/*.md`
+ * trigger in `.github/workflows/docs.yml` so the check's coverage and the
+ * workflow's cannot drift apart. Tracked non-Markdown files are out of scope;
+ * widening that needs the workflow's path filters widened too.
+ *
+ * An empty file list is reported as a failure rather than passing. A leak check
+ * that scans nothing returns exactly what a clean corpus returns.
+ *
+ * The failure names the file and the line and stops there. Echoing the match
+ * would copy the disclosed path into CI logs, which is the wrong direction.
+ */
+function checkLeakedAbsolutePaths(files) {
+  if (files.length === 0) {
+    fail(resolve(REPO_ROOT, 'scripts/check-docs.mjs'), 0, 'leaked-path',
+      'no files to scan — a leak check over an empty corpus reports clean for the wrong reason');
+    return 0;
+  }
+  for (const file of files) {
+    for (const line of readMarkdown(file).lines) {
+      if (ABSOLUTE_HOME_PATH.test(line.raw)) {
+        fail(file, line.number, 'leaked-path',
+          'absolute home-directory path — discloses a local username and directory layout; ' +
+          'use a repository-relative path or drop the locator');
+      }
+    }
+  }
+  return files.length;
+}
+
 const files = await markdownFiles();
+const everyMarkdownFile = await markdownFiles(REPO_ROOT, { skipPaths: false });
 const diagrams = await checkMermaid(files);
 const links = checkLinks(files);
 checkAccidentalBlockquotes(files);
 checkUnmarkedLists(files);
 checkFencesClosed(files);
+const scannedForLeaks = checkLeakedAbsolutePaths(everyMarkdownFile);
 
 if (VERBOSE || failures.length === 0) {
   console.log(
     `Checked ${files.length} Markdown files: ${diagrams} Mermaid diagram(s) and ` +
-    `${links.checked} relative link(s), ${links.anchors} of them carrying a verified anchor.`);
+    `${links.checked} relative link(s), ${links.anchors} of them carrying a verified anchor. ` +
+    `Scanned ${scannedForLeaks} Markdown files, skip list included, for leaked absolute paths.`);
 }
 
 if (failures.length > 0) {
