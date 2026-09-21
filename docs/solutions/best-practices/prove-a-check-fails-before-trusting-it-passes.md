@@ -11,11 +11,12 @@ applies_when:
   - Reading a command's exit code as a yes/no answer
   - Pinning a dependency whose exact version is the point of the check
   - Reviewing a check that has never reported a failure
+  - Replacing a rule that classifies every file in a corpus
 resolution_type: workflow_improvement
 related_components:
   - documentation
   - development_workflow
-tags: [ci, verification, false-negative, exit-codes, gitignore, lockfile, tooling]
+tags: [ci, verification, false-negative, exit-codes, gitignore, lockfile, tooling, differential-testing]
 ---
 
 # Prove a check fails before trusting that it passes
@@ -40,17 +41,22 @@ vigilance and returns nothing in its place.
 reports it.** Green on a clean tree is not evidence. Green is the same answer a check that
 never ran gives.
 
-Three habits follow from it:
+Four habits follow from it:
 
 1. **Plant the defect.** Write the broken case into the tree, run the check, confirm it
-   fails, then remove it. This is the only observation that distinguishes a working check
-   from a check whose scope quietly excludes the file you care about.
+   fails, then remove it. This distinguishes a working check from a check whose scope
+   quietly excludes the file you care about — but only for a case you already have in mind.
+   Habit 4 is for the cases you do not.
 2. **Do not read "the command succeeded" as "the command answered yes."** Many tools exit
    `0` for *any* well-formed query, including one whose answer is no. Find the flag or the
    companion command that distinguishes the two.
 3. **Make a pin real rather than declared.** Naming an exact version in a manifest does not
    pin anything if the install step resolves a fresh tree. If the version is the point of
    the check, the lockfile is part of the check.
+4. **Diff the classifications, not the motivating case.** When a change alters a rule that
+   sorts input into classes — fenced or not, ignored or not, matching or not — run the old
+   rule and the new rule over the whole corpus and compare them item by item. The case that
+   prompted the change will move; the point is to find out what else did.
 
 ## Why This Matters
 
@@ -69,6 +75,8 @@ both shipped in the same commit as the rule that would have caught them.
 - Adding any check to `scripts/check-docs.mjs` or to a workflow under `.github/workflows/`
 - Adding or changing a skip list, an ignore pattern, or a path filter, since these are the
   parts of a check that remove work silently
+- Replacing any rule that classifies or filters a corpus, where the blast radius is every
+  file rather than the one that prompted the change
 - Reading exit codes from `git` plumbing commands, which answer questions rather than
   perform actions
 - Reviewing a check that has run for a while and never failed
@@ -149,6 +157,42 @@ needs `--no-index`, because `scripts/package-lock.json` is now tracked and `chec
 skips tracked paths entirely, exiting `1` whatever the patterns say. That is a third way for
 the same command to hand back a confident and misleading answer.
 
+### The corpus knew something seventeen probes did not
+
+[PR #41](https://github.com/rmorison/engineering-standards/pull/41) replaced the fence rule
+the first example describes. The old rule toggled a boolean on any line starting with three
+backticks; the new one follows CommonMark. Seventeen planted probes covered it in both
+directions — a broken link inside a fence passing and the same link outside failing, a dead
+anchor and a live one, a four-backtick escape, a tilde fence, an unterminated fence. All
+seventeen behaved exactly as specified, and the fix was sound.
+
+The defect was in a file none of them touched. Running both rules over every tracked Markdown
+file and diffing their per-line verdicts produced exactly one disagreement:
+
+```
+code/python-standards.md -> 40 lines change fenced-state; first 1346 last 1391
+```
+
+`code/python-standards.md:1325` opened a three-backtick `markdown` block holding a README
+template whose own examples are three-backtick fences. Fences do not nest, so GitHub had been
+ending the outer block at the template's first bare delimiter and rendering four of the
+template's headings — `### Usage`, `## Development`, `## Documentation`, `## License` — as
+real headings of the standards document, with real anchors. That was live on `main`.
+
+No probe would have found it, because a probe asks whether the rule handles a case someone
+thought of. The diff asks which cases the rule now answers differently, and that question
+reaches files nobody was thinking about. The outer fence is four backticks now, and
+`checkFencesClosed()` reports the pattern so the next pasted template cannot repeat it
+(`scripts/check-docs.mjs:388`).
+
+The same change carried a second defect of the same family. `headingSlugs()` was given a real
+slug library precisely so anchors would not be checked against a hand-rolled approximation —
+and then handed the raw Markdown source, where GitHub slugs the *rendered* text. Every
+heading that is itself a link got a slug no anchor could reach, thirteen of them across
+`README.md` and `code/README.md`. Choosing a faithful library does not make the result
+faithful if the input is not. It is reduced to link text before slugging now
+(`scripts/check-docs.mjs:213`).
+
 ### A pin that was declared but not installed
 
 `.github/workflows/docs.yml` carried a comment calling the Mermaid version load-bearing,
@@ -162,6 +206,7 @@ at `.gitignore:60-63`, and the workflow installs with `npm ci`
 
 ## Related
 
-- `scripts/check-docs.mjs`: the four checks and the defect class each one exists for
+- `scripts/check-docs.mjs`: the five checks and the defect class each one exists for
 - [`process/documentation-standards.md`](../../../process/documentation-standards.md): the Automated Checks section and the local command
 - [`process/compound-engineering-integration.md`](../../../process/compound-engineering-integration.md): the drift note, on the related problem of corrections that do not propagate
+- [`a-corrected-claim-is-not-a-verified-claim.md`](./a-corrected-claim-is-not-a-verified-claim.md): the same principle where the corrected artifact is a sentence rather than a rule. A fix written straight off a thorough diagnosis carries the confidence of that research without having been through it — which is why habit 4 exists, and why the two defects above were found by distrusting a fix rather than by testing it
