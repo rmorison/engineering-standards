@@ -88,6 +88,8 @@ docs/
 
 Both trees coexist. Human-authored ADRs and design docs stay at the standards paths; CE skill outputs land at CE paths. For the precedence rule and provenance clause, see [`process/compound-engineering-integration.md`](../process/compound-engineering-integration.md).
 
+`docs/solutions/` is a searchable store of solved problems — bugs, best practices and workflow patterns — filed by category with YAML frontmatter (`module`, `tags`, `problem_type`). Relevant when implementing or debugging in an area it covers.
+
 📄 [Documentation standards](../process/documentation-standards.md) | [CE integration](../process/compound-engineering-integration.md)
 
 ---
