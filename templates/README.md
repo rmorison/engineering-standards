@@ -1,46 +1,69 @@
 # Project Templates
 
-Project scaffolding and boilerplate for common application scenarios.
+The starter kit for adopting these standards in a new project with Claude Code.
 
-## Purpose
+Two things live here and both are meant to be copied, not read:
 
-This directory contains starter templates for different technology stacks and application types. Each template implements the code quality standards defined in `../code/` and follows the process standards in `../process/`.
+- `.claude/` - the Claude Code configuration directory, copied into your
+  project root as `.claude/`.
+- `CLAUDE.md` - the project instruction file, copied to your project root and
+  filled in.
 
-## Future Templates
+[`../README.md`](../README.md#project-templates) gives the copy-and-customise
+steps and how the kit maps onto the six-layer AI architecture. This file
+describes what is in the directory and what the configuration actually does.
 
-Examples of templates that will live here:
+## What the kit provides
 
-- **python-fastapi/** - FastAPI backend service with async Python
-  - Pre-configured: black/ruff, pytest, Docker, CI/CD
-  - Implements standards from `code/python.md`
+| Path | Architecture layer | What it is |
+|------|--------------------|------------|
+| `.claude/settings.json` | - | Permission rules and the two example hook registrations |
+| `.claude/skills/` | Layer 2 (Skills) | Vendor-neutral `plan`, `spec` and `review` skills |
+| `.claude/agents/` | Layer 3 (Agents) | `code-reviewer` and `spec-writer` subagents |
+| `.claude/hooks/` | Layer 6 (Hooks) | One `PreToolUse` and one `PostToolUse` example, wired and working |
+| `CLAUDE.md` | Layer 1 (Rules) | Project instruction template with the sections to fill in |
 
-- **nextjs-webapp/** - Next.js web application with TypeScript
-  - Pre-configured: ESLint, Prettier, testing, deployment
-  - Implements standards from `code/typescript.md`
+The layers are defined in [`../ai/claude-code/README.md`](../ai/claude-code/README.md)
+and in [ADR-0001](../docs/engineering/adr/0001-six-layer-ai-architecture.md).
+Layers 4 and 5 are not in this kit; when compound-engineering is installed it
+fills them, per
+[`../process/compound-engineering-integration.md`](../process/compound-engineering-integration.md).
 
-- **go-daemon/** - Go service daemon
-  - Pre-configured: gofmt, golint, testing, systemd service
-  - Implements standards from `code/go.md`
-
-- **python-cli/** - Python command-line application
-  - Pre-configured: Click/Typer, packaging, testing
-  - Implements standards from `code/python.md`
-
-## Template Structure
-
-Each template should include:
-- **README.md** - Usage instructions and customization guide
-- **Pre-configured tooling** - Linters, formatters, pre-commit hooks matching code standards
-- **Example code** - Minimal working example demonstrating best practices
-- **CI/CD configuration** - GitHub Actions or similar
-- **Documentation templates** - Following `process/documentation-standards.md`
+The skills reference the canonical standards by URL rather than copying them, so
+a project that adopts the kit does not fork the standards along with it.
 
 ## Usage
 
-1. Copy template directory to your new project location
-2. Search and replace placeholder names (project name, author, etc.)
-3. Customize as needed while maintaining code standards
-4. Remove example code and build your application
+1. Copy `templates/.claude/` into your project root as `.claude/`.
+2. Copy `templates/CLAUDE.md` to your project root as `CLAUDE.md` and fill in
+   every commented placeholder - project identity, module boundaries,
+   conventions, milestones.
+3. Adjust `.claude/settings.json` to your project's toolchain. Read
+   [Permissions and hooks](#permissions-and-hooks) before widening the `allow`
+   list.
+4. Replace the example rule in each hook with a rule your project needs, or
+   delete the hooks you do not want. Both scripts are runnable from a shell:
+   pipe a JSON payload to one and read the exit code.
+
+## The example hooks
+
+`.claude/hooks/pre-tool-use/example-block.py` refuses a `Write` or `Edit` whose
+content contains `time.sleep(` - a stand-in for whatever your project wants to
+keep out of its code. It exits 2, which is what tells Claude Code to block the
+tool call, and prints the reason on stderr.
+
+`.claude/hooks/post-tool-use/example-notify.py` runs after a write has already
+landed and logs which file changed. `PostToolUse` cannot block; it reports.
+
+Both read the JSON payload Claude Code writes to their stdin - not environment
+variables - and both exit 0 on absent or malformed input, so a mis-wired hook
+costs you the check rather than the session. Each script's docstring carries the
+`settings.json` entry that registers it. Copy that shape: a hook matcher takes a
+nested `hooks` array, and Claude Code rejects the entire settings file, the
+`permissions` block included, when a `PreToolUse` entry is malformed.
+
+`node scripts/check-template-kit.mjs`, run in CI, checks that shape for every
+`.claude/settings.json` in this repository.
 
 ## Permissions and hooks
 
@@ -56,9 +79,9 @@ permissions reference says so directly:
 > program.
 
 So `Bash(rm -rf:*)` does not cover `rm -fr` or `rm --recursive --force`, and
-`Bash(git push --force:*)` does not cover `git push -f` or `git push origin
-+main`. The same page's own table gives `Bash(git push *)` stopping
-`git push origin main` and not `git -C . push origin main`.
+`Bash(git push --force:*)` does not cover `git push -f`, nor a `+ref` push such
+as `git push origin +main`. The same page's own table gives `Bash(git push *)`
+stopping `git push origin main` and not `git -C . push origin main`.
 
 **The two `deny` entries here are defence in depth, not a guarantee.** They stop
 the form the model usually writes. Read them as a speed bump on the common case;
@@ -89,6 +112,12 @@ three lines above it. The listed subcommands are what a routine session needs
 without a human in the loop. `push` is deliberately absent; every push reaches a
 decision.
 
-## Status
+## Adding more templates
 
-**Placeholder** - Templates will be added as common patterns emerge from project work.
+Stack-specific scaffolding - a Python service, a web application - would live
+here as sibling directories. None exist yet, and this file will name them when
+they do rather than before. Any such template implements the standards in
+[`../code/`](../code/): [`python-standards.md`](../code/python-standards.md)
+specifies ruff as both linter and formatter,
+[`web-application-standards.md`](../code/web-application-standards.md) and
+[`database-standards.md`](../code/database-standards.md) cover the rest.
