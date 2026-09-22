@@ -12,10 +12,11 @@ Exit codes:
   0 - allow the tool use (pattern not found, or nothing to check)
   2 - block the tool use; stderr is shown to Claude as the reason
 
-A PreToolUse hook that exits 2 stops the tool call before the permission
-rules are evaluated, so it blocks even when an `allow` entry would have let
-the call through. That precedence is why a hook, not a permission rule, is
-the place to put a check you need to hold.
+A PreToolUse hook that exits 2 blocks the tool call, and does so ahead of
+the `allow` list. Why that makes a hook, and not a permission rule, the
+place for a check you need to hold is stated once, in `templates/README.md`
+under "Permissions and hooks" -- see
+https://github.com/rmorison/engineering-standards/blob/main/templates/README.md#permissions-and-hooks
 
 Input: Claude Code writes a JSON object to this script's stdin. It does not
 put the tool payload in the environment. The fields used below were captured
@@ -31,8 +32,12 @@ The environment carries CLAUDE_PROJECT_DIR (the project root), which is what
 the settings entry below uses to find this file from any working directory.
 
 Usage in .claude/settings.json - the matcher object takes a `hooks` array;
-a bare `command` key on the matcher is not a valid entry and Claude Code
-rejects the whole settings file when a PreToolUse entry is malformed:
+a bare `command` key on the matcher is not a valid entry. Observed under
+Claude Code 2.1.278: a malformed PreToolUse entry made Claude Code reject
+the whole settings file, the `permissions` block with it. That is an
+observation of one version's behaviour, not a documented guarantee; the
+shape below is correct regardless of whether it still holds.
+
   "hooks": {
     "PreToolUse": [
       {
@@ -40,12 +45,31 @@ rejects the whole settings file when a PreToolUse entry is malformed:
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-tool-use/example-block.py"
+            "command": "hook=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/pre-tool-use/example-block.py\"; [ -f \"$hook\" ] || exit 0; exec python3 \"$hook\""
           }
         ]
       }
     ]
   }
+
+Copy that command shape, not just the path. Every error path in this script
+exits 0, so a mis-wired hook costs you the check rather than the session --
+and the registration has to fail open too, or the care taken here is undone
+one line above it. Two things in the command do that:
+
+  ${CLAUDE_PROJECT_DIR:-.}  If the variable is unset OR empty, the path
+                            would begin at `/`. `:-` (not `-`) covers both.
+  [ -f "$hook" ] || exit 0  If the script has been moved or deleted while
+                            this entry stayed behind, exit 0 and allow.
+
+Without them the command is `python3 /.claude/hooks/...`, python3 cannot
+open the file, and CPython exits 2 -- which on PreToolUse means *block*.
+Every Write and Edit in the session is then refused, with `can't open file`
+as the stated reason. Verified under Claude Code 2.1.278 on 2026-09-22:
+the unguarded form exits 2, the guarded form exits 0.
+
+`exec` is what keeps the block working when the script IS present: it
+replaces the shell, so python3's exit code is the hook's exit code.
 """
 
 import json

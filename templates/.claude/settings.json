@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-tool-use/example-block.py"
+            "command": "hook=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/pre-tool-use/example-block.py\"; [ -f \"$hook\" ] || exit 0; exec python3 \"$hook\""
           }
         ]
       }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-tool-use/example-notify.py"
+            "command": "hook=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/post-tool-use/example-notify.py\"; [ -f \"$hook\" ] || exit 0; exec python3 \"$hook\""
           }
         ]
       }

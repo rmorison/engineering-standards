@@ -33,7 +33,12 @@ The environment carries CLAUDE_PROJECT_DIR (the project root), which is what
 the settings entry below uses to find this file from any working directory.
 
 Usage in .claude/settings.json - the matcher object takes a `hooks` array;
-a bare `command` key on the matcher is not a valid entry:
+a bare `command` key on the matcher is not a valid entry. Observed under
+Claude Code 2.1.278: a malformed PreToolUse entry made Claude Code reject
+the whole settings file, the `permissions` block with it. That is an
+observation of one version's behaviour, not a documented guarantee; the
+shape below is correct regardless of whether it still holds.
+
   "hooks": {
     "PostToolUse": [
       {
@@ -41,12 +46,31 @@ a bare `command` key on the matcher is not a valid entry:
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-tool-use/example-notify.py"
+            "command": "hook=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/post-tool-use/example-notify.py\"; [ -f \"$hook\" ] || exit 0; exec python3 \"$hook\""
           }
         ]
       }
     ]
   }
+
+Copy that command shape, not just the path. Every error path in this script
+exits 0, so a mis-wired hook costs you the notification rather than the
+session -- and the registration has to fail open too, or the care taken here
+is undone one line above it. Two things in the command do that:
+
+  ${CLAUDE_PROJECT_DIR:-.}  If the variable is unset OR empty, the path
+                            would begin at `/`. `:-` (not `-`) covers both.
+  [ -f "$hook" ] || exit 0  If the script has been moved or deleted while
+                            this entry stayed behind, exit 0 and say nothing.
+
+Without them the command is `python3 /.claude/hooks/...`, python3 cannot
+open the file, and CPython exits 2. PostToolUse cannot block, so here that
+only puts a spurious `can't open file` in front of Claude every time a file
+is written -- but the identical entry under PreToolUse refuses every Write
+and Edit in the session. The two entries are copied together and should be
+written the same way. Verified under Claude Code 2.1.278 on 2026-09-22.
+
+`exec` replaces the shell, so python3's exit code is the hook's exit code.
 """
 
 import json
