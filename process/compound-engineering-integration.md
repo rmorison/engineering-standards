@@ -85,7 +85,7 @@ Reactive issue creation only. The implementation-ready plan file — the one car
 - Plan U-IDs adequately track granular progress
 - Issues created reactively for: `lfg` residuals, post-ship bugs, plan Open Question activations, scope expansions
 
-The standards' [`process/issue-tracking.md`](./issue-tracking.md) already carries solo carve-outs under **Epic Size Guidelines** ("Fewer than 3 issues: probably doesn't need an epic, just use labels"; "<1 month: might not need epic structure"). Solo + AI mode is the natural extension of those carve-outs.
+The standards' [`process/issue-tracking.md`](./issue-tracking.md#epic-size-guidelines) already carries solo carve-outs under **Epic Size Guidelines** ("Fewer than 3 issues: probably doesn't need an epic, just use labels"; "<1 month: might not need epic structure"). Solo + AI mode is the natural extension of those carve-outs.
 
 ### Hybrid (solo today, team tomorrow)
 
@@ -120,10 +120,10 @@ A minimal pattern that has worked in real use:
 
 What shifts at solo + AI scale, with citations to existing standards:
 
-- **Estimation.** [`process/project-planning-standards.md`](./project-planning-standards.md) already permits solo estimation under **Team Estimation**. For CE-using solo work, point estimates in CE plan files (`docs/plans/...`) serve as the self-calibration mechanism; planning poker is N/A.
+- **Estimation.** [`process/project-planning-standards.md`](./project-planning-standards.md#team-estimation) already permits solo estimation under **Team Estimation**. For CE-using solo work, point estimates in CE plan files (`docs/plans/...`) serve as the self-calibration mechanism; planning poker is N/A.
 - **Code review.** Standards assume a human reviewer. Solo + AI work substitutes the AI-review discipline below.
 - **Milestones.** Earn their keep at >3-month horizons. Solo + AI work over shorter horizons typically uses plans (Layer 2 outputs) and reactive issues.
-- **Epic structure.** Earns its keep at 5+ implementation issues per feature. This *replaces* the standards' epic minimum rather than extending it: [`process/issue-tracking.md`](./issue-tracking.md) sets the minimum at 3–5 sub-issues and exempts only fewer than 3. For the 3–4 band in between, solo + AI mode uses labels plus plan U-IDs — the standards' own answer for small groupings — rather than an epic.
+- **Epic structure.** Earns its keep at 5+ implementation issues per feature. This *replaces* the standards' epic minimum rather than extending it: [`process/issue-tracking.md`](./issue-tracking.md#epic-size-guidelines) sets the minimum at 3–5 sub-issues and exempts only fewer than 3. For the 3–4 band in between, solo + AI mode uses labels plus plan U-IDs — the standards' own answer for small groupings — rather than an epic.
 
 ### AI-review discipline (not enforced merge gate)
 
@@ -227,7 +227,7 @@ CE's **testing and design**, **collaboration**, and **workflow utilities** group
 
 ## Real-world deployment example
 
-This integration doc was informed by `books-ops`, a private `rmorison` repository that ran the full `ce-brainstorm → ce-plan → ce-doc-review → lfg` pipeline against a real workload. The wording of the layer-realization mapping, the Ticket Policy block, and the AI-review discipline framing reflects iteration through that deployment. `books-ops` is named here as deployment context, not as a documentation reference; everything load-bearing in this doc is inlined directly so a public reader without `rmorison` access can apply it end-to-end.
+This integration doc was informed by a private downstream project that ran the full `ce-brainstorm → ce-plan → ce-doc-review → lfg` pipeline against a real workload. The wording of the layer-realization mapping, the Ticket Policy block, and the AI-review discipline framing reflects iteration through that deployment. The deployment is given here as context, not as a documentation reference; everything load-bearing in this doc is inlined directly so any public reader can apply it end-to-end.
 
 ---
 

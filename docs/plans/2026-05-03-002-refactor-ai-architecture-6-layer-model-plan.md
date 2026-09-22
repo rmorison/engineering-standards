@@ -8,6 +8,8 @@ origin: https://github.com/rmorison/engineering-standards/issues/22
 prior_plan: docs/plans/2026-05-03-001-feat-compound-engineering-integration-plan.md
 ---
 
+> **Redaction note — 2026-09-21.** Identifying details were removed from this record for public consumption: the name of a private downstream repository, and an absolute local filesystem path that disclosed a username and directory layout. No decision, date, requirement, or rationale was altered — the redaction changes what this record discloses, not what it decided — and git history retains the original text.
+
 # refactor: Adopt 6-layer AI architecture with compound-engineering as canonical realization
 
 ## Overview
@@ -51,7 +53,7 @@ The requirements derive from the rescoped issue's acceptance criteria plus opera
 - **R2.** `ai/claude-code/README.md` rewrites as the canonical 6-layer description with publication-quality framing — readable as standalone architectural description.
 - **R3.** `ai/CLAUDE.md` reflects the 6-layer architecture (CE-aware path mappings, branch-naming carve-out, Phase 0 = brainstorm declaration where CE is in use).
 - **R4.** `ai/claude-code/rules/engineering-standards.md` and `ai/claude-code/rules/sdlc-workflow.md` content is CE-aware while staying compact-pointer in shape (Layer 1's <150-line discipline preserved). Two-mode policy lives in U5 (integration doc) and U3 (`ai/CLAUDE.md`), not in Layer 1.
-- **R5.** Integration process doc `process/compound-engineering-integration.md` describes CE's realization of each of the 6 layers and the operational details: artifact path mapping, issue-tracking modes, branch-naming reconciliation, AI-review **discipline** (not enforced gate), CE skill ↔ standards doc cross-reference. Self-contained — load-bearing content inlined; no public reader needs rmorison or books-ops access.
+- **R5.** Integration process doc `process/compound-engineering-integration.md` describes CE's realization of each of the 6 layers and the operational details: artifact path mapping, issue-tracking modes, branch-naming reconciliation, AI-review **discipline** (not enforced gate), CE skill ↔ standards doc cross-reference. Self-contained — load-bearing content inlined; no public reader needs access to any private repository.
 - **R6.** README's "AI / Claude Code Integration" section rewrites to reflect the 6-layer model. Adds CE as canonical realization. Keeps the "Context is expensive" principle (it transfers cleanly to the new model).
 - **R7.** `templates/CLAUDE.md` updated with a brief "AI Architecture" section reflecting the 6-layer model and a CE-aware note in "Plan Before Implement."
 - **R8.** Cross-references added to: `process/feature-development-workflow.md`, `process/issue-tracking.md`, `process/project-planning-standards.md`, `process/documentation-standards.md`, `process/git-branching-strategy.md`. The branching standard also gets a CE carve-out for `lfg`/`ce-work` topic-style branches and a Layer-3-discipline note in branch protection.
@@ -60,7 +62,7 @@ The requirements derive from the rescoped issue's acceptance criteria plus opera
 - **R11.** All AI-architecture artifacts written with publication-quality framing — vendor-neutral layer definitions, CE as one realization, no rmorison-specific assumptions in top-level docs.
 - **R12.** Layer definitions are general enough that other LLM-engineering toolkits (or hand-rolled implementations) could fit the same slots. The architecture description should answer "what would Layer 2 look like in Cursor / Aider / a hand-rolled system" without contradiction.
 - **R13.** Operational findings from the abandoned prior plan carried forward where still valid:
-   - Books-ops privacy resolved by inlining all load-bearing content; books-ops named only as "real-world deployment example"
+   - The private-repository privacy concern resolved by inlining all load-bearing content; the project named only as "real-world deployment example"
    - AI-review framed as **discipline**, not an enforced merge gate; failure modes named explicitly (cross-PR scope drift, self-grading loops, product-positioning regressions, same-intent author/reviewer)
    - Provenance clause for artifact paths: first-skill-touched-the-file wins; explicit `provenance:` frontmatter override
    - `docs/brainstorms/` declared as Phase 0 / discovery artifact for the feature workflow when CE is in use (partially addresses #12)
@@ -124,7 +126,7 @@ The requirements derive from the rescoped issue's acceptance criteria plus opera
 
 - Compound-engineering plugin: https://github.com/EveryInc/compound-engineering-plugin (v3.1.0)
 - Every.to agent-native foundation: https://every.to/guides/agent-native (informed both the 4-layer design and CE itself)
-- Books-ops working example: private rmorison repo at `/home/rod/Projects/github.com/rmorison/books-ops` — informed the integration doc's wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Not a doc reference for content; the integration doc inlines its own load-bearing material.
+- Private downstream working example: a private repository, not publicly accessible — informed the integration doc's wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Not a doc reference for content; the integration doc inlines its own load-bearing material.
 
 ---
 
@@ -142,7 +144,7 @@ The requirements derive from the rescoped issue's acceptance criteria plus opera
 
 - **Provenance clause for artifact paths** (R5, R13). When a CE skill produces an artifact, CE paths and conventions win; standards paths and conventions own human-authored artifacts and ADRs. Edge cases: (a) **first-skill-touched-the-file wins** by default; (b) **explicit reclassification** is allowed via a one-line `provenance:` frontmatter note when the default rule produces the wrong answer. The default is unverifiable from filesystem state alone, so the frontmatter override is the load-bearing escape hatch.
 
-- **Self-contained integration doc** (R5, R13). All load-bearing content (Documentation Paths table, Review Discipline, Ticket Policy block) is inlined directly into `process/compound-engineering-integration.md`. Books-ops is named once in a "Real-world deployment example" footer, qualified as private. No public reader needs rmorison or books-ops access to apply the integration doc end-to-end.
+- **Self-contained integration doc** (R5, R13). All load-bearing content (Documentation Paths table, Review Discipline, Ticket Policy block) is inlined directly into `process/compound-engineering-integration.md`. The private downstream project is named once in a "Real-world deployment example" footer, qualified as private. No public reader needs access to any private repository to apply the integration doc end-to-end.
 
 - **Single-PR scope** (~500–700 lines / ~12–14 files). Rationale: artifacts cross-reference each other (ADR ↔ `ai/claude-code/README.md` ↔ integration doc ↔ `ai/CLAUDE.md` ↔ rules/templates/README); splitting forces stub artifacts. Closer to standards' 200-400 target than the abandoned plan's ~900–1100. Split is available if review surfaces seams (U1+U2 first; everything else follows).
 
@@ -265,7 +267,7 @@ These six principles together capture *what makes LLM-based engineering work as 
   - **The architecture — vendor-neutral description**: one paragraph per layer, naming the principle each specializes. Layer table: layer / principle / what fills it (vendor-neutral baseline + CE realization).
   - **Why CE specifically as canonical realization**: short subsection. CE is the most developed implementation in active use across rmorison projects; describing the architecture in CE's terms gives concrete grounding while the layer definitions stay abstract enough that other realizations fit.
   - **Consequences**: list what changes (Layer 4/5 named for the first time; Layer 1 stays pointers; vendor-neutral Layer 2/3 baselines unchanged; CE adoption is additive when present), what stays unchanged (PR-based merges, semver, conventional commits, code quality principles, the principle "context is expensive"), and the maintenance liability the architecture creates (track CE realization at major versions; revisit layer definitions when other LLM-engineering toolkits surface patterns we should absorb).
-  - **References**: rescoped issue #22, the integration doc (U2), PRs #16/#19/#21 (built on, not superseded), the three to-be-archived prior proposals, books-ops as private real-world deployment example.
+  - **References**: rescoped issue #22, the integration doc (U2), PRs #16/#19/#21 (built on, not superseded), the three to-be-archived prior proposals, the private downstream project as a real-world deployment example.
 - Write the ADR with publication-quality framing. Reader assumption: a developer landing on the repo cold; no rmorison context. Layer definitions describe what the layer is structurally, not which CE skill fills it. The "vendor-neutral baseline + CE realization" framing makes the abstraction visible.
 - Number 0001; no ADRs exist yet.
 
@@ -312,7 +314,7 @@ These six principles together capture *what makes LLM-based engineering work as 
 - **Section: Design Principles**: keep the existing principles ("Context is expensive — only load what's needed, when it's needed", "Standards are enforced, not just referenced", "Templates over copies", "Projects customize, templates provide structure"). They transfer cleanly to the 6-layer.
 - **Length target**: 100–150 lines. Compact enough to read in one sitting; rich enough to be a standalone architecture description.
 - Pointer at the bottom to the ADR (U1) and integration doc (U5).
-- Do NOT cite books-ops in this file.
+- Do NOT cite the private downstream project in this file.
 
 **Patterns to follow:**
 - Existing voice: concise, table-heavy, links-out-to-detail.
@@ -327,7 +329,7 @@ These six principles together capture *what makes LLM-based engineering work as 
 - A reader without rmorison context can understand the architecture from this file alone.
 - File length 100–150 lines.
 - Pointers to ADR and integration doc present.
-- No rmorison-specific assumptions or books-ops citations.
+- No rmorison-specific assumptions or private-repository citations.
 
 ---
 
@@ -349,7 +351,7 @@ These six principles together capture *what makes LLM-based engineering work as 
 - **Reframe the branch-naming line** (line 41): two-mode — standards-only `{issue-number}-{slugified-title}`; when CE is in use, also accepts topic-style for `lfg`/`ce-work` flows without a parent issue. Pointer to integration doc.
 - **Add a "When using compound-engineering" section** at the end of the file: one-line precedence statement with provenance clause summary; one-paragraph framing of AI-review as discipline (not gate); pointers to ADR (U1) and integration doc (U5).
 - Update the Quick Links section to include the new ADR and integration doc.
-- Do NOT cite books-ops.
+- Do NOT cite the private downstream project.
 
 **Patterns to follow:**
 - Existing `ai/CLAUDE.md` voice — terse, tables, link-out.
@@ -427,7 +429,7 @@ For **`ai/claude-code/rules/sdlc-workflow.md`**:
   - Layer 4: CE skills' `references/*.md` subtrees
   - Layer 5: `docs/solutions/` + `ce-compound`/`ce-compound-refresh`
   - Layer 6: standards repo (CE doesn't fill)
-- **Section 2: Artifact location mapping**: full path table including `docs/solutions/` row. Inline the table directly (do NOT point at books-ops):
+- **Section 2: Artifact location mapping**: full path table including `docs/solutions/` row. Inline the table directly (do NOT point at the private downstream project):
 
   | Path | Owner | Producer |
   | --- | --- | --- |
@@ -450,7 +452,7 @@ For **`ai/claude-code/rules/sdlc-workflow.md`**:
 
 - **Section 6: CE skill ↔ standards doc cross-reference**: table mapping each CE skill (workflow + behavior description) to the standards docs it operates within. Behavior described alongside skill name to localize name-churn rot.
 
-- **Footer: Real-world deployment example**: one paragraph naming `books-ops` as a private rmorison deployment that informed this doc's wording. No line-range citations; no references to books-ops content as canonical.
+- **Footer: Real-world deployment example**: one paragraph naming the private downstream project as a private rmorison deployment that informed this doc's wording. No line-range citations; no references to its content as canonical.
 
 **Patterns to follow:**
 - `process/issue-tracking.md` voice for the issue-tracking section.
@@ -462,11 +464,11 @@ For **`ai/claude-code/rules/sdlc-workflow.md`**:
 **Verification:**
 - All six sections present.
 - Layer-to-CE-realization mapping includes all 6 layers.
-- Documentation Paths table inlined directly (not linked to books-ops).
+- Documentation Paths table inlined directly (not linked to the private downstream project).
 - Precedence rule + provenance clause stated.
 - AI-review discipline section names: (a) what's checked, (b) the four failure modes, (c) explicit "discipline, not enforced gate" framing.
 - Ticket Policy block inlined.
-- `books-ops` named only in the footer as real-world deployment.
+- The private downstream project named only in the footer as real-world deployment.
 - A reader without rmorison repo access can apply the doc end-to-end.
 - No team-scale standards weakened — every cross-reference is additive.
 
@@ -613,14 +615,14 @@ Archive (3 prior proposals, currently untracked per `git status`):
 | Vendor coupling at Layer 2/3 (CE) creates a maintenance liability against EveryInc's roadmap. | ADR (U1) defends the canonical-realization choice and states the upgrade discipline (pin to CE 3.x; re-evaluate at 4.x). Layer 2/3 vendor-neutral baselines remain in place; CE adoption is opt-in. |
 | Single-PR scope (~500–700 lines / ~12–14 files) above standards' 200-400 target. | Standards' "When to Deviate" provision covers branching-model alternatives, not PR size — so the deviation must stand on cross-reference coherence (artifacts reference each other). Split is available if review surfaces seams (U1+U2 first; everything else follows). |
 | Publication-quality framing (R11) adds drafting latency. | The latency is the cost of the publication-quality bar. ce-doc-review (run after plan write) provides a reader-quality gate. Iteration cost is bounded. |
-| Books-ops privacy: integration doc inlines content, but books-ops is named in the footer as real-world deployment. | Footer is one paragraph; no line-range citations; integration doc is self-contained. A non-rmorison reader hits "this is private" once and proceeds. |
+| Private-repository privacy: integration doc inlines content, but the project is named in the footer as real-world deployment. | Footer is one paragraph; no line-range citations; integration doc is self-contained. A non-rmorison reader hits "this is private" once and proceeds. |
 | Three rounds of doc-review on the abandoned plan converged on the 6-layer; this plan should not need 3 more rounds. | Plan written tighter than the abandoned one; key architectural decisions (6-layer, vendor-neutral baselines stay, Layer 1 stays compact) decided up-front. ce-doc-review is the next quality gate; results from that pass should be substantively different than rounds 1–3 of the prior plan because the architectural framing is now sound. |
 
 ---
 
 ## Documentation / Operational Notes
 
-- **After merge**: notify books-ops to refresh its CLAUDE.md to point at the published integration doc instead of the in-flight #22 reference. Books-ops' `CLAUDE.md` already says "see engineering-standards#22 for the in-flight upstream proposal" in two places; those become "see `process/compound-engineering-integration.md`." books-ops can also drop its locally-absorbed Documentation Paths table since the integration doc carries it canonically.
+- **After merge**: notify the private downstream project so it can refresh its CLAUDE.md to point at the published integration doc instead of the in-flight #22 reference. Its `CLAUDE.md` already says "see engineering-standards#22 for the in-flight upstream proposal" in two places; those become "see `process/compound-engineering-integration.md`." It can also drop its locally-absorbed Documentation Paths table since the integration doc carries it canonically.
 - **Issue #12** (Phase 0): R13 partially addresses for CE-mode adopters. Verify acceptance language before closing.
 - **Issues #16/#19/#21**: built on, not superseded. Optional one-line comments noting the architecture has evolved (cheap to add post-merge if discoverability becomes a concern).
 - **PR description**: lead with the architectural framing (6-layer abstraction + CE as canonical realization). The framing is the central contribution; surfacing it in the description helps reviewers understand the structural choice before evaluating individual file diffs. Invoke standards' "When to Deviate" only if PR size is questioned; the cross-reference coherence argument stands on its own.
@@ -637,6 +639,6 @@ Archive (3 prior proposals, currently untracked per `git status`):
 - **Related issue:** [#12](https://github.com/rmorison/engineering-standards/issues/12) (Phase 0) — partially addressed by R13 for CE-mode adopters.
 - **CE plugin:** https://github.com/EveryInc/compound-engineering-plugin (v3.1.0; canonical realization of Layers 2, 3, 4, 5)
 - **Agent-native foundation:** https://every.to/guides/agent-native (informed both the original 4-layer and CE itself)
-- **Real-world deployment example:** `books-ops` (private rmorison repo) — informed wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Not a doc reference; integration doc is self-contained.
+- **Real-world deployment example:** a private downstream project — informed wording during real use of the brainstorm → plan → ce-doc-review → lfg pipeline. Not a doc reference; integration doc is self-contained.
 - **Memory:** `architecture_explanation_style.md`, `ce_as_engineering_baseline.md`, `repo_purpose_and_article.md` (in `~/.claude/projects/.../memory/`)
 - **Affected files:** `docs/README.md` (new), `docs/engineering/README.md` (new), `docs/engineering/adr/0001-six-layer-ai-architecture.md` (new), `process/compound-engineering-integration.md` (new), `archive/README.md` (new), `ai/claude-code/README.md`, `ai/CLAUDE.md`, `ai/claude-code/rules/engineering-standards.md`, `ai/claude-code/rules/sdlc-workflow.md`, `templates/CLAUDE.md`, `README.md`, `process/feature-development-workflow.md`, `process/issue-tracking.md`, `process/project-planning-standards.md`, `process/documentation-standards.md`, `process/git-branching-strategy.md`, three archived `ai/*.md` files (moves)

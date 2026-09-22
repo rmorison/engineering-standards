@@ -147,6 +147,7 @@ This repository's product is Markdown, so a rendering defect is a production def
 | No unmarked marker lists | Marker-prefixed lines with no list marker collapse into one paragraph |
 | Every code fence is closed | An unterminated fence makes the rest of the file invisible to the checks above |
 | No fence nested in one the same length | A quoted template whose own fences are the same length ends early, spilling the rest into the document |
+| No absolute home-directory path | A path out of a contributor's machine, disclosing a local username and directory layout to every reader of a public repository |
 
 The anchor check matters here because this repository routes rules through "one
 document owns it, the others link to it": renaming a heading breaks links in
@@ -159,6 +160,25 @@ to be able to show a defect without committing one, and a check that cannot be
 shown its own defect is a check nobody can plant a defect in. The blockquote and
 marker-list checks read the raw line, because a leading code span already
 displaces the marker they look for.
+
+The home-directory check is the deliberate exception on both counts: it reads
+fenced lines, and it ignores the skip list that keeps `archive/`, `docs/plans/`
+and `scripts/` out of the checks above. An example of a leaked path still
+discloses the path, and those three directories are exactly where the one that
+reached the default branch was sitting. Its pattern is a shape rather than a
+list of forbidden strings, because a denylist would have to contain the values
+it exists to keep out of the repository.
+
+When it fires, write `~/`, `$HOME/`, or a `<username>` metavariable in place of
+the home prefix, or a repository-relative path when the target is in this
+repository. Paths whose user directory names a service or a placeholder rather
+than a person — `/home/runner/` in a GitHub Actions log excerpt,
+`/home/linuxbrew/` in a Homebrew setup line, `/home/vscode/`, `/home/node/`,
+`/home/user/`, `/Users/you/` — are allowed verbatim, from a short allowlist in
+the script. The allowlist exists because those paths have no substitute
+spelling: a Homebrew prefix quoted as `~/` is wrong, and a log excerpt is
+evidence only verbatim. A rule with no answer for the legitimate case gets
+suppressed by deleting the check.
 
 Run them before pushing:
 
