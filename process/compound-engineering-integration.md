@@ -123,7 +123,7 @@ What shifts at solo + AI scale, with citations to existing standards:
 - **Estimation.** [`process/project-planning-standards.md`](./project-planning-standards.md#team-estimation) already permits solo estimation under **Team Estimation**. For CE-using solo work, point estimates in CE plan files (`docs/plans/...`) serve as the self-calibration mechanism; planning poker is N/A.
 - **Code review.** Standards assume a human reviewer. Solo + AI work substitutes the AI-review discipline below.
 - **Milestones.** Earn their keep at >3-month horizons. Solo + AI work over shorter horizons typically uses plans (Layer 2 outputs) and reactive issues.
-- **Epic structure.** Earns its keep at 5+ implementation issues per feature. This *replaces* the standards' epic minimum rather than extending it: [`process/issue-tracking.md`](./issue-tracking.md) sets the minimum at 3–5 sub-issues and exempts only fewer than 3. For the 3–4 band in between, solo + AI mode uses labels plus plan U-IDs — the standards' own answer for small groupings — rather than an epic.
+- **Epic structure.** Earns its keep at 5+ implementation issues per feature. This *replaces* the standards' epic minimum rather than extending it: [`process/issue-tracking.md`](./issue-tracking.md#epic-size-guidelines) sets the minimum at 3–5 sub-issues and exempts only fewer than 3. For the 3–4 band in between, solo + AI mode uses labels plus plan U-IDs — the standards' own answer for small groupings — rather than an epic.
 
 ### AI-review discipline (not enforced merge gate)
 
