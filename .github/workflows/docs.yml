@@ -11,6 +11,10 @@ on:
       - 'scripts/package.json'
       - 'scripts/package-lock.json'
       - 'templates/.claude/**'
+      # check-template-kit.mjs walks EVERY .claude/settings.json in the tree,
+      # this repository's own included. Filtering on templates/ alone meant a
+      # break in .claude/settings.json ran neither job.
+      - '.claude/**'
       - 'scripts/check-template-kit.mjs'
       - '.github/workflows/docs.yml'
   push:
@@ -21,6 +25,10 @@ on:
       - 'scripts/package.json'
       - 'scripts/package-lock.json'
       - 'templates/.claude/**'
+      # check-template-kit.mjs walks EVERY .claude/settings.json in the tree,
+      # this repository's own included. Filtering on templates/ alone meant a
+      # break in .claude/settings.json ran neither job.
+      - '.claude/**'
       - 'scripts/check-template-kit.mjs'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
