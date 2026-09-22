@@ -20,7 +20,11 @@
  *
  * Check 6 inverts both of those conventions deliberately, and check 6's own
  * comment says why: an example of a leaked path is still a leaked path, and the
- * directories the others skip are where such a path is most likely to sit.
+ * directories the others skip are where such a path is most likely to sit. It
+ * carries a short allowlist of service and placeholder user directories so a
+ * legitimate path is not an unanswerable build failure, and it asserts that the
+ * skipped directories really did reach its scan rather than leaving that to a
+ * reader comparing two numbers in the summary line.
  *
  * Usage:  node scripts/check-docs.mjs [--verbose]
  * Exits non-zero if any check fails.
@@ -404,14 +408,63 @@ function checkFencesClosed(files) {
 
 /**
  * An absolute home-directory path: a `/home/` or `/Users/` root followed by a
- * user directory. The leading separator may not be preceded by a path
- * character, so a relative link into a `home/` subdirectory is not a match.
+ * user directory, whose name is captured. The leading separator may not be
+ * preceded by a path character, so a relative link into a `home/` subdirectory,
+ * a `~/home/...` path and a `https://host/home/...` URL are all non-matches.
+ *
+ * The user directory is *not* required to be followed by a further segment.
+ * The name is the part that discloses a person and it is fully disclosed
+ * without one, so `/home/<name>` at the end of a shell example, a sentence or a
+ * code span has to match too — that is the shortest and most casually typed
+ * spelling of exactly what this guards against. The trailing lookahead only
+ * keeps the capture from ending mid-name.
  *
  * The pattern is a shape, never a list of values. A denylist of the strings
  * that must not appear would have to contain them, which makes the guard the
  * leak it guards against.
+ *
+ * Scope, so each omission below is a recorded decision rather than an oversight:
+ *
+ *   - The Windows `C:\Users\<name>\` form is out. Backslash paths are not
+ *     matched; the forward-slash spelling of `/Users/<name>` is. This corpus
+ *     documents POSIX tooling throughout and has never carried a Windows drive
+ *     path, so the shape would be guarding a surface that does not exist. Add
+ *     it the day a Windows example lands, not before.
+ *   - `/root` is out. It is a home directory, but it names no person, which is
+ *     the disclosure this check exists to stop; it is also the ordinary way to
+ *     write a container path in a documented command.
+ *   - A non-ASCII user name is out. The name class is ASCII, so `/home/José`
+ *     is missed. Widening it to `\p{L}` would also start matching ordinary
+ *     prose that happens to follow a `/home/` root, and the leak this repository
+ *     has actually had is ASCII. Recorded as a known gap, not as coverage.
  */
-const ABSOLUTE_HOME_PATH = /(?<![A-Za-z0-9._~-])\/(?:home|Users)\/[A-Za-z0-9._-]+\//;
+const ABSOLUTE_HOME_PATH = /(?<![A-Za-z0-9._~-])\/(?:home|Users)\/([A-Za-z0-9._-]+)(?![A-Za-z0-9._-])/g;
+
+/**
+ * User directories that name a service, a tool or a placeholder rather than a
+ * person, and so disclose nothing when written out in full.
+ *
+ * This is the escape hatch, and it is an allowlist rather than a documented
+ * substitute spelling because some of these paths have no substitute. A reader
+ * setting up Homebrew on Linux needs the literal prefix; a pasted GitHub
+ * Actions log excerpt is evidence only if it is quoted verbatim. Telling an
+ * author to write `~/` instead is good advice that does not answer either case,
+ * and a rule with no answer gets suppressed by deleting the check.
+ *
+ * The risk an allowlist carries is that it becomes the hole. It is held shut by
+ * keeping every entry a fixed, well-known, non-personal name: nothing here can
+ * be widened into "a username someone chose". A leak still has to be spelled
+ * with a real user directory to matter, and no real user directory is listed.
+ */
+const NON_IDENTIFYING_HOME_DIRS = new Set([
+  'runner',        // GitHub Actions workspace — /home/runner/work/...
+  'linuxbrew',     // Homebrew on Linux — /home/linuxbrew/.linuxbrew/...
+  'vscode',        // devcontainer default user
+  'node',          // node devcontainer / Docker images
+  'user',          // generic placeholder
+  'you',           // generic placeholder
+  'username',      // generic placeholder
+]);
 
 /**
  * Check 6 — no absolute home-directory path in the Markdown corpus.
@@ -438,7 +491,9 @@ const ABSOLUTE_HOME_PATH = /(?<![A-Za-z0-9._~-])\/(?:home|Users)\/[A-Za-z0-9._-]
  * that scans nothing returns exactly what a clean corpus returns.
  *
  * The failure names the file and the line and stops there. Echoing the match
- * would copy the disclosed path into CI logs, which is the wrong direction.
+ * would copy the disclosed path into CI logs, which is the wrong direction. It
+ * does say what to write instead, because the author reading it has to be able
+ * to act on it without reading this file.
  */
 function checkLeakedAbsolutePaths(files) {
   if (files.length === 0) {
@@ -448,14 +503,55 @@ function checkLeakedAbsolutePaths(files) {
   }
   for (const file of files) {
     for (const line of readMarkdown(file).lines) {
-      if (ABSOLUTE_HOME_PATH.test(line.raw)) {
+      for (const [, userDir] of line.raw.matchAll(ABSOLUTE_HOME_PATH)) {
+        // A name class that admits `.` also swallows a sentence-ending period,
+        // which is how `…lives in /home/user.` would otherwise miss the
+        // allowlist. Trailing dots are stripped for the lookup only; a name
+        // that is still not listed fails either way.
+        if (NON_IDENTIFYING_HOME_DIRS.has(userDir.replace(/\.+$/, ''))) continue;
         fail(file, line.number, 'leaked-path',
-          'absolute home-directory path — discloses a local username and directory layout; ' +
-          'use a repository-relative path or drop the locator');
+          'absolute home-directory path — discloses a local username and directory layout. ' +
+          'Write `~/`, `$HOME/`, or a `<username>` metavariable in place of the home prefix, ' +
+          'or a repository-relative path when the target is in this repository. A service or ' +
+          'placeholder user directory (runner, linuxbrew, vscode, node, user, you, username) ' +
+          'is allowed verbatim — add to NON_IDENTIFYING_HOME_DIRS if one is missing.');
       }
     }
   }
   return files.length;
+}
+
+/**
+ * Check 6b — the leak scan's universe really does include the skipped paths.
+ *
+ * Check 6's whole point is that it ignores `SKIP_PATHS` (the leak that shipped
+ * was in `docs/plans/`). Until this ran, the only evidence of that was the gap
+ * between two numbers in the summary line — and the summary prints only on a
+ * passing or `--verbose` run, so on a red run the evidence was not even
+ * displayed. Dropping the `{ skipPaths: false }` argument would have left the
+ * build green while the check quietly stopped covering the directories it was
+ * written for, and the only regression detector was a human noticing that two
+ * numbers in that line had become equal.
+ *
+ * So the guarantee is asserted instead of shown: every `SKIP_PATHS` entry that
+ * exists and holds Markdown must have at least one of its files in the scanned
+ * universe. This is `prove-a-check-fails-before-trusting-it-passes.md` habit 3
+ * — a skip list is the part of a check that removes work silently — applied to
+ * the skip list of the check above.
+ */
+async function checkSkipListCoverage(files) {
+  const scanned = new Set(files.map((f) => relative(REPO_ROOT, f)));
+  for (const skipped of SKIP_PATHS) {
+    const dir = resolve(REPO_ROOT, skipped);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) continue;
+    const inDir = await markdownFiles(dir, { skipPaths: false });
+    if (inDir.length === 0) continue;
+    if (inDir.some((f) => scanned.has(relative(REPO_ROOT, f)))) continue;
+    fail(resolve(REPO_ROOT, 'scripts/check-docs.mjs'), 0, 'leaked-path',
+      `none of the ${inDir.length} Markdown file(s) under '${skipped}/' reached the leak scan — ` +
+      'the leak check has stopped covering a directory it was written for; it must be handed ' +
+      'a file list built with { skipPaths: false }');
+  }
 }
 
 const files = await markdownFiles();
@@ -466,6 +562,7 @@ checkAccidentalBlockquotes(files);
 checkUnmarkedLists(files);
 checkFencesClosed(files);
 const scannedForLeaks = checkLeakedAbsolutePaths(everyMarkdownFile);
+await checkSkipListCoverage(everyMarkdownFile);
 
 if (VERBOSE || failures.length === 0) {
   console.log(
