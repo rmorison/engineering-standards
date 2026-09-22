@@ -394,6 +394,16 @@ const ALLOW_POSITIVE = [
  * Commands no allow entry may match. `push` is absent from the list by
  * decision, and the `worktree` and `remote` entries are scoped to their read
  * forms, so the mutating subcommands beside them must still reach a human.
+ *
+ * The `git remote -v <subcommand>` rows are not padding. `-v` in `git remote`
+ * goes BETWEEN `remote` and the subcommand — "NOTE: This must be placed
+ * between `remote` and subcommand", per git's own option documentation — so
+ * `Bash(git remote -v:*)`, the entry that was added to avoid the `Bash(git:*)`
+ * hole, auto-approved every config-mutating `remote` subcommand through
+ * exactly that hole. All four forms below were run against git 2.43.0 and all
+ * four succeeded. The bare forms above them were already here and passed,
+ * which is how the sweep vouched for a list that did not hold: a negative
+ * sweep only excludes the spellings someone thought to write down.
  */
 const ALLOW_NEGATIVE = [
   'git push',
@@ -405,6 +415,10 @@ const ALLOW_NEGATIVE = [
   'git remote add upstream git@github.com:o/r.git',
   'git remote set-url origin git@github.com:o/r.git',
   'git remote remove upstream',
+  'git remote -v add upstream git@github.com:o/r.git',
+  'git remote -v set-url origin git@github.com:o/r.git',
+  'git remote -v remove upstream',
+  'git remote -v update --prune',
 ];
 
 /** Commands each deny entry is meant to cover. */
@@ -501,12 +515,38 @@ function checkKitPermissions(file, source, settings) {
  *
  *   A. CLAUDE_PROJECT_DIR unset  -> exit code must not be 2
  *   B. CLAUDE_PROJECT_DIR empty  -> exit code must not be 2
- *   C. wired correctly           -> PreToolUse still exits 2 on a payload it is
- *                                   meant to refuse, and 0 on one it is not
+ *   C. wired correctly           -> some PreToolUse command still exits 2 on a
+ *                                   payload the kit is documented to refuse,
+ *                                   and every one of them exits 0 on one it is
+ *                                   not
  *
  * Without C this check would pass just as happily on a hook that exits 0 on
  * everything, which is indistinguishable from no hook at all — the state this
  * kit was actually in.
+ *
+ * EVERY command under both events is run, not the first of each. Check 5 walks
+ * every command in the file and this one used to walk one per event; the
+ * fail-open property has to hold for all of them, and a second handler added
+ * beside an existing one is exactly where a mis-wired command would sit
+ * unobserved.
+ *
+ * An exit code this check could not observe is a FAILURE, not a pass. On a
+ * spawn error or the 15s timeout `spawnSync` reports `status` as null, and the
+ * old `if (status === 2)` read that as "did not exit 2" — so a command that
+ * never ran at all cleared the two assertions that are the entire reason this
+ * check exists.
+ *
+ * SECURITY — read before moving this. This function executes command strings
+ * out of a file in the checkout, by design: nothing short of running them
+ * catches the defect above. That is safe only where it is invoked from.
+ * `.github/workflows/docs.yml` runs on `pull_request`, which withholds secrets
+ * and gives a fork a read-only token, and it already runs PR-authored
+ * `scripts/check-template-kit.mjs` and `npm ci` against a PR-authored manifest,
+ * so this grants no capability that workflow did not already grant. It must
+ * never be invoked from a workflow holding secrets or a write token —
+ * `pull_request_target`, a scheduled job, or anything reusing the permissions
+ * in `.github/workflows/claude.yml`. If this check moves, that constraint moves
+ * with it.
  */
 function runKitHooks(file, source, settings) {
   if (process.platform === 'win32') return;  // the kit's commands are POSIX sh
@@ -528,48 +568,119 @@ function runKitHooks(file, source, settings) {
     });
   };
 
-  const kitRoot = join(REPO_ROOT, 'templates');
-  for (const event of ['PreToolUse', 'PostToolUse']) {
-    const command = settings?.hooks?.[event]?.[0]?.hooks?.[0]?.command;
-    if (typeof command !== 'string') continue;
-    const line = lineOf(source, command);
+  /**
+   * The exit code of one run, or null once the reason it could not be observed
+   * has been recorded as a failure. Every assertion below reads the return
+   * value, so "the command never ran" can never be mistaken for "the command
+   * behaved".
+   */
+  const exitCode = (result, line, what) => {
+    if (typeof result.status === 'number') return result.status;
+    const why = result.error
+      ? `it could not be started (${result.error.message})`
+      : result.signal
+        ? `it was killed by ${result.signal}, which is the 15s timeout`
+        : 'the process reported no exit code';
+    fail(file, line, 'hook-runs',
+      `${what} produced no observable exit code: ${why}. An unobserved run is a ` +
+      'failed check, not a passing one — running these commands is the only ' +
+      'thing this check does');
+    return null;
+  };
 
+  const kitRoot = join(REPO_ROOT, 'templates');
+
+  const commands = [];
+  for (const event of ['PreToolUse', 'PostToolUse']) {
+    const matchers = settings?.hooks?.[event];
+    if (!Array.isArray(matchers)) continue;
+    matchers.forEach((matcher, m) => {
+      const handlers = matcher?.hooks;
+      if (!Array.isArray(handlers)) return;
+      handlers.forEach((hook, h) => {
+        if (hook === null || typeof hook !== 'object') return;
+        if (hook.type !== 'command') return;
+        if (typeof hook.command !== 'string' || hook.command.trim() === '') return;
+        commands.push({
+          event, command: hook.command, where: `hooks.${event}[${m}].hooks[${h}]`,
+        });
+      });
+    });
+  }
+
+  if (commands.length === 0) {
+    // Not a skip. Check 6 counts an `http`, `prompt` or `agent` handler as a
+    // registered hook, so a kit carrying only those passes check 6 while this
+    // check quietly observes nothing — both green, zero behavioural coverage,
+    // which is the state check 9 was added to end.
+    fail(file, lineOf(source, 'hooks'), 'hook-runs',
+      'the kit registers no `"type": "command"` hook under PreToolUse or ' +
+      'PostToolUse, so check 9 runs nothing and vouches for nothing. Check 6 ' +
+      'still passes on a non-command handler, so this must be reported rather ' +
+      'than skipped: the kit ships one runnable example of each event, and the ' +
+      'whole point of this check is that only running it catches a fail-closed ' +
+      'command');
+    return;
+  }
+
+  for (const { event, command, where } of commands) {
+    const line = lineOf(source, command);
     for (const [label, value] of [['unset', undefined], ['empty', '']]) {
-      const { status } = run(command, value, '');
-      if (status === 2) {
-        const consequence = event === 'PreToolUse'
-          ? 'on PreToolUse that means *block*, so every Write and Edit in the ' +
-            'session is refused with `can\'t open file` as the reason'
-          : 'PostToolUse cannot block, but this puts a spurious error in front of ' +
-            'Claude on every matching call — and the PreToolUse entry beside it, ' +
-            'written the same way, refuses the call outright';
-        fail(file, line, 'hook-runs',
-          `with CLAUDE_PROJECT_DIR ${label}, the ${event} command exits 2; ` +
-          `${consequence}. Guard the path: \`\${CLAUDE_PROJECT_DIR:-.}\` for the ` +
-          'unset and empty cases, and `[ -f "$hook" ] || exit 0` before the ' +
-          'interpreter is ever handed the path');
-      }
+      const status = exitCode(run(command, value, ''), line,
+        `${where}, run with CLAUDE_PROJECT_DIR ${label},`);
+      if (status !== 2) continue;
+      const consequence = event === 'PreToolUse'
+        ? 'on PreToolUse that means *block*, so every Write and Edit in the ' +
+          'session is refused with `can\'t open file` as the reason'
+        : 'PostToolUse cannot block, but this puts a spurious error in front of ' +
+          'Claude on every matching call — and the PreToolUse entry beside it, ' +
+          'written the same way, refuses the call outright';
+      fail(file, line, 'hook-runs',
+        `with CLAUDE_PROJECT_DIR ${label}, the ${where} command exits 2; ` +
+        `${consequence}. Guard the path: \`\${CLAUDE_PROJECT_DIR:-.}\` for the ` +
+        'unset and empty cases, and `[ -f "$hook" ] || exit 0` before the ' +
+        'interpreter is ever handed the path');
     }
   }
 
-  const pre = settings?.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command;
-  if (typeof pre !== 'string') return;
-  const line = lineOf(source, pre);
+  const pre = commands.filter((entry) => entry.event === 'PreToolUse');
+  if (pre.length === 0) {
+    fail(file, lineOf(source, 'hooks'), 'hook-runs',
+      'the kit registers no PreToolUse command, so nothing observes the ' +
+      'blocking direction — and a hook that never blocks is indistinguishable ' +
+      'from no hook at all');
+    return;
+  }
 
   // The shipped example refuses `time.sleep(`; templates/README.md says so. If
   // you replace the example rule, replace these two payloads with yours rather
   // than deleting the check — an example hook that blocks nothing is the defect.
-  const blocked = run(pre, kitRoot, payload('import time\ntime.sleep(3)\n'));
-  if (blocked.status !== 2) {
-    fail(file, line, 'hook-runs',
-      `wired correctly, the PreToolUse command exits ${blocked.status} on a payload ` +
-      'the kit\'s example rule is documented to refuse; it should exit 2. A hook ' +
-      'that never blocks is indistinguishable from no hook at all');
+  let observed = 0;
+  let blocked = 0;
+  for (const { command, where } of pre) {
+    const line = lineOf(source, command);
+    const status = exitCode(
+      run(command, kitRoot, payload('import time\ntime.sleep(3)\n')), line,
+      `${where}, run wired correctly on a payload the kit's example rule refuses,`);
+    if (status === null) continue;
+    observed += 1;
+    if (status === 2) blocked += 1;
   }
-  const allowed = run(pre, kitRoot, payload('print("hello")\n'));
-  if (allowed.status !== 0) {
+  if (observed > 0 && blocked === 0) {
+    fail(file, lineOf(source, pre[0].command), 'hook-runs',
+      `wired correctly, none of the ${pre.length} PreToolUse command(s) exits 2 ` +
+      'on a payload the kit\'s example rule is documented to refuse; one of them ' +
+      'should. A hook that never blocks is indistinguishable from no hook at all');
+  }
+
+  for (const { command, where } of pre) {
+    const line = lineOf(source, command);
+    const status = exitCode(
+      run(command, kitRoot, payload('print("hello")\n')), line,
+      `${where}, run wired correctly on an ordinary write,`);
+    if (status === null || status === 0) continue;
     fail(file, line, 'hook-runs',
-      `wired correctly, the PreToolUse command exits ${allowed.status} on an ordinary ` +
+      `wired correctly, the ${where} command exits ${status} on an ordinary ` +
       'write; it should exit 0 and let the call through');
   }
 }

@@ -14,7 +14,7 @@
       "Bash(git grep:*)",
       "Bash(git worktree list:*)",
       "Bash(git remote)",
-      "Bash(git remote -v:*)",
+      "Bash(git remote -v)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git branch:*)",

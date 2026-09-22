@@ -201,10 +201,27 @@ The listed subcommands are what a routine session needs without a human in the
 loop. `push` is deliberately absent; every push reaches a decision.
 
 **Read-only subcommands are listed generously, on purpose.** `rev-parse`,
-`ls-files`, `blame`, `describe` and `grep` change nothing, and an adopter who is
-prompted ten times an hour for `git rev-parse --show-toplevel` widens the list
-straight back to `Bash(git:*)` - which is the failure this whole section exists
-to prevent. Making the narrowing livable is what makes it survive.
+`ls-files`, `blame`, `describe` and `grep` are read-only in the forms a session
+actually writes, and an adopter who is prompted ten times an hour for `git
+rev-parse --show-toplevel` widens the list straight back to `Bash(git:*)` -
+which is the failure this whole section exists to prevent. Making the narrowing
+livable is what makes it survive.
+
+**`Bash(git grep:*)` is the one entry with a known exception, and it is stated
+rather than fenced.** `git grep -O<cmd>` and `git grep
+--open-files-in-pager=<cmd>` run `<cmd>`, so that entry auto-approves arbitrary
+execution through a subcommand listed above as a read-only staple. Verified
+against git 2.43.0: `git grep -O'<cmd>' needle` ran `<cmd>` and exited 0. This
+is **not** fixed here, because it cannot be. These are prefix patterns; they
+match on what a command starts with, and a flag can appear anywhere after the
+prefix, so no spelling of `Bash(git grep ...)` excludes `-O` while still
+admitting `git grep -n TODO`. A `deny` entry would catch `git grep -O` written
+in exactly that position and miss `git grep -n -O`, which is the decorative kind
+of rule this file warns about two sections up. What closes it is a `PreToolUse`
+hook reading `tool_input.command`, or sandboxing - the two things named above as
+boundaries. Weigh that when you copy the entry; do not read the narrowing of
+`remote` and `worktree` as meaning every other entry on the list has been
+audited flag by flag.
 
 **Two entries are scoped because the subcommand splits read from write.** These
 are prefix patterns, so `Bash(git worktree:*)` would admit `worktree remove`
@@ -214,9 +231,21 @@ kit. Instead:
 
 - `Bash(git worktree list:*)` - the read form only. `add` and `remove` reach a
   human.
-- `Bash(git remote)` and `Bash(git remote -v:*)` - the two listing forms, the
-  first with no wildcard at all so it matches that exact command and nothing
-  else. Every config-mutating `remote` subcommand reaches a human.
+- `Bash(git remote)` and `Bash(git remote -v)` - the two listing forms, both
+  with no wildcard at all, so each matches that exact command string and nothing
+  else. Any `remote` invocation with anything after it reaches a human.
+
+  `-v` carries no wildcard **because `git remote -v` is not a prefix of the
+  listing forms only**. In `git remote`, `-v` goes *between* `remote` and the
+  subcommand - git's own option documentation says "NOTE: This must be placed
+  between `remote` and subcommand." So `Bash(git remote -v:*)`, which is what
+  this entry used to be, auto-approved `git remote -v add`, `git remote -v
+  set-url`, `git remote -v remove` and `git remote -v update --prune`. All four
+  were run against git 2.43.0 and all four succeeded: the remote was added, its
+  URL changed, and the remote deleted. That entry was added specifically to
+  avoid the `Bash(git:*)` hole and had the same hole; the text here used to
+  claim it did not. `scripts/check-template-kit.mjs` now holds all four of those
+  forms in `ALLOW_NEGATIVE`, so the claim is checked rather than asserted.
 
 **A note on what this list does not weigh.** `checkout`, `restore`, `stash` and
 `branch -D` can each destroy uncommitted work that no remote holds, while a
