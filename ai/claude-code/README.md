@@ -89,9 +89,9 @@ The Layer 1 rule files in [`rules/`](./rules/) load automatically when working h
 ### In a new project
 
 1. Copy [`templates/.claude/`](../../templates/.claude/) into your project root as `.claude/` — baselines for Layers 2, 3 and 6, plus configuration.
-2. Copy [`templates/CLAUDE.md`](../../templates/CLAUDE.md) to your project root and fill in the project-specific sections.
+2. Copy [`templates/CLAUDE.md`](../../templates/CLAUDE.md) to your project root and fill in the project-specific sections — that file is the project's Layer 1. The rule files in [`rules/`](./rules/) are this repository's own Layer 1 and are not copied; they are what to draw on when filling it in.
 3. Customize hooks, skills and agents for your project's architecture.
-4. To adopt compound-engineering for Layers 2–5, install the plugin and follow [`process/compound-engineering-integration.md`](../../process/compound-engineering-integration.md) for path mappings, branch naming and review discipline. Layers 1 and 6 stay owned by your project's `.claude/`.
+4. To adopt compound-engineering for Layers 2–5, install the plugin and follow [`process/compound-engineering-integration.md`](../../process/compound-engineering-integration.md) for path mappings, branch naming and review discipline. Layers 1 and 6 stay owned by your project: Layer 1 as its root `CLAUDE.md`, Layer 6 as its `.claude/hooks/`.
 
 ## Where things live
 

@@ -3,7 +3,27 @@
     "allow": [
       "Bash(make:*)",
       "Bash(uv:*)",
-      "Bash(git:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git blame:*)",
+      "Bash(git describe:*)",
+      "Bash(git grep:*)",
+      "Bash(git worktree list:*)",
+      "Bash(git remote)",
+      "Bash(git remote -v)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git switch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git restore:*)",
       "Bash(ruff:*)",
       "Bash(mypy:*)",
       "Bash(pytest:*)"
@@ -16,14 +36,24 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
-        "command": "python3 .claude/hooks/pre-tool-use/example-block.py"
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "hook=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/pre-tool-use/example-block.py\"; [ -f \"$hook\" ] || exit 0; exec python3 \"$hook\""
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
-        "command": "python3 .claude/hooks/post-tool-use/example-notify.py"
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "hook=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/post-tool-use/example-notify.py\"; [ -f \"$hook\" ] || exit 0; exec python3 \"$hook\""
+          }
+        ]
       }
     ]
   }

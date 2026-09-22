@@ -10,6 +10,12 @@ on:
       - 'scripts/check-docs.mjs'
       - 'scripts/package.json'
       - 'scripts/package-lock.json'
+      - 'templates/.claude/**'
+      # check-template-kit.mjs walks EVERY .claude/settings.json in the tree,
+      # this repository's own included. Filtering on templates/ alone meant a
+      # break in .claude/settings.json ran neither job.
+      - '.claude/**'
+      - 'scripts/check-template-kit.mjs'
       - '.github/workflows/docs.yml'
   push:
     branches: [main]
@@ -18,8 +24,23 @@ on:
       - 'scripts/check-docs.mjs'
       - 'scripts/package.json'
       - 'scripts/package-lock.json'
+      - 'templates/.claude/**'
+      # check-template-kit.mjs walks EVERY .claude/settings.json in the tree,
+      # this repository's own included. Filtering on templates/ alone meant a
+      # break in .claude/settings.json ran neither job.
+      - '.claude/**'
+      - 'scripts/check-template-kit.mjs'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
+
+# Least privilege, stated rather than inherited. Both jobs run code out of the
+# checkout -- check-docs installs from a PR-authored package-lock.json, and
+# check-template-kit runs the kit's own hook commands (check 9) -- so neither
+# job may ever be given something worth stealing. A fork's pull_request run is
+# already read-only and secret-free; this makes that unconditional for same-repo
+# runs too, and makes the constraint visible to whoever edits this file next.
+permissions:
+  contents: read
 
 jobs:
   check-docs:
@@ -42,3 +63,24 @@ jobs:
 
       - name: Check documentation
         run: node scripts/check-docs.mjs
+
+  # NEVER move this job to pull_request_target, give it secrets, or grant it a
+  # write token: check 9 in check-template-kit.mjs executes the hook commands
+  # declared in the checked-out settings.json. That is safe only because a
+  # pull_request run has nothing worth taking.
+  # The starter kit in templates/.claude/ is copied into adopters' projects, so
+  # a structural defect in it ships to every one of them. Both hook entries in
+  # that file were malformed from the day it shipped and nothing noticed.
+  # A separate job, not a step, so the check-docs job keeps its name for any
+  # branch protection that references it. No dependencies, so no npm ci.
+  check-template-kit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check template kit
+        run: node scripts/check-template-kit.mjs

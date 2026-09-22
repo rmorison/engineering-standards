@@ -22,6 +22,19 @@ iteratively against U-IDs and acceptance criteria; the `lfg` autonomous
 flow runs without per-step confirmation when a complete plan exists.
 See `process/compound-engineering-integration.md`.
 
+### Permissions and Hooks
+What the permission rules in `.claude/settings.json` do and do not stop, and
+why a `PreToolUse` hook rather than a rule is where a check you need to hold
+goes, is stated once, in the standards repository's
+[`templates/README.md`](https://github.com/rmorison/engineering-standards/blob/main/templates/README.md#permissions-and-hooks).
+Read it before widening the allow list.
+
+The link is absolute on purpose. This file is copied to your project root,
+where a relative `README.md` would resolve to *your* README, which has no
+such section. The kit references canonical standards by URL for the same
+reason its skills do: so a project that adopts the kit does not fork the
+standards along with it.
+
 ### Standards References
 - Feature workflow: process/feature-development-workflow.md
 - Documentation: process/documentation-standards.md
@@ -33,9 +46,15 @@ This template assumes the six-layer AI architecture defined in
 `ai/claude-code/README.md`. The architecture is the abstraction;
 specific toolkits realize the layers:
 
-- **Layers 1 (Rules) and 6 (Hooks)** live in `ai/claude-code/rules/`
-  and `templates/.claude/hooks/` respectively (vendor-neutral; shipped
-  by the standards repo).
+- **Layer 1 (Rules)** is this file. A project-root `CLAUDE.md` is what
+  Layer 1 looks like in Claude Code — always loaded, kept small, pointing
+  at the rest of the architecture rather than restating it. The standards
+  repository's own Layer 1 lives in its `ai/claude-code/rules/`, which is
+  where to look for baseline rule content to draw on; it is not copied
+  into your project.
+- **Layer 6 (Hooks)** is `.claude/hooks/`, seeded from the example
+  `PreToolUse` and `PostToolUse` scripts in the kit (vendor-neutral;
+  shipped by the standards repo).
 - **Layers 2 (Skills) and 3 (Agents)** have vendor-neutral baselines
   in `templates/.claude/skills/` and `templates/.claude/agents/`. When
   compound-engineering is installed, CE skills (`/ce-brainstorm`,

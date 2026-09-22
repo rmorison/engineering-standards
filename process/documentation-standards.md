@@ -148,6 +148,7 @@ This repository's product is Markdown, so a rendering defect is a production def
 | Every code fence is closed | An unterminated fence makes the rest of the file invisible to the checks above |
 | No fence nested in one the same length | A quoted template whose own fences are the same length ends early, spilling the rest into the document |
 | No absolute home-directory path | A path out of a contributor's machine, disclosing a local username and directory layout to every reader of a public repository |
+| Template kit hook entries register and behave | A `.claude/settings.json` hook entry with no `hooks` array, an unknown key on the matcher, a command naming a script that is not in the tree, a permission rule that auto-approves what the kit's own prose says reaches a human, or a hook command that exits 2 when its path fails to resolve — which on `PreToolUse` refuses every write |
 
 The anchor check matters here because this repository routes rules through "one
 document owns it, the others link to it": renaming a heading breaks links in
@@ -184,6 +185,25 @@ Run them before pushing:
 
 ```bash
 npm ci --prefix scripts && node scripts/check-docs.mjs
+```
+
+The template kit row is not a Markdown check. `scripts/check-template-kit.mjs`
+runs as a second job in the same workflow, over every `.claude/settings.json` in
+the tree, because the starter kit in `templates/.claude/` is copied into adopters'
+projects and both of its hook entries were malformed from the day it shipped.
+
+It does three kinds of work, not one. Most assertions are structural and read
+the JSON. The permission sweep matches every `allow` entry against commands that
+must be approved and commands that must not, so the kit's prose about what
+reaches a human is checked rather than asserted. And for the kit's own settings
+file it *runs* the hook commands, because the defect that shipped hardest — a
+command that exits 2 when its path fails to resolve, refusing every write — is
+invisible to any amount of reading. That last part executes content from the
+checkout, which is why the job must never be given secrets or a write token.
+It needs no dependencies:
+
+```bash
+node scripts/check-template-kit.mjs
 ```
 
 The Mermaid check calls mermaid's `parse()` rather than rendering, because the two disagree — the render path accepts diagrams GitHub's parser rejects. Dependencies are pinned and installed from a committed lockfile so the check reproduces one specific parser.
