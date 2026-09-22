@@ -58,7 +58,7 @@ The private downstream project (its `CLAUDE.md` is private, inaccessible to non-
 - R1. Document the decision to integrate CE with the standards, with rationale and pointers (issue #22 acceptance criterion: ADR).
 - R2. Produce an integration process doc with five sections: artifact location mapping, issue-tracking modes, branch-naming reconciliation, solo-scale adaptations, CE skill ↔ standards doc cross-reference (issue #22 acceptance criterion).
 - R3. Add minimal cross-references to the five named existing process docs (issue #22 acceptance criterion).
-- R4. Reference at least one downstream project (the private downstream project) as the integration's working example (issue #22 acceptance criterion).
+- R4. Reference at least one downstream project as the integration's working example (issue #22 acceptance criterion).
 - R5. Add no weakening of team-scale standards; the solo-mode track adds, never replaces (issue #22 acceptance criterion).
 - R6. Add `docs/solutions/` to the path mapping as a CE-owned path with no standards analog (Claude review gap #1; the private downstream project absorbed).
 - R7. Define the AI-review **discipline** (not enforced gate) — what `ce-code-review` + `ce-doc-review` checks, what failure modes the substitution invites, and explicitly state that the discipline is process-level, not enforced by repo configuration (Claude review gap #2; the private downstream project left undefined; doc-review surfaced enforcement and failure-mode gaps).
