@@ -33,6 +33,15 @@ on:
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
+# Least privilege, stated rather than inherited. Both jobs run code out of the
+# checkout -- check-docs installs from a PR-authored package-lock.json, and
+# check-template-kit runs the kit's own hook commands (check 9) -- so neither
+# job may ever be given something worth stealing. A fork's pull_request run is
+# already read-only and secret-free; this makes that unconditional for same-repo
+# runs too, and makes the constraint visible to whoever edits this file next.
+permissions:
+  contents: read
+
 jobs:
   check-docs:
     runs-on: ubuntu-latest
@@ -55,6 +64,10 @@ jobs:
       - name: Check documentation
         run: node scripts/check-docs.mjs
 
+  # NEVER move this job to pull_request_target, give it secrets, or grant it a
+  # write token: check 9 in check-template-kit.mjs executes the hook commands
+  # declared in the checked-out settings.json. That is safe only because a
+  # pull_request run has nothing worth taking.
   # The starter kit in templates/.claude/ is copied into adopters' projects, so
   # a structural defect in it ships to every one of them. Both hook entries in
   # that file were malformed from the day it shipped and nothing noticed.

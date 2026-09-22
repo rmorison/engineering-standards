@@ -12,6 +12,12 @@ Exit codes:
   0 - success (hook ran, no issues)
   2 - the hook's stderr is fed back to Claude as feedback
 
+Exit code 2 means *block* on PreToolUse. PostToolUse cannot block, but
+keep this script off 2 anyway: `argparse` exits 2 on a usage error and
+CPython exits 2 when it cannot open its script, and the PreToolUse hook
+beside this one -- written from the same template -- would refuse every
+call if either happened there.
+
 PostToolUse runs after the tool has already succeeded, so it cannot stop the
 write - the file is on disk by the time this script starts. Exit 2 does not
 undo it; it reports the problem to Claude so the next turn can act on it. Any

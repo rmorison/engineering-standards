@@ -510,6 +510,16 @@ function checkKitPermissions(file, source, settings) {
 /**
  * Check 9 — run the kit's hook commands and observe what they do.
  *
+ * THIS EXECUTES CONTENT FROM THE CHECKOUT, deliberately: the defect it exists
+ * to catch is behavioural, and no amount of reading the JSON finds it. That is
+ * safe under `pull_request`, which withholds secrets and hands a fork a
+ * read-only token, and it is the same capability the workflow already grants by
+ * running this script and by `npm ci` against a checked-out lockfile. It stops
+ * being safe the moment a caller has something worth taking, so this must never
+ * be invoked from `pull_request_target`, from a scheduled job with secrets, or
+ * from a workflow holding a write token. The failure mode is not this file
+ * being wrong; it is this file being moved.
+ *
  * Three observations per command, the first two of which are the ones that
  * matter: a mis-wired hook must cost you the check, never the session.
  *

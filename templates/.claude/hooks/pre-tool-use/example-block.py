@@ -12,6 +12,13 @@ Exit codes:
   0 - allow the tool use (pattern not found, or nothing to check)
   2 - block the tool use; stderr is shown to Claude as the reason
 
+Exit code 2 is reserved, and that reservation is easy to break by accident.
+`argparse` exits 2 on a usage error, and CPython exits 2 when it cannot open
+the script it was handed. Either one, reached from inside a PreToolUse hook,
+blocks the tool call -- so a hook that merely fails to parse its own arguments
+refuses every Write and Edit in the session. Keep every path that is not a
+deliberate block on 0, and never let a library choose the exit code for you.
+
 A PreToolUse hook that exits 2 blocks the tool call, and does so ahead of
 the `allow` list. Why that makes a hook, and not a permission rule, the
 place for a check you need to hold is stated once, in `templates/README.md`
