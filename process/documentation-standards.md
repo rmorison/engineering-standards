@@ -169,6 +169,17 @@ reached the default branch was sitting. Its pattern is a shape rather than a
 list of forbidden strings, because a denylist would have to contain the values
 it exists to keep out of the repository.
 
+When it fires, write `~/`, `$HOME/`, or a `<username>` metavariable in place of
+the home prefix, or a repository-relative path when the target is in this
+repository. Paths whose user directory names a service or a placeholder rather
+than a person — `/home/runner/` in a GitHub Actions log excerpt,
+`/home/linuxbrew/` in a Homebrew setup line, `/home/vscode/`, `/home/node/`,
+`/home/user/`, `/Users/you/` — are allowed verbatim, from a short allowlist in
+the script. The allowlist exists because those paths have no substitute
+spelling: a Homebrew prefix quoted as `~/` is wrong, and a log excerpt is
+evidence only verbatim. A rule with no answer for the legitimate case gets
+suppressed by deleting the check.
+
 Run them before pushing:
 
 ```bash
