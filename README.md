@@ -108,14 +108,14 @@ Defines how AI tooling integrates with software engineering workflows. The archi
 
 | # | Layer | Principle | Vendor-neutral baseline |
 |---|-------|-----------|-------------------------|
-| 1 | **Rules** | Persistence — always-loaded session context | `ai/claude-code/rules/` |
+| 1 | **Rules** | Persistence — always-loaded session context | `ai/claude-code/rules/` (this repo); `templates/CLAUDE.md` (an adopter's) |
 | 2 | **Workflow Skills** | Composability — multi-step orchestrators | `templates/.claude/skills/` |
 | 3 | **Persona Agents** | Perspective — multiple expertises | `templates/.claude/agents/` |
 | 4 | **References** | Progressivity — context grows with workflow depth | *(none yet)* |
 | 5 | **Compound / Learnings** | Compounding — institutional knowledge accumulates | *(none yet)* |
 | 6 | **Hooks** | Determinism — non-AI enforcement at zero context cost | `templates/.claude/hooks/` |
 
-CE fills Layers 2–5. What it puts in each slot — skills, personas, reference subtrees, artifact paths — lives in [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md), which tracks it against a stated CE version. Layers 1 and 6 stay owned by your project's `.claude/`.
+CE fills Layers 2–5. What it puts in each slot — skills, personas, reference subtrees, artifact paths — lives in [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md), which tracks it against a stated CE version. Layers 1 and 6 stay owned by your project: Layer 1 as its root `CLAUDE.md`, Layer 6 as its `.claude/hooks/`.
 
 **Key principle**: Context is expensive — only load what's needed, when it's needed. The six layers each specialize this principle for a different context-cost slot.
 
@@ -126,8 +126,8 @@ For the architectural decision and full layer descriptions, see [ADR-0001](./doc
 Starter kit for adopting these standards in new projects with Claude Code:
 
 1. Copy `templates/.claude/` into your project root as `.claude/` — provides Layers 2 (skills), 3 (agents), 6 (hooks) baselines plus configuration.
-2. Copy `templates/CLAUDE.md` to your project root and fill in the placeholder sections.
-3. If you adopt compound-engineering, install the plugin and consult [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for the operational details. CE specializes Layers 2, 3, 4, and 5 with deep implementations; Layers 1 and 6 stay owned by your project's `.claude/`.
+2. Copy `templates/CLAUDE.md` to your project root and fill in the placeholder sections — this is the project's Layer 1 (rules). The `ai/claude-code/rules/` baseline in the table above is *this* repository's own Layer 1 and is not copied; draw on it when filling `CLAUDE.md` in.
+3. If you adopt compound-engineering, install the plugin and consult [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for the operational details. CE specializes Layers 2, 3, 4, and 5 with deep implementations; Layers 1 and 6 stay owned by your project — Layer 1 as its root `CLAUDE.md`, Layer 6 as its `.claude/hooks/`.
 4. Customize hooks, skills, agents, and settings for your project's architecture.
 
 The vendor-neutral skills reference the canonical standards via URL, so they stay in sync without duplication.
