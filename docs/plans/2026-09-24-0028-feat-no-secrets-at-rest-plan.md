@@ -55,9 +55,9 @@ Issue #30's first proposal, an out-of-tree file at mode `0600`, does not survive
 - R23. The rule covers application secrets supplied as environment variables; developer-tool credential stores such as cloud CLI profiles, `gh`, package-registry tokens and SSH keys stay at rest and are named as out of scope.
 - R26. Tier 1's claim is bounded: whatever the launched process prints, logs or hands to a container can still reach disk, and a resolved value is readable by the same user for the life of the process.
 - R27. A tier 2 file is not named `.env`, sits in no ancestor directory of any working tree, and is not under version control, a dotfiles repository or a synced folder, because `load_dotenv()` without a path searches upward for `.env`.
-- R28. Tier 3 applies only where no agent has access to the working tree, where an agent includes IDE assistants and any tool that reads workspace contents for a model; if unsure, the condition is not met.
+- R28. Tier 3 applies only where no agent has access to the working tree, where an agent includes IDE assistants and any tool that reads workspace contents for a model; if unsure, the condition is not met. Tier 3 is a choice made per repository, by committing no `secret-refs.env`; tiers 1 and 2 are per-developer choices inside a repository that commits one.
 - R29. The command a runner launches is the application or an integration-test target, never an agent, an editor, a terminal multiplexer, a general-purpose `make` target, or a shell-integration tool such as direnv.
-- R30. Under tier 1 an agent can reach every item the developer's manager identity can read, which can exceed what a tier 3 `.env` exposed, so a manager CLI is never added to an agent's allow list.
+- R30. Under tier 1 an agent can reach every item the developer's manager identity can read, which can exceed what a tier 3 `.env` exposed, so a manager CLI is never added to an agent's allow list, and no Makefile target or script an agent's allow list reaches invokes the runner or the manager CLI. The starter kit pre-approves `Bash(make:*)`, so such a target amounts to allow-listing the manager.
 
 **The reference file**
 
@@ -70,11 +70,11 @@ Issue #30's first proposal, an out-of-tree file at mode `0600`, does not survive
 **The developer flow**
 
 - R12. Configuration resolves secrets when they are used rather than at import, so `make setup` and unit tests run without a secret-manager session, and a value that is still an unresolved reference is rejected.
-- R31. The configuration example refuses to start when `.env` defines a key that `secret-refs.env` holds, and its errors name keys, never values.
-- R13. CI never reads `secret-refs.env`: secrets CI needs come from the CI platform's secret store under the same names, throwaway service credentials stay literal configuration, and tests needing a third-party secret skip when it is absent.
-- R32. A CI secret is exposed to the one step that needs it, never to a job that runs an agent or runs PR-authored code under `pull_request_target`, and a test skipped on a fork's pull request is expected rather than a reason to change the trigger.
+- R31. Where a `secret-refs.env` exists, the configuration example refuses to start when `.env` defines a key that `secret-refs.env` holds, and its errors name keys, never values.
+- R13. CI never reads `secret-refs.env`: secrets CI needs come from the CI platform's secret store under the same names, throwaway service credentials stay literal configuration, and a test needing a third-party secret skips when it is absent only on runs where the platform withholds secrets, such as a fork's pull request; on any other run an absent secret fails the test.
+- R32. A CI secret is exposed to the one step that needs it, never to a job that runs an agent or runs PR-authored code under `pull_request_target`, and a test skipped on a fork's pull request is expected rather than a reason to change the trigger. A secret available to a same-repository `pull_request` run can be read by anyone who can push a branch, agents included, so CI secrets are limited to development and test credentials, as in R15.
 - R14. A developer moving to tier 1 from tier 2 or 3 rotates every secret that sat in a file an agent could read.
-- R15. References point at a shared team vault holding development and test credentials only, so no staging or production secret is readable by the identity daily development runs as, and onboarding includes access to it.
+- R15. References point at a shared team vault holding development and test credentials only, and onboarding includes access to it. What an agent can reach is set by the identity signed in to the manager, not by where references point, so the standard says the developer's personal vault and any vault that identity can read are within reach, and that staging and production access is held by an identity other than the one signed in during daily development.
 - R16. The existing `.env` guidance is retained and rescoped, not deleted: under tiers 1 and 2 `.env` is a configuration file, and only under tier 3 does it hold secrets.
 
 **The check**
@@ -134,7 +134,7 @@ Issue #30's first proposal, an out-of-tree file at mode `0600`, does not survive
 - KTD7. **The check proves itself in-script and holds the standard's example blocks.** Fixtures live in the script, as `RULE_SYNTAX_FIXTURES` does, and run before any verdict. The example blocks are found by their first-line marker comment (`# secret-refs.env`, `# example.env`) rather than by a general fence parser, which would copy `readMarkdown()` into a third place. Rejected: a fixture directory. That would be one more path to wire into CI, and `.gitignore` already ignores `env/` and `ENV/`.
 - KTD8. **The check runs in its own CI job with no install step,** mirroring `check-template-kit`, so a failure is attributable and the `check-docs` job keeps its name for branch protection. The job runs a PR-authored script, so it carries the same warning comment as `check-template-kit`: never `pull_request_target`, never secrets, never a write token.
 - KTD9. **A secret grants access to something outside the developer's machine.** That leaves the existing local Docker examples (`localpass`, `local-dev-secret-change-in-production`) valid as configuration, and it classifies test-mode third-party keys, such as a Stripe test key, as secrets despite their names. Rejected: treating every credential-shaped value as a secret, which would force rewriting local examples whose values grant access to nothing.
-- KTD10. **The configuration example resolves secrets at the call site, and unit tests set fakes.** Resolving at import would make every test importing configuration need a manager session, including those run by `make setup`, by CI and by agents. `get_secret` also rejects a value that still looks like a reference, which is what reaches the app if someone loads `secret-refs.env` as plain dotenv. Rejected: keeping placeholder secret keys in `example.env`, which invites real values into `.env` and breaks KTD4.
+- KTD10. **The configuration example resolves secrets at the call site, and unit tests set fakes.** Resolving at import would make every test importing configuration need a manager session, including those run by `make setup`, by CI and by agents. `get_secret` also rejects a value that still looks like a reference, which is what reaches the app if someone loads `secret-refs.env` as plain dotenv. An explicit `validate_config()`, called from the application entrypoint and never at import, keeps the file's "validate on startup" practice: it checks that every key `secret-refs.env` names is set and is not an unresolved reference, and performs R31's refusal. Unit tests never call the entrypoint. Rejected: keeping placeholder secret keys in `example.env`, which invites real values into `.env` and breaks KTD4.
 - KTD11. **`code/web-application-standards.md` keeps its own variable list and links to the owner for the rule.** #30's acceptance criterion asks it to link "rather than restating an `example.env` inline", but that block also holds web-stack variables the Python standard does not cover, such as `NEXT_PUBLIC_API_URL` and `NEXTAUTH_URL`. Its secret-shaped values are local-only configuration under KTD9. So the plan keeps the variables and removes only the restated rule. Rejected: deleting the block, which loses facts nothing else states.
 - KTD12. **The check rejects browser-exposed key prefixes in a reference file** (R24). A secret under `NEXT_PUBLIC_` resolved at build time ends up in a client bundle. The web standard already forbids that in prose; a prefix list is decidable, so the check enforces it. Rejected: leaving it to the web standard's prose.
 - KTD13. **The standard shows `op read` only with a warning, and states no other `op` form.** `op read` prints the value, so run by an agent it enters the session transcript. A resolve-without-printing form, and `op run`'s output masking, would both be convenient to cite, but neither was verified, so the standard neither names them nor relies on masking.
@@ -198,11 +198,11 @@ Line endings and a leading byte-order mark are normalised before classification.
 
 ### Sequencing
 
-U1 writes the rule the other units depend on. U2 and U3 bring the rest of `code/python-standards.md` into line with it. U4 builds the check against the example blocks U1 and U2 write. U5 wires the check into CI and the documentation. U6 is independent of U4 and U5.
+U1 writes the rule the other units depend on. U2 and U3 bring the rest of `code/python-standards.md` into line with it. U4 builds the check against the example blocks U2 writes. U5 wires the check into CI and the documentation. U6 is independent of U4 and U5.
 
 ### System-Wide Impact
 
-- **Adopters' developer environments.** Under tier 1, an agent's reach moves from reading one file in the tree to whatever the developer's manager identity can read (R30). R15's dev-only vault is what bounds it.
+- **Adopters' developer environments.** Under tier 1, an agent's reach moves from reading one file in the tree to whatever the developer's manager identity can read (R30). What bounds it is the signed-in identity, which R15 keeps away from staging and production.
 - **The agent access boundary.** Unchanged by this plan, and described by it. Three things now bear on it: what a runner may launch (R29), what an agent's allow list contains (R30, and the deferred `uv:*` finding), and where transcripts land (R26).
 - **Adopters' CI.** Where CI secrets are scoped, and which trigger runs PR-authored code (R32).
 - **This repository's CI.** A new job runs a PR-authored script under `pull_request` with `contents: read` (KTD8).
@@ -213,7 +213,7 @@ U1 writes the rule the other units depend on. U2 and U3 bring the rest of `code/
 | Risk | Mitigation |
 |---|---|
 | A shell metacharacter in a committed reference file runs when someone sources it | Segment character allowlist (KTD6); fixtures for each metacharacter (U4); nothing sources a reference file (R5) |
-| Tier 1 reaches more than a tier 3 `.env` did | Reach stated (R30); dev-only vault (R15); no manager CLI on an allow list (R30) |
+| Tier 1 reaches more than a tier 3 `.env` did | Reach stated (R30); staging and production held by a separate identity (R15); no manager CLI on an allow list (R30) |
 | A runner launches an agent, an editor, a `make` catch-all or direnv, handing every descendant the secrets | Exclusions named (R29) |
 | An adopter reads a green check, or the title, as "my environment is clean" | Scope stated (R23); what a pass means stated (R21); known limits in Scope Boundaries |
 | A secret reaches disk through printed output, logs, transcripts or containers | Tier 1's claim bounded (R26); `op read` shown only with its warning (KTD13) |
@@ -242,10 +242,10 @@ U1 writes the rule the other units depend on. U2 and U3 bring the rest of `code/
 **Approach:**
 1. Insert `### Secrets` as the first subsection of `## Configuration Management` (KTD1). Leave the `##` heading text unchanged.
 2. Lead with the requirement (R4), its scope to application secrets (R23), and the definition of a secret (R2, KTD9).
-3. Present the three tiers per KTD2 (R3), each with what it protects against and what it gives up, with tier 1's bound (R26), tier 2's placement rules (R27) and tier 3's condition (R28). Say that tier 3's condition excludes adopters of the AI starter kit.
+3. Present the three tiers per KTD2 (R3), each with what it protects against and what it gives up, with tier 1's bound (R26), tier 2's placement rules (R27) and tier 3's condition (R28). Say that tier 3's condition excludes adopters of the AI starter kit, and that tier 3 is chosen per repository by committing no `secret-refs.env` (R28).
 4. State the runner contract (R5) and what it may launch (R29). Name `op run` as 1Password's usual runner with its flags explicitly unverified, and say not to rely on its output masking (KTD3, KTD13).
 5. Show the verified surface only, cited per R6: the reference grammar, and `op read <reference>` for resolving one value by hand, with its warning that the value is printed and so enters any agent transcript (KTD13).
-6. State the limit (R7) and the reach (R30). Name the starter kit's `Bash(uv:*)`: `uv run op read` is pre-approved where a bare `op read` prompts. Do not claim retrieval is audited: whether the manager logs CLI access depends on the manager and plan, and was not verified.
+6. State the limit (R7) and the reach (R30). Name the starter kit's `Bash(uv:*)`: `uv run op read` is pre-approved where a bare `op read` prompts. Do not claim retrieval is audited: whether the manager logs CLI access depends on the manager and plan, and was not verified. Say that reach is set by the signed-in identity (R15), that a Makefile target invoking the runner is reachable through `Bash(make:*)` (R30), and that the explicit call R7 describes assumes interactive sign-in: a manager token exported in the shell reaches every command an agent spawns and is itself at rest.
 7. State R8, R11, R13, R14, R15, R25 and R32 briefly, one or two sentences each. R25 recommends CODEOWNERS or required review for reference files.
 8. Recommend `secret-refs.env text eol=lf` in `.gitattributes`.
 9. Rescope `### Environment Variables Strategy`: its Pattern bullets become configuration bullets and link to `### Secrets` for secrets.
@@ -257,7 +257,7 @@ U1 writes the rule the other units depend on. U2 and U3 bring the rest of `code/
 - The section contains no sentence asserting that retrieval is logged or audited.
 - Reading only `### Secrets`, a reader can state what each tier does not protect against.
 - No sentence says or implies that a secret never reaches disk without R26's qualification.
-- The section names every R29 exclusion, including direnv, and states R30's reach.
+- The section names every R29 exclusion, including direnv, and states R30's reach, including the Makefile-target route and that the signed-in identity sets it.
 - The section's claim about `Bash(uv:*)` is re-verified with `check-template-kit.mjs`'s matcher, after that matcher passes its own fixtures, and the result is recorded in the PR. The claim was verified at planning time and would otherwise be asserted.
 - The section never names a `.env`-reading tool's behaviour that is not in the Sources list, in particular `load_dotenv`'s upward search.
 - `node scripts/check-docs.mjs` passes, and the `#configuration-management` anchor from `code/database-standards.md` still resolves.
@@ -268,7 +268,7 @@ U1 writes the rule the other units depend on. U2 and U3 bring the rest of `code/
 
 **Goal:** Make every later subsection of `## Configuration Management` consistent with U1, so no sentence in the section still implies secret values live in `.env`.
 
-**Requirements:** R9, R10, R12, R16, R31
+**Requirements:** R9, R10, R12, R16, R28, R31
 
 **Dependencies:** U1
 
@@ -281,7 +281,7 @@ U1 writes the rule the other units depend on. U2 and U3 bring the rest of `code/
 3. `### example.env Template`: keep only configuration and local-only values. Add a separate `secret-refs.env` example block whose first line is the marker comment `# secret-refs.env` (KTD7), holding the third-party keys as `op://` references. Keep the existing `# example.env` first-line marker. The two blocks share no key (KTD4).
 4. Makefile Integration: keep `cp example.env .env`, and replace "update with your values" with text that says `.env` holds configuration only.
 5. `.gitignore Entries`: correct the "contains secrets" comment to say what the file holds under each tier (R16).
-6. Loading Environment Variables: resolve secrets at the call site (KTD10); make `get_secret` reject a value that is still a reference; say that `load_dotenv` defaults to `override=False`, so a runner-injected value wins; show unit tests setting fakes. Pass `load_dotenv` an explicit path, since without one it searches upward (R27). Refuse to start when `.env` defines a key that `secret-refs.env` also holds, compared through `dotenv_values`; the error names the keys, never the values (R31).
+6. Loading Environment Variables: resolve secrets at the call site (KTD10); make `get_secret` reject a value that is still a reference; say that `load_dotenv` defaults to `override=False`, so a runner-injected value wins; show unit tests setting fakes. Pass `load_dotenv` an explicit path, since without one it searches upward (R27). Add `validate_config()`, called from the entrypoint (KTD10): it checks that every key `secret-refs.env` names is set and not an unresolved reference, and refuses to start when `.env` defines a key that `secret-refs.env` also holds, compared through `dotenv_values`; errors name keys, never values (R31). A missing `secret-refs.env` holds no keys, so a tier 3 repository starts normally (R28). Keep best practice 7.
 7. Infrastructure Compatibility, Local Development: replace the `.env`-with-secrets block with the tier 1 pattern.
 8. Multi-Environment Strategy: change the Development row and the "Development (local .env file): Actual values in .env" block to references resolved from the team's manager. That also removes the file's contradiction with its own best practice 10.
 9. Best Practices: reword items 1 and 5 so neither points secrets at `.env`.
@@ -292,6 +292,8 @@ U1 writes the rule the other units depend on. U2 and U3 bring the rest of `code/
 - No sentence in `## Configuration Management` outside tier 3 says or implies that secret values live in `.env`. Sweep the section for `.env` and classify every hit.
 - The configuration example no longer calls `get_secret` at module import.
 - The configuration example shows the start-up refusal for a key present in both `.env` and `secret-refs.env`, and its error message names only keys.
+- With no `secret-refs.env`, the example starts with secret keys defined in `.env`.
+- `validate_config()` is called from the entrypoint, not at import, and best practice 7 still stands.
 
 **Verification:** A sweep of the section for `.env`, `example.env` and "secret" finds only tier-consistent statements.
 
