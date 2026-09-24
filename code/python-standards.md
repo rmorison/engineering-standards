@@ -791,7 +791,6 @@ A repository that commits a `secret-refs.env` supports tiers 1 and 2, and each d
 **Reference file.** The repository commits `secret-refs.env` next to `example.env`. It holds secret keys only, and each value is a reference to the secret, not the secret:
 
 ```bash
-# secret-refs.env
 STRIPE_API_KEY=op://dev/stripe/credential
 ```
 
@@ -887,14 +886,14 @@ FEATURE_FLAG_NEW_UI=true
 ENVIRONMENT=development
 ```
 
-**Secrets** (sensitive, injected as environment variables):
+**Secrets** (grant access to something outside the developer's machine; see [Secrets](#secrets)):
 ```bash
-# Secrets are values, not paths
-DATABASE_PASSWORD=actual-password-here
-ANTHROPIC_API_KEY=sk-ant-api-key-here
-STRIPE_API_KEY=sk_live_key_here
-JWT_SECRET=random-secret-string
+# In secret-refs.env: a reference to each secret, never its value
+ANTHROPIC_API_KEY=op://dev/anthropic/credential
+STRIPE_API_KEY=op://dev/stripe/credential
 ```
+
+A credential for a service that exists only on the developer's machine, such as `DATABASE_PASSWORD` for a local Docker database, is configuration and uses the same names in every environment.
 
 **Complex configuration** (YAML/JSON files):
 ```bash
@@ -912,36 +911,50 @@ project-name/
 │   ├── stage.yaml             # Staging config
 │   ├── prod.yaml              # Production config
 │   └── logging.json           # Shared logging config
-├── .env                        # Local environment (gitignored)
-├── example.env                 # Template (committed)
+├── .env                        # Local configuration (gitignored)
+├── example.env                 # Configuration template (committed)
+├── secret-refs.env             # Secret references, no values (committed)
 ├── .gitignore                  # Git exclusions
 └── ...
 ```
 
-**Note**: No `secrets/` directory needed - secrets come from environment variables set by infrastructure.
+**Note**: No `secrets/` directory: secret values come from the secret manager locally and from infrastructure when deployed.
 
 ### example.env Template
 
-```bash
-# example.env - Copy to .env and fill in your local development values
+`example.env` holds configuration, including credentials for services that exist only on the developer's machine. `make setup` copies it to `.env`.
 
-# Configuration (non-sensitive)
+```bash
+# example.env
+# Copied to .env by make setup. Configuration only: secrets are in secret-refs.env.
+
+# Infrastructure and application behavior
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
 REDIS_URL=redis://localhost:6379
 LOG_LEVEL=INFO
 ENVIRONMENT=development
 
-# Secrets (sensitive - never commit actual values)
-# For local dev, use development/test credentials
+# Local-only credentials: the local Docker stack's database and this
+# app's own token signing, neither of which grants access outside the machine
 DATABASE_PASSWORD=local-dev-password
-ANTHROPIC_API_KEY=sk-ant-dev-key-here
-STRIPE_API_KEY=sk_test_key_here
 JWT_SECRET=local-dev-jwt-secret
 
 # Configuration file (environment-specific)
 APP_CONFIG_FILE=./config/dev.yaml
 ```
+
+`secret-refs.env` holds a reference for each secret and shares no key with `example.env` (see [Secrets](#secrets)):
+
+```bash
+# secret-refs.env
+# References to the team's development vault. No values.
+
+ANTHROPIC_API_KEY=op://dev/anthropic/credential
+STRIPE_API_KEY=op://dev/stripe/credential
+```
+
+`node scripts/check-secret-refs.mjs` holds these two blocks to the reference-file rules.
 
 ### Makefile Integration
 
@@ -954,7 +967,7 @@ setup:  ## Initial project setup (install Python, deps, pre-commit)
 	# Initialize environment
 	@if [ ! -f .env ]; then \
 		cp example.env .env; \
-		echo "Created .env from example.env - update with your values"; \
+		echo "Created .env from example.env (configuration only; secrets come from secret-refs.env)"; \
 	fi
 	@mkdir -p config
 	@touch config/.gitkeep
@@ -963,7 +976,7 @@ setup:  ## Initial project setup (install Python, deps, pre-commit)
 ### .gitignore Entries
 
 ```gitignore
-# Environment (contains secrets)
+# Environment: configuration, plus secret values only under tier 3 (see Secrets)
 .env
 .env.local
 .env.*.local
@@ -980,29 +993,87 @@ config/local.yaml
 # src/project_name/config.py
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 
-# Load .env file in development (no-op in production)
-load_dotenv()
+from dotenv import dotenv_values, load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILE = PROJECT_ROOT / ".env"
+SECRET_REFS_FILE = PROJECT_ROOT / "secret-refs.env"
+REFERENCE_PREFIXES = ("op://",)
+
+# An explicit path: called without one, load_dotenv() also searches parent
+# directories. override=False, the default, lets a value the runner already
+# put in the environment win. A missing file loads nothing.
+load_dotenv(ENV_FILE)
+
 
 def get_config(key: str, default: str | None = None) -> str:
-    """Get configuration value from environment."""
+    """Get a configuration value from the environment."""
     value = os.getenv(key, default)
     if value is None:
         raise ValueError(f"Required environment variable {key} not set")
     return value
 
+
 def get_secret(key: str) -> str:
-    """Get secret from environment variable."""
+    """Get a secret the runner put in the environment.
+
+    Call it where the secret is used, not at import, so code that never
+    needs the secret runs without a secret-manager session.
+    """
     value = os.getenv(key)
     if not value:
         raise ValueError(f"Required secret {key} not set")
+    if value.startswith(REFERENCE_PREFIXES):
+        raise ValueError(f"Secret {key} is an unresolved reference; start the app through the runner")
     return value
 
-# Usage
-DATABASE_HOST = get_config("DATABASE_HOST", "localhost")
-DATABASE_PASSWORD = get_secret("DATABASE_PASSWORD")
-ANTHROPIC_API_KEY = get_secret("ANTHROPIC_API_KEY")
+
+def validate_config() -> None:
+    """Fail fast at start-up. Call from the entrypoint, never at import.
+
+    A project with no secret-refs.env (tier 3) has no secret keys to check.
+    Errors name keys, never values.
+    """
+    secret_keys = set(dotenv_values(SECRET_REFS_FILE))
+    in_dotenv = sorted(secret_keys & set(dotenv_values(ENV_FILE)))
+    if in_dotenv:
+        raise RuntimeError(
+            f".env defines secret keys {in_dotenv}: remove them, since secrets "
+            "come from secret-refs.env through the runner"
+        )
+    for key in sorted(secret_keys):
+        get_secret(key)
+```
+
+Call `validate_config()` from the entrypoint, and resolve each secret where it is used:
+
+```python
+# src/project_name/__main__.py
+from anthropic import Anthropic
+
+from project_name.config import get_secret, validate_config
+
+
+def main() -> None:
+    validate_config()
+    client = Anthropic(api_key=get_secret("ANTHROPIC_API_KEY"))
+    ...
+```
+
+`validate_config()` refuses to start when `.env` defines a key that `secret-refs.env` holds, so a real value typed into `.env` is never used silently. Unit tests never call it. They set fakes instead, and need no secret-manager session:
+
+```python
+# tests/unit/test_config.py
+import pytest
+
+from project_name.config import get_secret
+
+
+def test_get_secret_rejects_unresolved_reference(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "op://dev/anthropic/credential")
+    with pytest.raises(ValueError, match="unresolved reference"):
+        get_secret("ANTHROPIC_API_KEY")
 ```
 
 Add to dev dependencies:
@@ -1015,12 +1086,7 @@ uv add python-dotenv
 
 This pattern works across all platforms:
 
-**Local Development**:
-```bash
-# .env
-DATABASE_PASSWORD=local-dev-password
-ANTHROPIC_API_KEY=sk-ant-dev-key
-```
+**Local Development**: a runner resolves `secret-refs.env` and puts the values in the application's environment; `.env` holds configuration (see [Secrets](#secrets)).
 
 **Docker**:
 ```bash
@@ -1266,14 +1332,15 @@ pool_size = config["database"]["pool_size"]
 
 | Environment | DATABASE_HOST | DATABASE_PASSWORD | APP_CONFIG_FILE |
 |-------------|---------------|-------------------|-----------------|
-| **Development** (.env) | localhost | local-dev-password | ./config/dev.yaml |
+| **Development** (`.env`; secrets through the runner) | localhost | local-dev-password (local Docker database) | ./config/dev.yaml |
 | **Staging** (AWS Secrets Mgr) | stage-db.rds.amazonaws.com | (from secrets manager) | ./config/stage.yaml |
 | **Production** (AWS Secrets Mgr) | prod-db.rds.amazonaws.com | (from secrets manager) | ./config/prod.yaml |
 
-**AWS Secrets Manager organization**:
+**Secret organization**:
 ```
-Development (local .env file):
-  - Actual values in .env
+Development (team vault in the secret manager, referenced from secret-refs.env):
+  op://dev/anthropic/credential
+  op://dev/stripe/credential
 
 Staging:
   myapp/stage/database-password
@@ -1291,7 +1358,7 @@ Production:
 2. **Same variable names** across all environments
 3. **Infrastructure provides values** - ECS, Kubernetes, or Docker Compose
 4. **Config files** for environment-specific behavior (dev.yaml, prod.yaml)
-5. **Sensible defaults** - Development values in example.env for local work
+5. **Sensible defaults** - Development configuration in example.env, development secret references in secret-refs.env
 
 **What NOT to do**:
 - ❌ Don't create `.env.dev`, `.env.stage`, `.env.prod` - use infrastructure
@@ -1301,11 +1368,11 @@ Production:
 
 ### Best Practices
 
-1. **Never commit secrets** - Use `.gitignore` for `.env`
+1. **Keep secrets out of the working tree** - Resolve them from a secret manager at start (see [Secrets](#secrets)); `.gitignore` only stops commits
 2. **Use direct injection** - Secrets as environment variables, not file paths
 3. **Provide example.env** - Clear documentation with safe development values
 4. **Default to development-safe values** - example.env should work for local dev
-5. **Simple values in .env, complex in files** - Don't put JSON in environment variables
+5. **Simple values in environment variables, complex in files** - Don't put JSON in environment variables
 6. **Document all variables** - Comment example.env thoroughly
 7. **Validate on startup** - Fail fast if required config/secrets missing
 8. **Keep code environment-agnostic** - No `if env == 'prod'` logic
