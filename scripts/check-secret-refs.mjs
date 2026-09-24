@@ -44,7 +44,7 @@
  * Exits non-zero if any check fails. No dependencies beyond Node itself.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -277,17 +277,21 @@ function selfTest() {
   return problems;
 }
 
+/** A path as the person running the check would type it. */
+const displayPath = (path) => relative(process.cwd(), path) || path;
+
 const failures = [];
 const fail = (file, line, check, message) =>
-  failures.push({ file: file ? relative(process.cwd(), file) || file : '-', line, check, message });
+  failures.push({ file: file ? displayPath(file) : '-', line, check, message });
 
-/** Reads a named file, recording a failure when it is missing. */
+/** Reads a named file, recording a failure when it cannot be read. */
 function readNamed(path) {
-  if (!existsSync(path)) {
-    fail(path, null, 'missing', 'does not exist');
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (error) {
+    fail(path, null, 'missing', error.code === 'ENOENT' ? 'does not exist' : 'could not be read');
     return null;
   }
-  return readFileSync(path, 'utf8');
 }
 
 /** Checks reference files against configuration files, both given as paths. */
@@ -304,7 +308,7 @@ function checkFiles(refPaths, configPaths) {
     const text = readNamed(path);
     if (text === null) continue;
     const keys = configurationKeys(text, (i, check, message) => fail(path, i + 1, check, message));
-    configs.push({ path, keys, label: relative(process.cwd(), path) || path });
+    configs.push({ path, keys, label: displayPath(path) });
   }
   checkDisjoint(refs, configs, (ref, i, check, message) => fail(ref.path, i + 1, check, message));
   return refs.length + configs.length;
