@@ -106,8 +106,9 @@ project-name/
 │   └── .gitkeep
 ├── scripts/                    # Development/deployment scripts
 ├── .venv/                      # Virtual environment (gitignored)
-├── .env                        # Local environment variables (gitignored)
-├── example.env                 # Environment template (committed)
+├── .env                        # Local configuration (gitignored)
+├── example.env                 # Configuration template (committed)
+├── secret-refs.env             # Secret references, no values (committed)
 ├── .pre-commit-config.yaml     # Pre-commit hook configuration
 ├── .python-version             # Python version for pyenv
 ├── pyproject.toml              # Project metadata and tool configuration
@@ -757,7 +758,7 @@ uv run pip-audit
 ### Best Practices
 
 1. **Never commit secrets** - Use environment variables or secret management services
-2. **Use `.env` files locally** - Add to `.gitignore`
+2. **Keep secrets out of the working tree** - See [Secrets](#secrets); `.gitignore` stops commits, not reads
 3. **Scan dependencies regularly** - Weekly or on each PR
 4. **Pin dependencies** - Lock file ensures reproducible, scannable builds
 5. **Review direct and transitive dependencies** - Understand what you depend on
@@ -766,14 +767,108 @@ uv run pip-audit
 
 ## Configuration Management
 
+### Secrets
+
+**Rule**: A secret reaches the process that uses it from a secret manager, when that process starts. It is not kept in the working tree, where any tool with filesystem access can read it, an AI agent included.
+
+A *secret* is a credential that grants access to something outside the developer's machine: a third-party API key, test-mode keys included; the password of a shared or cloud database; a key that signs tokens other services accept. A throwaway credential for a service that exists only on the developer's machine, such as the password of a Docker Postgres on localhost, grants access to nothing. It is configuration, and it stays in `example.env`.
+
+The rule covers application secrets supplied to a process as environment variables. Developer-tool credentials, such as cloud CLI profiles, `gh` tokens, package-registry tokens and SSH keys, stay in their tools' own stores and are out of scope.
+
+`.gitignore` is a git convention, not an access-control boundary. It keeps `.env` out of commits and does nothing about a process that reads the file. In a repository an agent works in, that is the ordinary case: an agent that runs `cat .env`, greps for a setting or summarises a directory has read the secrets, and they can then land in a transcript, a log or an issue body.
+
+**Tiers**, in order of preference:
+
+| Tier | Where the value lives | Protects against | Does not protect against |
+|------|-----------------------|------------------|--------------------------|
+| 1 (recommended) | In the secret manager. A runner resolves references when the process starts and puts the values in the environment of the command it launches, which that command's child processes inherit. A runner that meets the contract under Runner writes none to disk; whether `op run` does was not verified (2026-09-24) | A secret in the working tree; file reads by agents, editors and indexers; accidental commit | An agent calling the manager's CLI (see [The limit](#the-limit)); anything the process prints, logs or passes to a container; the same user reading the process's environment while it runs |
+| 2 (fallback) | A file outside the working tree, at mode `0600` | Accidental commit; tools that read only the working tree | Any process running as the developer, an agent with a shell included, which reads this file as easily as one in the tree |
+| 3 (no agent access only) | An in-tree, gitignored `.env` | Accidental commit | Anything that reads the working tree |
+
+A repository that commits a `secret-refs.env` supports tiers 1 and 2, and each developer picks one. Tier 3 is a choice for the whole repository, made by committing no `secret-refs.env`. It applies only where no agent has access to the working tree, counting IDE assistants and any tool that reads workspace contents for a model. If you are unsure, the condition is not met. A project using this repository's AI starter kit does not meet it.
+
+#### Tier 1: Resolve at Start
+
+**Reference file.** The repository commits `secret-refs.env` next to `example.env`. It holds secret keys only, and each value is a reference to the secret, not the secret:
+
+```bash
+STRIPE_API_KEY=op://dev/stripe/credential
+```
+
+The full example is under [example.env Template](#exampleenv-template). A reference file follows these rules:
+
+- It contains only full-line comments, blank lines and `KEY=reference` lines: no quotes, no `export`, no `$`, no inline comment, no whitespace in a value and no repeated key. Dotenv parsers disagree about each of these, and a file that means one thing to a check and another to a runner defeats the check.
+- It shares no key with `example.env`. Configuration and secrets live in separate files.
+- No key has a browser-exposed prefix (`NEXT_PUBLIC_`, `VITE_`, `REACT_APP_`, `PUBLIC_`): a build tool inlines such a value into client bundles.
+- A secret embedded in a larger value, such as the password inside the `DATABASE_URL` of a shared database, is stored whole as one manager field and referenced as one value.
+- It needs required review, for example through CODEOWNERS, because repointing a key can send one service's secret to another.
+- `.gitattributes` holds `secret-refs.env text eol=lf`.
+
+`scripts/check-secret-refs.mjs` checks these rules (see [Automated Checks](../process/documentation-standards.md#automated-checks)). A pass means only that the named files are well-formed. It does not show that a reference resolves, that a value shaped like a reference is not a pasted secret, or that the free text of a comment holds no secret.
+
+**Reference syntax.** 1Password is the named default, and its references take the form `op://<vault-name>/<item-name>[/<section-name>]/<field-name>`. Keep vault, item, section and field names to letters, digits, `.`, `_` and `-`; the check rejects anything else, spaces included. Doppler, sops and HashiCorp Vault are sanctioned alternatives: a project using one adds that tool's reference grammar, with its source, to the check's allowlist, and its prefix to `REFERENCE_PREFIXES` in the configuration example.
+
+References point at a shared team vault that holds development and test credentials only, and onboarding includes access to it.
+
+**Runner.** A runner resolves every reference, fails closed by launching nothing if any reference does not resolve, and puts the values in the environment of the one command it launches. Nothing sources a reference file into a shell. The command a runner launches is the application or an integration-test target. It is never an agent, an editor, a terminal multiplexer, a general-purpose `make` target, or a shell-integration tool such as direnv, because each of those passes the values to everything it starts.
+
+1Password's usual runner is `op run`. Its flags, whether it fails closed and whether it masks output could not be verified when this section was written (2026-09-24), so this standard states none of them and does not rely on masking. Check `op run --help` for the version you install.
+
+To resolve one value by hand, `op read <reference>` prints it. Run by an agent, the value enters the session transcript.
+
+#### Tier 2: A File Outside the Tree
+
+The file:
+
+- is not named `.env` and sits in no directory above a working tree. Called without a path, `load_dotenv()` searches upward from the calling file for `.env`, so a `.env` in a parent directory is loaded without anyone asking for it.
+- is not under version control, in a dotfiles repository or in a synced folder.
+- has mode `0600`.
+
+Load it into the one launched process, for example `uv run --env-file ~/.config/project-name/secrets.env -- python -m project_name`. `uv run --env-file` leaves a variable that is already set untouched and refuses to run when the file is missing.
+
+#### Tier 3: An In-Tree `.env`
+
+Under the condition above, `.env` holds the secret values as well as configuration, and `example.env` holds a safe placeholder for each secret. The rest of Configuration Management applies unchanged.
+
+#### The Limit
+
+An agent running commands as the developer can call the manager's CLI and read the environment it resolves into. Tier 1 turns retrieval into an explicit call rather than a file read; it does not prevent it.
+
+- In this repository's starter kit, `Bash(uv:*)` pre-approves `uv run op read <reference>`, `uv run env` and `uv run cat <file>`, where a bare `op read` or `cat .env` prompts, and `Bash(make:*)` pre-approves every `make` target. This was checked with the permission-rule matcher in `scripts/check-template-kit.mjs` on 2026-09-24.
+- An agent can reach everything the signed-in manager identity can read, which can be more than a tier 3 `.env` held: the developer's personal vault and every vault shared with them, whatever the references point at. Hold staging and production access under a different identity from the one signed in during daily development.
+- Never add a manager CLI to an agent's allow list, and never let a Makefile target or script that an agent's allow list reaches invoke the runner or the manager CLI. Under `Bash(make:*)` such a target is an allow-list entry for the manager. Type the runner command yourself.
+- The explicit call assumes interactive sign-in. A manager token exported in the shell or a profile reaches every command an agent starts, and is itself a secret at rest.
+- Whether the manager logs CLI access depends on the manager and the plan. This standard does not claim that retrieval is audited.
+
+**Moving to tier 1.** Rotate every secret that sat in a file an agent could read. Moving the file does not un-read it.
+
+#### CI
+
+CI never resolves the references in `secret-refs.env`. Secrets CI needs come from the CI platform's secret store under the same names, and throwaway service credentials stay literal configuration.
+
+- Expose a CI secret to the one step that needs it, never to a job that runs an agent or runs PR-authored code under `pull_request_target`.
+- A secret available to a same-repository `pull_request` run can be read by anyone who can push a branch, agents included, so CI secrets are development and test credentials only.
+- A test that needs a third-party secret skips when the secret is absent only on runs where the platform withholds secrets, such as a pull request from a fork. On any other run, an absent secret fails the test. A smoke test that starts the application is such a test: the test skips, and `validate_config()` stays strict.
+
+#### Sources
+
+Every tool behaviour stated in this section was checked on 2026-09-24 against:
+
+- `@1password/sdk` 0.5.0 (npm, published by 1Password): the `op://` reference syntax.
+- `@1password/op-js` 0.1.13 (npm, same publisher): `op read <reference>`, as that wrapper invokes it, returns the value on standard output.
+- `python-dotenv` 1.2.3, `dotenv/main.py`: `load_dotenv()` defaults to `override=False`, so a variable already set wins; without a path it calls `find_dotenv()`, which walks up from the calling file's directory to the filesystem root; `dotenv_values()` of a missing file returns no keys.
+- `uv` 0.8.17: `uv run --env-file`, by running it.
+
+Not verified: any `op run` flag or behaviour, 1Password item-ID syntax in references, and whether `op read` adds a trailing newline.
+
 ### Environment Variables Strategy
 
-**Philosophy**: Secrets are injected directly as environment variables (not file paths). This works universally across AWS, Kubernetes, Docker, and local development.
+**Philosophy**: Values are injected directly as environment variables (not file paths). This works universally across AWS, Kubernetes, Docker, and local development.
 
 **Pattern**:
-- `.env` file for local development (gitignored)
-- `example.env` committed to repo as template and documentation
-- Secrets injected as environment variables by infrastructure
+- `example.env` committed as the template and documentation for configuration; `make setup` copies it to a gitignored `.env`
+- `secret-refs.env` committed with a reference for each secret (see [Secrets](#secrets))
+- Secrets injected as environment variables by infrastructure in deployed environments
 - Complex configuration in YAML/JSON files, referenced via env vars
 
 ### Naming Conventions
@@ -792,14 +887,14 @@ FEATURE_FLAG_NEW_UI=true
 ENVIRONMENT=development
 ```
 
-**Secrets** (sensitive, injected as environment variables):
+**Secrets** (grant access to something outside the developer's machine; see [Secrets](#secrets)):
 ```bash
-# Secrets are values, not paths
-DATABASE_PASSWORD=actual-password-here
-ANTHROPIC_API_KEY=sk-ant-api-key-here
-STRIPE_API_KEY=sk_live_key_here
-JWT_SECRET=random-secret-string
+# In secret-refs.env: a reference to each secret, never its value
+ANTHROPIC_API_KEY=op://dev/anthropic/credential
+STRIPE_API_KEY=op://dev/stripe/credential
 ```
+
+A credential for a service that exists only on the developer's machine, such as `DATABASE_PASSWORD` for a local Docker database, is configuration and uses the same names in every environment.
 
 **Complex configuration** (YAML/JSON files):
 ```bash
@@ -817,36 +912,50 @@ project-name/
 │   ├── stage.yaml             # Staging config
 │   ├── prod.yaml              # Production config
 │   └── logging.json           # Shared logging config
-├── .env                        # Local environment (gitignored)
-├── example.env                 # Template (committed)
+├── .env                        # Local configuration (gitignored)
+├── example.env                 # Configuration template (committed)
+├── secret-refs.env             # Secret references, no values (committed)
 ├── .gitignore                  # Git exclusions
 └── ...
 ```
 
-**Note**: No `secrets/` directory needed - secrets come from environment variables set by infrastructure.
+**Note**: No `secrets/` directory: secret values come from the secret manager locally and from infrastructure when deployed.
 
 ### example.env Template
 
-```bash
-# example.env - Copy to .env and fill in your local development values
+`example.env` holds configuration, including credentials for services that exist only on the developer's machine. `make setup` copies it to `.env`.
 
-# Configuration (non-sensitive)
+```bash
+# example.env
+# Copied to .env by make setup. Configuration only: secrets are in secret-refs.env.
+
+# Infrastructure and application behavior
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
 REDIS_URL=redis://localhost:6379
 LOG_LEVEL=INFO
 ENVIRONMENT=development
 
-# Secrets (sensitive - never commit actual values)
-# For local dev, use development/test credentials
+# Local-only credentials: the local Docker stack's database and this
+# app's own token signing, neither of which grants access outside the machine
 DATABASE_PASSWORD=local-dev-password
-ANTHROPIC_API_KEY=sk-ant-dev-key-here
-STRIPE_API_KEY=sk_test_key_here
 JWT_SECRET=local-dev-jwt-secret
 
 # Configuration file (environment-specific)
 APP_CONFIG_FILE=./config/dev.yaml
 ```
+
+`secret-refs.env` holds a reference for each secret and shares no key with `example.env` (see [Secrets](#secrets)):
+
+```bash
+# secret-refs.env
+# References to the team's development vault. No values.
+
+ANTHROPIC_API_KEY=op://dev/anthropic/credential
+STRIPE_API_KEY=op://dev/stripe/credential
+```
+
+`node scripts/check-secret-refs.mjs --standard` holds these two blocks to the reference-file rules.
 
 ### Makefile Integration
 
@@ -859,7 +968,7 @@ setup:  ## Initial project setup (install Python, deps, pre-commit)
 	# Initialize environment
 	@if [ ! -f .env ]; then \
 		cp example.env .env; \
-		echo "Created .env from example.env - update with your values"; \
+		echo "Created .env from example.env (configuration only; secrets come from secret-refs.env)"; \
 	fi
 	@mkdir -p config
 	@touch config/.gitkeep
@@ -868,7 +977,7 @@ setup:  ## Initial project setup (install Python, deps, pre-commit)
 ### .gitignore Entries
 
 ```gitignore
-# Environment (contains secrets)
+# Environment: configuration, plus secret values only under tier 3 (see Secrets)
 .env
 .env.local
 .env.*.local
@@ -885,29 +994,87 @@ config/local.yaml
 # src/project_name/config.py
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 
-# Load .env file in development (no-op in production)
-load_dotenv()
+from dotenv import dotenv_values, load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILE = PROJECT_ROOT / ".env"
+SECRET_REFS_FILE = PROJECT_ROOT / "secret-refs.env"
+REFERENCE_PREFIXES = ("op://",)
+
+# An explicit path: called without one, load_dotenv() also searches parent
+# directories. override=False, the default, lets a value the runner already
+# put in the environment win. A missing file loads nothing.
+load_dotenv(ENV_FILE)
+
 
 def get_config(key: str, default: str | None = None) -> str:
-    """Get configuration value from environment."""
+    """Get a configuration value from the environment."""
     value = os.getenv(key, default)
     if value is None:
         raise ValueError(f"Required environment variable {key} not set")
     return value
 
+
 def get_secret(key: str) -> str:
-    """Get secret from environment variable."""
+    """Get a secret the runner put in the environment.
+
+    Call it where the secret is used, not at import, so code that never
+    needs the secret runs without a secret-manager session.
+    """
     value = os.getenv(key)
     if not value:
         raise ValueError(f"Required secret {key} not set")
+    if value.startswith(REFERENCE_PREFIXES):
+        raise ValueError(f"Secret {key} is an unresolved reference; start the app through the runner")
     return value
 
-# Usage
-DATABASE_HOST = get_config("DATABASE_HOST", "localhost")
-DATABASE_PASSWORD = get_secret("DATABASE_PASSWORD")
-ANTHROPIC_API_KEY = get_secret("ANTHROPIC_API_KEY")
+
+def validate_config() -> None:
+    """Fail fast at start-up. Call from the entrypoint, never at import.
+
+    A project with no secret-refs.env (tier 3) has no secret keys to check.
+    Errors name keys, never values.
+    """
+    secret_keys = set(dotenv_values(SECRET_REFS_FILE))
+    in_dotenv = sorted(secret_keys & set(dotenv_values(ENV_FILE)))
+    if in_dotenv:
+        raise RuntimeError(
+            f".env defines secret keys {in_dotenv}: remove them, since secrets "
+            "come from secret-refs.env through the runner"
+        )
+    for key in sorted(secret_keys):
+        get_secret(key)
+```
+
+Call `validate_config()` from the entrypoint, and resolve each secret where it is used:
+
+```python
+# src/project_name/__main__.py
+from anthropic import Anthropic
+
+from project_name.config import get_secret, validate_config
+
+
+def main() -> None:
+    validate_config()
+    client = Anthropic(api_key=get_secret("ANTHROPIC_API_KEY"))
+    ...
+```
+
+`validate_config()` refuses to start when `.env` defines a key that `secret-refs.env` holds, so an entrypoint that calls it refuses to start rather than use a real value typed into `.env`. It reads its list of secrets from `secret-refs.env`, so that file ships with the application; see the Dockerfile below. Unit tests never call it. They set fakes instead, and need no secret-manager session:
+
+```python
+# tests/unit/test_config.py
+import pytest
+
+from project_name.config import get_secret
+
+
+def test_get_secret_rejects_unresolved_reference(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "op://dev/anthropic/credential")
+    with pytest.raises(ValueError, match="unresolved reference"):
+        get_secret("ANTHROPIC_API_KEY")
 ```
 
 Add to dev dependencies:
@@ -920,12 +1087,7 @@ uv add python-dotenv
 
 This pattern works across all platforms:
 
-**Local Development**:
-```bash
-# .env
-DATABASE_PASSWORD=local-dev-password
-ANTHROPIC_API_KEY=sk-ant-dev-key
-```
+**Local Development**: a runner resolves `secret-refs.env` and puts the values in the application's environment; `.env` holds configuration (see [Secrets](#secrets)).
 
 **Docker**:
 ```bash
@@ -1171,14 +1333,15 @@ pool_size = config["database"]["pool_size"]
 
 | Environment | DATABASE_HOST | DATABASE_PASSWORD | APP_CONFIG_FILE |
 |-------------|---------------|-------------------|-----------------|
-| **Development** (.env) | localhost | local-dev-password | ./config/dev.yaml |
+| **Development** (`.env`; secrets through the runner) | localhost | local-dev-password (local Docker database) | ./config/dev.yaml |
 | **Staging** (AWS Secrets Mgr) | stage-db.rds.amazonaws.com | (from secrets manager) | ./config/stage.yaml |
 | **Production** (AWS Secrets Mgr) | prod-db.rds.amazonaws.com | (from secrets manager) | ./config/prod.yaml |
 
-**AWS Secrets Manager organization**:
+**Secret organization**:
 ```
-Development (local .env file):
-  - Actual values in .env
+Development (team vault in the secret manager, referenced from secret-refs.env):
+  op://dev/anthropic/credential
+  op://dev/stripe/credential
 
 Staging:
   myapp/stage/database-password
@@ -1196,7 +1359,7 @@ Production:
 2. **Same variable names** across all environments
 3. **Infrastructure provides values** - ECS, Kubernetes, or Docker Compose
 4. **Config files** for environment-specific behavior (dev.yaml, prod.yaml)
-5. **Sensible defaults** - Development values in example.env for local work
+5. **Sensible defaults** - Development configuration in example.env, development secret references in secret-refs.env
 
 **What NOT to do**:
 - ❌ Don't create `.env.dev`, `.env.stage`, `.env.prod` - use infrastructure
@@ -1206,11 +1369,11 @@ Production:
 
 ### Best Practices
 
-1. **Never commit secrets** - Use `.gitignore` for `.env`
+1. **Keep secrets out of the working tree** - Resolve them from a secret manager at start (see [Secrets](#secrets)); `.gitignore` only stops commits
 2. **Use direct injection** - Secrets as environment variables, not file paths
 3. **Provide example.env** - Clear documentation with safe development values
 4. **Default to development-safe values** - example.env should work for local dev
-5. **Simple values in .env, complex in files** - Don't put JSON in environment variables
+5. **Simple values in environment variables, complex in files** - Don't put JSON in environment variables
 6. **Document all variables** - Comment example.env thoroughly
 7. **Validate on startup** - Fail fast if required config/secrets missing
 8. **Keep code environment-agnostic** - No `if env == 'prod'` logic
@@ -1254,6 +1417,11 @@ COPY --from=builder /app/.venv /app/.venv
 
 # Copy application code
 COPY src/ /app/src/
+
+# secret-refs.env holds references only, never values. validate_config()
+# reads it for the list of secrets to check at start; without it, no secret
+# is checked.
+COPY secret-refs.env /app/secret-refs.env
 
 # Set environment variables
 ENV PATH="/app/.venv/bin:$PATH"
@@ -1477,6 +1645,7 @@ jobs:
 4. **Fast feedback** - Fail fast, parallelize when possible
 5. **Coverage reporting** - Use codecov or similar
 6. **Dependency caching** - Cache `.venv/` to speed up builds
+7. **Scope secrets to the step that needs them** - See [Secrets](#secrets) for CI
 
 ### Required Status Checks
 
@@ -1522,7 +1691,7 @@ Configure branch protection for `main`:
 
 ### Security
 
-1. **Never commit secrets** - Use environment variables
+1. **Never commit secrets** - See [Secrets](#secrets)
 2. **Scan dependencies** - Run security checks in CI
 3. **Update dependencies promptly** - Apply security patches quickly
 4. **Use type checking** - Prevents many runtime errors
@@ -1635,7 +1804,7 @@ cd my-project
 
 # Initialize git
 git init
-echo ".venv/\n*.pyc\n__pycache__/\n.pytest_cache/\n.mypy_cache/\n.ruff_cache/" > .gitignore
+printf '%s\n' .venv/ '*.pyc' __pycache__/ .pytest_cache/ .mypy_cache/ .ruff_cache/ .env > .gitignore
 
 # Set Python version
 echo "3.11" > .python-version

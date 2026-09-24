@@ -16,6 +16,7 @@ on:
       # break in .claude/settings.json ran neither job.
       - '.claude/**'
       - 'scripts/check-template-kit.mjs'
+      - 'scripts/check-secret-refs.mjs'
       - '.github/workflows/docs.yml'
   push:
     branches: [main]
@@ -30,6 +31,7 @@ on:
       # break in .claude/settings.json ran neither job.
       - '.claude/**'
       - 'scripts/check-template-kit.mjs'
+      - 'scripts/check-secret-refs.mjs'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -84,3 +86,22 @@ jobs:
 
       - name: Check template kit
         run: node scripts/check-template-kit.mjs
+
+  # NEVER move this job to pull_request_target, give it secrets, or grant it a
+  # write token: it runs a script the pull request can edit, which is safe only
+  # because a pull_request run has nothing worth taking.
+  # Holds the Secrets rule in code/python-standards.md: its secret-refs.env
+  # example must contain references and nothing else, and share no key with its
+  # example.env example. Preventive rather than prompted by a shipped defect.
+  # A separate job for the same reasons as check-template-kit. No dependencies.
+  check-secret-refs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check secret reference examples
+        run: node scripts/check-secret-refs.mjs --standard
