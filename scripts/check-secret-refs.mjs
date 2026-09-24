@@ -10,11 +10,15 @@
  * decided by a program rather than trusted to review.
  *
  *   1. The line classifier passes its built-in fixtures before it reports on any
- *      file (LINE_FIXTURES, FILE_FIXTURES). A classifier that is wrong would
- *      otherwise pass a literal as confidently as it passes a reference.
+ *      file (LINE_FIXTURES, FILE_FIXTURES), as do the argument parser
+ *      (ARGV_FIXTURES), the example-block finder (BLOCK_FIXTURES) and the rule
+ *      that messages never repeat a pasted secret (LEAK_FIXTURES). A classifier
+ *      that is wrong would otherwise pass a literal as confidently as it passes
+ *      a reference.
  *   2. Every line of a reference file is a full-line comment, a blank line, or
  *      `KEY=reference`, where the reference matches one grammar in
- *      REFERENCE_GRAMMARS and is the whole value. Anything else fails: quotes,
+ *      REFERENCE_GRAMMARS and is the whole value. A commented-out entry whose
+ *      value is not a reference fails too. Anything else fails: quotes,
  *      `export`, `$`, an inline comment, whitespace in a value, a YAML-style
  *      `KEY: value`. Dotenv parsers disagree about each of those, so a file
  *      that one of them reads differently from this check is not safe to pass.
@@ -34,10 +38,13 @@
  * A pass means only that the named files are well-formed. It does not mean a
  * reference resolves, that no secret sits in some other file, that every key in
  * the reference file really is a secret, or that a value shaped like a
- * reference is not a pasted secret: `op://dev/stripe/<pasted key>` passes.
+ * reference is not a pasted secret: `op://dev/stripe/<pasted key>` passes. A
+ * comment is checked only for a commented-out entry; other free text in a
+ * comment is not read.
  *
- * Messages name the file, line and key, never the value, so a real secret in a
- * reference file does not end up in a CI log.
+ * Messages name the file and line, and a key only when the line's value is a
+ * well-formed reference; never the value. On any other line the text before
+ * `=` may be the secret itself, and messages reach CI logs.
  *
  * Usage:  node scripts/check-secret-refs.mjs --standard
  *         node scripts/check-secret-refs.mjs <reference-file>... --config <configuration-file>...
@@ -75,30 +82,42 @@ const REFERENCE_GRAMMARS = [
 const KEY = /^[A-Z_][A-Z0-9_]*$/;
 const BROWSER_EXPOSED_PREFIXES = ['NEXT_PUBLIC_', 'VITE_', 'REACT_APP_', 'PUBLIC_'];
 
+const isReference = (value) => REFERENCE_GRAMMARS.some((grammar) => grammar.pattern.test(value));
+
 /**
  * Classifies one reference-file line as blank, comment, reference, literal,
  * exposed or malformed. Only blank, comment and reference pass. `reason` says
- * why a line failed without repeating its value.
+ * why a line failed without repeating its value. `key` is returned only when
+ * the value is a well-formed reference: on any other line, the text before the
+ * first `=` may itself be a pasted secret, such as padded base32 or base64.
  */
 function classifyLine(line) {
   if (/^[ \t]*$/.test(line)) return { kind: 'blank' };
-  if (line.startsWith('#')) return { kind: 'comment' };
+  if (line.startsWith('#')) return classifyComment(line);
 
   const entry = /^([A-Za-z0-9_]+)=(.*)$/.exec(line);
-  if (!entry) {
-    return { kind: 'malformed', reason: 'is not a comment, a blank line or KEY=reference' };
+  if (!entry || !KEY.test(entry[1])) {
+    return { kind: 'malformed', reason: 'is not a comment, a blank line or an UPPER_SNAKE_CASE KEY=reference' };
   }
   const [, key, value] = entry;
-  if (!KEY.test(key)) {
-    return { kind: 'malformed', key, reason: 'has a key that is not UPPER_SNAKE_CASE' };
-  }
+  if (!isReference(value)) return { kind: 'literal', reason: literalReason(value) };
   if (BROWSER_EXPOSED_PREFIXES.some((prefix) => key.startsWith(prefix))) {
     return { kind: 'exposed', key, reason: 'has a browser-exposed prefix, so a build tool would inline it into client code' };
   }
-  if (REFERENCE_GRAMMARS.some((grammar) => grammar.pattern.test(value))) {
-    return { kind: 'reference', key };
+  return { kind: 'reference', key };
+}
+
+/**
+ * A comment passes unless it is a commented-out entry whose value is not a
+ * reference, such as `# STRIPE_API_KEY=<old value>` left behind after a
+ * migration. Other free text in a comment is not checked.
+ */
+function classifyComment(line) {
+  const entry = /^#[ \t]*[A-Z_][A-Z0-9_]*=(.*)$/.exec(line);
+  if (entry && !isReference(entry[1])) {
+    return { kind: 'literal', reason: 'is a commented-out entry whose value is not a reference' };
   }
-  return { kind: 'literal', key, reason: literalReason(value) };
+  return { kind: 'comment' };
 }
 
 /** Why a value is not a reference, in words that do not repeat the value. */
@@ -112,9 +131,13 @@ function literalReason(value) {
   return 'has a value that is not a reference';
 }
 
-/** Splits file text into lines, dropping a byte-order mark and CRLF endings. */
+/**
+ * Splits file text into lines, dropping a byte-order mark. CRLF, a lone CR and
+ * LF each end a line, as they do for python-dotenv; splitting on LF alone would
+ * let a CR hide an entry inside a comment.
+ */
 function linesOf(text) {
-  return text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  return text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
 }
 
 /**
@@ -127,7 +150,7 @@ function checkReferenceText(text, report) {
   linesOf(text).forEach((line, index) => {
     const result = classifyLine(line);
     if (['malformed', 'literal', 'exposed'].includes(result.kind)) {
-      const subject = result.key ? `\`${result.key}\`` : 'this line';
+      const subject = result.key ? `\`${result.key}\`` : 'This line';
       report(index, result.kind, `${subject} ${result.reason}`);
       return;
     }
@@ -185,6 +208,8 @@ const LINE_FIXTURES = [
   ['API_KEY=op://dev/app/api/key', 'reference'],
   ['KEY=op://dev.vault/my_item/field-1', 'reference'],
   ['# rotated 2026-09', 'comment'],
+  ['# STRIPE_API_KEY=op://dev/stripe/credential', 'comment'],
+  ['# see https://example.com/?a=b', 'comment'],
   ['#', 'comment'],
   ['', 'blank'],
   ['   ', 'blank'],
@@ -229,6 +254,10 @@ const LINE_FIXTURES = [
   ['lower=op://dev/a/b', 'malformed'],
   ['  KEY=op://dev/a/b', 'malformed'],
   ['  # an indented comment', 'malformed'],
+  // A commented-out entry left behind after a migration still holds its value
+  ['# STRIPE_API_KEY=hunter2', 'literal'],
+  ['#STRIPE_API_KEY=hunter2', 'literal'],
+  ['# STRIPE_API_KEY=', 'literal'],
   ['KEY-NAME=op://dev/a/b', 'malformed'],
 ];
 
@@ -240,12 +269,54 @@ const FILE_FIXTURES = [
   { name: 'valid file', refs: 'A=op://dev/a/b\n# c\n\nB=op://dev/b/c\n', configs: ['C=1\n'], fails: [] },
   { name: 'CRLF endings', refs: 'A=op://dev/a/b\r\nB=op://dev/b/c\r\n', configs: ['C=1\r\n'], fails: [] },
   { name: 'byte-order mark', refs: '\uFEFFA=op://dev/a/b\n', configs: ['C=1\n'], fails: [] },
+  // python-dotenv ends a line at a lone CR, so a literal hidden behind one in a
+  // comment is a real entry to it and must be one here.
+  { name: 'lone CR hides an entry', refs: '# note\rA=hunter2\nB=op://dev/b/c\n', configs: ['C=1\n'], fails: ['literal'] },
+  { name: 'lone CR endings', refs: 'A=op://dev/a/b\rB=op://dev/b/c\r', configs: ['C=1\r'], fails: [] },
   { name: 'repeated key', refs: 'A=op://dev/a/b\nA=op://dev/a/c\n', configs: ['C=1\n'], fails: ['duplicate'] },
   { name: 'no entries', refs: '# only a comment\n\n', configs: ['C=1\n'], fails: ['empty'] },
   { name: 'empty file', refs: '', configs: ['C=1\n'], fails: ['empty'] },
   { name: 'shared key', refs: 'A=op://dev/a/b\n', configs: ['A=local\n'], fails: ['shared-key'] },
   { name: 'shared key, export form', refs: 'A=op://dev/a/b\n', configs: ['export A=local\n'], fails: ['shared-key'] },
   { name: 'unreadable configuration line', refs: 'A=op://dev/a/b\n', configs: ['not a key line\n'], fails: ['unreadable'] },
+];
+
+/**
+ * Argument fixtures: [argv, expected mode]. Every run goes through parseArgs,
+ * so a regression here would fail every adopter's invocation.
+ */
+const ARGV_FIXTURES = [
+  [['--standard'], 'standard'],
+  [['refs.env', '--config', 'example.env'], 'files'],
+  [['a.env', 'b.env', '--config', 'x.env', '--config', 'y.env'], 'files'],
+  [[], 'usage'],
+  [['refs.env'], 'usage'],
+  [['refs.env', '--config'], 'usage'],
+  [['--standard', 'refs.env'], 'usage'],
+  [['--verbose', 'refs.env', '--config', 'example.env'], 'usage'],
+];
+
+/** Block fixtures: Markdown lines, and the bodies markedBlocks finds for `# m`. */
+const BLOCK_FIXTURES = [
+  { name: 'one block', lines: ['```bash', '# m', 'A=1', '```'], bodies: ['# m\nA=1\n'] },
+  { name: 'no marker', lines: ['```bash', 'A=1', '```'], bodies: [] },
+  { name: 'marker outside a fence', lines: ['# m', 'A=1'], bodies: [] },
+  { name: 'marker is the whole line', lines: ['```', '# m, and more', '```'], bodies: [] },
+  { name: 'two blocks', lines: ['```', '# m', '```', 'text', '```', '# m', '```'], bodies: ['# m\n', '# m\n'] },
+  { name: 'shorter fence does not close', lines: ['````', '# m', '```', '````'], bodies: ['# m\n```\n'] },
+  { name: 'other fence character does not close', lines: ['~~~', '# m', '```', '~~~'], bodies: ['# m\n```\n'] },
+];
+
+/**
+ * Leak fixtures: lines that are a pasted secret, not an entry. Each must fail,
+ * and no message may repeat any part of it, since messages reach CI logs.
+ */
+const LEAK_FIXTURES = [
+  'JBSWY3DPEHPK3PXPJBSWY3DP====',
+  'dGhpc2lzYXNlY3JldGtleWJvZHk=',
+  'lowercasesecretvalue=abcd',
+  'KEY=hunter2hunter2',
+  '# OLD_TOKEN=hunter2hunter2',
 ];
 
 /** Runs the reference and configuration checks on in-memory texts. */
@@ -273,6 +344,25 @@ function selfTest() {
     const got = [...new Set(seen)].sort().join(', ') || 'no failures';
     const want = [...fixture.fails].sort().join(', ') || 'no failures';
     if (got !== want) problems.push(`file fixture "${fixture.name}" produced ${got}, expected ${want}`);
+  }
+  for (const [argv, expected] of ARGV_FIXTURES) {
+    const { mode } = parseArgs(argv);
+    if (mode !== expected) problems.push(`argument fixture ${JSON.stringify(argv)} parsed as ${mode}, expected ${expected}`);
+  }
+  for (const fixture of BLOCK_FIXTURES) {
+    const got = JSON.stringify(markedBlocks(fixture.lines, '# m').map((block) => block.text));
+    const want = JSON.stringify(fixture.bodies);
+    if (got !== want) problems.push(`block fixture "${fixture.name}" found ${got}, expected ${want}`);
+  }
+  for (const line of LEAK_FIXTURES) {
+    const messages = [];
+    // The valid entry keeps the file from failing as empty, so only the line counts.
+    checkReferenceText(`${line}\nZ=op://dev/z/z\n`, (index, check, message) => messages.push(message));
+    const parts = line.split('=').filter((part) => part.length >= 4);
+    if (messages.length === 0) problems.push(`leak fixture ${JSON.stringify(line)} passed; it must fail`);
+    if (messages.some((message) => parts.some((part) => message.includes(part)))) {
+      problems.push(`leak fixture ${JSON.stringify(line)} is repeated in a failure message`);
+    }
   }
   return problems;
 }
@@ -406,5 +496,6 @@ if (failures.length > 0) {
 
 console.log(
   `Checked ${checked} file(s) or example block(s) against ${REFERENCE_GRAMMARS.length} reference ` +
-  `grammar(s), after ${LINE_FIXTURES.length} line and ${FILE_FIXTURES.length} file fixtures passed.`);
+  `grammar(s), after ${LINE_FIXTURES.length} line, ${FILE_FIXTURES.length} file, ${ARGV_FIXTURES.length} ` +
+  `argument, ${BLOCK_FIXTURES.length} block and ${LEAK_FIXTURES.length} leak fixtures passed.`);
 console.log('All secret reference checks passed. That means the files are well-formed, not that no secret is present.');

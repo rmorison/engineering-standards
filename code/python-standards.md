@@ -804,9 +804,9 @@ The full example is under [example.env Template](#exampleenv-template). A refere
 - It needs required review, for example through CODEOWNERS, because repointing a key can send one service's secret to another.
 - `.gitattributes` holds `secret-refs.env text eol=lf`.
 
-`scripts/check-secret-refs.mjs` checks these rules (see [Automated Checks](../process/documentation-standards.md#automated-checks)). A pass means only that the named files are well-formed. It does not show that a reference resolves, or that a value shaped like a reference is not a pasted secret.
+`scripts/check-secret-refs.mjs` checks these rules (see [Automated Checks](../process/documentation-standards.md#automated-checks)). A pass means only that the named files are well-formed. It does not show that a reference resolves, that a value shaped like a reference is not a pasted secret, or that the free text of a comment holds no secret.
 
-**Reference syntax.** 1Password is the named default, and its references take the form `op://<vault-name>/<item-name>[/<section-name>]/<field-name>`. Keep vault, item, section and field names to letters, digits, `.`, `_` and `-`; the check rejects anything else, spaces included. Doppler, sops and HashiCorp Vault are sanctioned alternatives: a project using one adds that tool's reference grammar, with its source, to the check's allowlist.
+**Reference syntax.** 1Password is the named default, and its references take the form `op://<vault-name>/<item-name>[/<section-name>]/<field-name>`. Keep vault, item, section and field names to letters, digits, `.`, `_` and `-`; the check rejects anything else, spaces included. Doppler, sops and HashiCorp Vault are sanctioned alternatives: a project using one adds that tool's reference grammar, with its source, to the check's allowlist, and its prefix to `REFERENCE_PREFIXES` in the configuration example.
 
 References point at a shared team vault that holds development and test credentials only, and onboarding includes access to it.
 
@@ -955,7 +955,7 @@ ANTHROPIC_API_KEY=op://dev/anthropic/credential
 STRIPE_API_KEY=op://dev/stripe/credential
 ```
 
-`node scripts/check-secret-refs.mjs` holds these two blocks to the reference-file rules.
+`node scripts/check-secret-refs.mjs --standard` holds these two blocks to the reference-file rules.
 
 ### Makefile Integration
 
@@ -1062,7 +1062,7 @@ def main() -> None:
     ...
 ```
 
-`validate_config()` refuses to start when `.env` defines a key that `secret-refs.env` holds, so a real value typed into `.env` is never used silently. Unit tests never call it. They set fakes instead, and need no secret-manager session:
+`validate_config()` refuses to start when `.env` defines a key that `secret-refs.env` holds, so an entrypoint that calls it never uses a real value typed into `.env`. It reads its list of secrets from `secret-refs.env`, so that file ships with the application; see the Dockerfile below. Unit tests never call it. They set fakes instead, and need no secret-manager session:
 
 ```python
 # tests/unit/test_config.py
@@ -1417,6 +1417,11 @@ COPY --from=builder /app/.venv /app/.venv
 
 # Copy application code
 COPY src/ /app/src/
+
+# secret-refs.env holds references only, never values. validate_config()
+# reads it for the list of secrets to check at start; without it, no secret
+# is checked.
+COPY secret-refs.env /app/secret-refs.env
 
 # Set environment variables
 ENV PATH="/app/.venv/bin:$PATH"
