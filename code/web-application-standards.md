@@ -949,7 +949,9 @@ NEXTAUTH_SECRET=local-dev-secret-change-in-production
 BACKEND_URL=http://localhost:8000
 ```
 
-**Note**: `NEXT_PUBLIC_*` variables are exposed to the browser. All other variables are server-only. Never put secrets in `NEXT_PUBLIC_*` variables.
+Every credential-shaped value above is local-only configuration: it grants access to the local stack and nothing else. How secrets that reach outside the developer's machine are handled, such as a third-party API key, is set by [Secrets](./python-standards.md#secrets): they go in a committed `secret-refs.env` as references, never in `example.env` or `.env`.
+
+**Note**: `NEXT_PUBLIC_*` variables are exposed to the browser. All other variables are server-only. Never put secrets in `NEXT_PUBLIC_*` variables. A browser-exposed variable is public by construction, so it never appears in `secret-refs.env`, and `scripts/check-secret-refs.mjs` rejects one that does.
 
 ### CORS Configuration
 
