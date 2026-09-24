@@ -17,7 +17,7 @@ execution: code
   - uv manages interpreters (KTD1).
   - Secret scanning is a tool-neutral requirement with detect-secrets as the default (KTD5).
   - A Project Profiles section, and one `SRC_DIR` Makefile variable that CI reaches through `make` (KTD9, KTD10).
-- **Authority:** issue #29's acceptance criteria, then the Key Decisions below, then this plan, then the implementer's judgment. Where this plan goes beyond #29's wording, the governing KTD says why.
+- **Authority:** issue #29's acceptance criteria, then the Key Decisions below, then this plan, then the implementer's judgment. Where this plan goes beyond #29's wording, the governing Key Decision or KTD says why.
 - **Stop conditions:** stop and report instead of improvising in these cases:
   - A command the standard would state cannot be run, or cited to a versioned primary source.
   - The documented secret scan cannot be made to fail on a planted secret while leaving `.secrets.baseline` unchanged.
@@ -134,10 +134,11 @@ Each of these gets its own issue when the PR opens.
 - KTD4. **The secret-scanning requirement (R5) is owned by Security > Secret Detection.** The tooling table, the pre-commit section and CI link to it. The heading keeps its slug `secret-detection`, and no new heading may slug to `secrets`, `security` or `testing`, which already exist.
 - KTD5. **detect-secrets is the default, and gitleaks is presented as a delta.** The delta names what changes (hook, CI command, allowlist store, install) rather than repeating the requirement.
 - KTD6. **detect-secrets runs as a `repo: local` pre-commit hook: `entry: uv run detect-secrets-hook`, `args: ['--baseline', '.secrets.baseline']`, `language: system`.** The version then lives only in `pyproject.toml`/`uv.lock`, and `make update-hooks` cannot reopen the mismatch. Chosen over the remote `Yelp/detect-secrets` hook, whose separate `rev` crashed on a 1.5.0 baseline.
-- KTD7. **`make security` runs `uv run pre-commit run detect-secrets --all-files`, then `uv run pip-audit`.** The hook exits 1 on a new finding. It exits 3 when it only rewrote line numbers in the baseline. The standard presents both as normal: in CI, exit 3 means the committed baseline is stale.
+- KTD7. **`make security` calls the scanner directly on tracked files: `uv run detect-secrets-hook --baseline .secrets.baseline $$(git ls-files)`, then the baseline review check (KTD13), then `uv run pip-audit`.** Routing it through `pre-commit run` breaks a service in a monorepo subdirectory: pre-commit runs hooks from the git root, so the hook looks for `.secrets.baseline` there and exits 2. The direct call resolves paths from the Makefile's directory in both layouts and keeps the version in `uv.lock`. The hook exits 1 on a new finding. It exits 3 when it rewrote the baseline without adding a finding: when line numbers moved, or when the installed detect-secrets version differs from the baseline's `version`. The standard presents both as normal. In CI, exit 3 means the committed baseline is stale. A commit that upgrades detect-secrets runs `make security` locally and includes the rewritten baseline.
 - KTD8. **The baseline lifecycle is spelled out, and no `make` target creates, updates or audits it.**
-  - Create: `uv run detect-secrets scan > .secrets.baseline`, then audit.
-  - Update: `uv run detect-secrets scan --baseline .secrets.baseline`, then `uv run detect-secrets audit .secrets.baseline`, then a reviewed diff.
+  - Create: stage the files, then `uv run detect-secrets scan $(git ls-files) > .secrets.baseline`, then audit. `scan` with no path reads only files git already tracks, and reads nothing from a git subdirectory.
+  - Update: `uv run detect-secrets scan --baseline .secrets.baseline $(git ls-files)`, then `uv run detect-secrets audit .secrets.baseline`, then a reviewed diff.
+  - Audit marks every entry as a false positive before the baseline is committed. KTD13 enforces this.
   - `audit --report` prints flagged values in plain text, so it never runs in CI or behind a `make` target.
   - An inline `# pragma: allowlist secret` is allowed only in test code, never in a `*.env` file. There it breaks `check-secret-refs.mjs`, and a `nextline` pragma blinds the scanner.
 - KTD9. **One Makefile variable, `SRC_DIR`, holds exactly one directory or package.** `--cov=$(SRC_DIR)`, `ruff check $(SRC_DIR) tests`, `ruff format` and `mypy $(SRC_DIR)` use it. `--cov` takes one path per flag, and a file path collects nothing. `[tool.coverage.run] source` is removed so the value is not repeated.
@@ -150,6 +151,7 @@ Each of these gets its own issue when the PR opens.
   - Configuration comes from `os.environ`, loaded by the runner or `uv run --env-file`, not python-dotenv.
   - `PROJECT_ROOT` is computed for the layout and must never resolve above the checkout.
 - KTD12. **`make setup` does not run tests.** A new project has none, and pytest exits 5 when it collects nothing, which fails the Example Project Setup.
+- KTD13. **`make security` fails when any `.secrets.baseline` entry is not audited as a false positive (`"is_secret": false`).** The hook subtracts every baseline entry, so an unaudited entry, or one audited as a real secret, would otherwise pass CI. The check reads only the baseline, which holds hashes and audit flags, so it prints a file and line number and never a value. It makes R5's "reviewed allowlist" something CI enforces rather than something a reviewer must spot in a JSON diff. Implemented as a short `uv run python -c` over the baseline's `results`.
 
 ### High-Level Technical Design
 
@@ -183,7 +185,7 @@ The profile table the Project Profiles section carries (rows are conventions; th
 
 ### Assumptions
 
-- `uv run pre-commit run detect-secrets --all-files` passes every tracked file to a `language: system` local hook. The U2 verification proves this. If it does not, the stop condition applies.
+- The `language: system` local hook receives the staged files at commit time and fails on a staged secret. The U2 verification proves this. If it does not, the stop condition applies.
 - `astral-sh/setup-uv@v4` plus `UV_PYTHON` works without `setup-python`. U5 verifies this against the setup-uv README at that tag. If it fails, keep `setup-python` for the interpreter download and state the reason.
 
 ### Sequencing
@@ -219,13 +221,13 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7. U2 and U4 both edit the Makefile b
   - Rewrite the Development Environment bullet as: pin committed, interpreters installed by uv, plus the R3 line.
   - Write a real `setup` recipe: `uv python install`, `uv sync --all-extras`, `uv run pre-commit install`, then the existing `.env` copy from Configuration Management > Makefile Integration. No test run (KTD12).
   - The README template line becomes "Python 3.11+ (installed by `make setup`)". The line sits inside a four-backtick fence, so keep the fence intact.
-- **Test scenarios:** a scratch project with the new `setup` recipe and pin `3.11`. `make setup` exits 0. `uv run python --version` reports 3.11. `.python-version` holds `3.11` and is tracked by git.
+- **Test scenarios:** a scratch project with the new `setup` recipe, pin `3.11`, a package `__init__.py` and the standard's `example.env`. `make setup` exits 0. `uv run python --version` reports 3.11. `.python-version` holds `3.11` and is tracked by git.
 - **Verification:** `grep -n pyenv code/python-standards.md` returns only the R3 line.
 
 ### U2. Restate secret scanning and fix the detect-secrets instructions
 
 - **Goal:** the scan fails on a committed secret, and the false-positive workflow is reviewable.
-- **Requirements:** R5, R6, R7, R9 (KTD4, KTD6, KTD7, KTD8).
+- **Requirements:** R5, R6, R7, R9 (KTD4, KTD6, KTD7, KTD8, KTD13).
 - **Files:** `code/python-standards.md`. Sections:
   - Tool Stack > Core Tools (row names the requirement and the default)
   - Makefile Targets (`security`)
@@ -234,7 +236,7 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7. U2 and U4 both edit the Makefile b
   - Best Practices > Security
   - References > Tools
 - **Approach:**
-  - Secret Detection opens with R5's four-part requirement. Then it gives the detect-secrets default, the baseline lifecycle (KTD8), exit codes 1 and 3, and the rotate-first paragraph linking `#secrets`.
+  - Secret Detection opens with R5's four-part requirement. Then it gives the detect-secrets default, the baseline lifecycle (KTD8), the review check (KTD13), exit codes 1 and 3 (KTD7), and the rotate-first paragraph linking `#secrets`.
   - Secrets Baseline shrinks to the create command and a link.
   - The pre-commit block swaps the Yelp remote hook for the local hook (KTD6).
   - The `--no-verify` line says CI is the backstop.
@@ -242,9 +244,12 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7. U2 and U4 both edit the Makefile b
 - **Test scenarios:** a scratch project built from the final text.
   - Happy path: clean tree, `make security` exits 0.
   - Planted secret committed with `--no-verify`: `make security` exits non-zero, and `git diff --exit-code .secrets.baseline` passes (AE1).
-  - False positive: a `secret-refs.env` with two `op://` lines, taken through the workflow. `make security` exits 0, and `node scripts/check-secret-refs.mjs secret-refs.env` exits 0 (AE2).
+  - False positive: a `secret-refs.env` with two `op://` lines, taken through the workflow. `make security` exits 0, and `node scripts/check-secret-refs.mjs secret-refs.env --config example.env` exits 0 (AE2).
   - Stale baseline: add a line above a baselined entry. The hook exits 3 and rewrites only line numbers.
   - Missing baseline: the create command produces one, and the hook then exits 0.
+  - Unreviewed entry: a planted real secret added through the Update step and left unaudited makes `make security` exit non-zero. The same entry audited as a real secret also exits non-zero (KTD13).
+  - Version bump: a baseline written by detect-secrets 1.4.0, checked by the pinned 1.5.0 on an unchanged tree, exits 3 and changes only `version`.
+  - Subdirectory: AE1 repeated with the project in a git subdirectory (`services/backend/`) gives the same exit codes.
   - Output: the planted-secret failure names the file, line and detector but not the value. `Bash(make:*)` pre-approves `make security` for agents, so a value in its output would reach a transcript.
 - **Verification:** every detect-secrets command in the section appears in the scratch transcript with the exit code the text claims.
 
@@ -256,7 +261,7 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7. U2 and U4 both edit the Makefile b
 - **Approach:** a short "Using gitleaks instead" delta:
   - Hook: repo `https://github.com/gitleaks/gitleaks`, id `gitleaks`.
   - CI: a pinned binary running `gitleaks dir .`, because the hook passes no filenames and scans only staged changes.
-  - False positives: `.gitleaksignore` fingerprints or a `gitleaks:allow` comment.
+  - False positives: `.gitleaksignore` fingerprints, added and reviewed by a human. A `gitleaks:allow` comment follows KTD8's pragma rule: test code only, never a `*.env` file, where it would also fail `check-secret-refs.mjs`.
   - `gitleaks-action` needs `GITLEAKS_LICENSE` for organization accounts.
   - Each claim cites the README version and date.
 - **Test scenarios:** if a gitleaks release binary can be installed here:
@@ -282,7 +287,7 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7. U2 and U4 both edit the Makefile b
 - **Test scenarios:**
   - A stdlib-only, flat scratch repo (`opstool/`, `tests/`, no `[build-system]`, `SRC_DIR=opstool`). Every `make` target in AE4 exits 0, and the coverage report lists only `opstool/` files.
   - The packaged scratch project from U2 still passes `make check` with the default `SRC_DIR`.
-- **Verification:** `grep -n 'src/project_name\|src/ tests/\|mypy src/' code/python-standards.md` shows no layout path outside `SRC_DIR`'s default, the layout tree and `config.py` comments.
+- **Verification:** `grep -n 'src/project_name\|src/ tests/\|mypy src/' code/python-standards.md` shows no layout path outside these: `SRC_DIR`'s default, the layout tree, Directory Conventions, the `py.typed` guideline, the `config.py` and `__main__.py` example comments, and Best Practices > Code Organization.
 
 ### U5. Point CI at `make` and select the interpreter per leg
 
@@ -305,10 +310,11 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7. U2 and U4 both edit the Makefile b
 - **Files:** `code/python-standards.md`: Example Project Setup.
 - **Approach:**
   - `uv python pin 3.11` replaces the `echo` and `pyenv install` lines.
-  - The Makefile and pre-commit steps say to copy the standard's blocks instead of `touch`.
-  - After `make setup`, create the baseline (KTD8), then make the first commit.
+  - The structure step also creates `src/my_project/__init__.py` and `py.typed`. Without them, the hatchling build that `uv sync` runs inside `make setup` fails.
+  - The Makefile, pre-commit and `example.env` steps say to copy the standard's blocks instead of `touch`. `make setup` copies `example.env` to `.env`.
+  - After `make setup`: `git add .`, create and audit the baseline (KTD8), `git add .secrets.baseline`, then the first commit. A baseline created before staging is empty, and the first commit then fails on `example.env`'s local credentials.
   - Remove the duplicated "Initialize git" comment.
-- **Test scenarios:** run the finished block verbatim in an empty scratch directory. Copy in the standard's Makefile and pre-commit blocks, with `project_name` substituted. The first `git commit` succeeds with all hooks passing, and `make check` exits 0 once one unit test exists.
+- **Test scenarios:** run the finished block verbatim in an empty scratch directory. Copy in the standard's Makefile, pre-commit and `example.env` blocks, with `project_name` substituted. The audit prompts are answered by piping input. The first `git commit` succeeds with all hooks passing, and `make check` exits 0 once one unit test exists.
 - **Verification:** the scratch transcript shows the commit hash.
 
 ### U7. Align the other documents and check the whole change
