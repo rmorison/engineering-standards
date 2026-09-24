@@ -766,14 +766,109 @@ uv run pip-audit
 
 ## Configuration Management
 
+### Secrets
+
+**Rule**: A secret reaches the process that uses it from a secret manager, when that process starts. It is not kept in the working tree, where any tool with filesystem access can read it, an AI agent included.
+
+A *secret* is a credential that grants access to something outside the developer's machine: a third-party API key, test-mode keys included; the password of a shared or cloud database; a key that signs tokens other services accept. A throwaway credential for a service that exists only on the developer's machine, such as the password of a Docker Postgres on localhost, grants access to nothing. It is configuration, and it stays in `example.env`.
+
+The rule covers application secrets supplied to a process as environment variables. Developer-tool credentials, such as cloud CLI profiles, `gh` tokens, package-registry tokens and SSH keys, stay in their tools' own stores and are out of scope.
+
+`.gitignore` is a git convention, not an access-control boundary. It keeps `.env` out of commits and does nothing about a process that reads the file. In a repository an agent works in, that is the ordinary case: an agent that runs `cat .env`, greps for a setting or summarises a directory has read the secrets, and they can then land in a transcript, a log or an issue body.
+
+**Tiers**, in order of preference:
+
+| Tier | Where the value lives | Protects against | Does not protect against |
+|------|-----------------------|------------------|--------------------------|
+| 1 (recommended) | In the secret manager. A runner resolves references when the process starts and puts the values in that one process's environment, writing none to disk | A secret in the working tree; reading by agents, editors and indexers; accidental commit | An agent calling the manager's CLI (see [The limit](#the-limit)); anything the process prints, logs or passes to a container; the same user reading the process's environment while it runs |
+| 2 (fallback) | A file outside the working tree, at mode `0600` | Accidental commit; tools that read only the working tree | Any process running as the developer, an agent with a shell included, which reads this file as easily as one in the tree |
+| 3 (no agent access only) | An in-tree, gitignored `.env` | Accidental commit | Anything that reads the working tree |
+
+A repository that commits a `secret-refs.env` supports tiers 1 and 2, and each developer picks one. Tier 3 is a choice for the whole repository, made by committing no `secret-refs.env`. It applies only where no agent has access to the working tree, counting IDE assistants and any tool that reads workspace contents for a model. If you are unsure, the condition is not met. A project using this repository's AI starter kit does not meet it.
+
+#### Tier 1: Resolve at Start
+
+**Reference file.** The repository commits `secret-refs.env` next to `example.env`. It holds secret keys only, and each value is a reference to the secret, not the secret:
+
+```bash
+# secret-refs.env
+STRIPE_API_KEY=op://dev/stripe/credential
+```
+
+The full example is under [example.env Template](#exampleenv-template). A reference file follows these rules:
+
+- It contains only full-line comments, blank lines and `KEY=reference` lines: no quotes, no `export`, no `$`, no inline comment, no whitespace in a value and no repeated key. Dotenv parsers disagree about each of these, and a file that means one thing to a check and another to a runner defeats the check.
+- It shares no key with `example.env`. Configuration and secrets live in separate files.
+- No key has a browser-exposed prefix (`NEXT_PUBLIC_`, `VITE_`, `REACT_APP_`, `PUBLIC_`): a build tool inlines such a value into client bundles.
+- A secret embedded in a larger value, such as the password inside the `DATABASE_URL` of a shared database, is stored whole as one manager field and referenced as one value.
+- It needs required review, for example through CODEOWNERS, because repointing a key can send one service's secret to another.
+- `.gitattributes` holds `secret-refs.env text eol=lf`.
+
+`scripts/check-secret-refs.mjs` checks these rules (see [Automated Checks](../process/documentation-standards.md#automated-checks)). A pass means only that the named files are well-formed. It does not show that a reference resolves, or that a value shaped like a reference is not a pasted secret.
+
+**Reference syntax.** 1Password is the named default, and its references take the form `op://<vault-name>/<item-name>[/<section-name>]/<field-name>`. Keep vault, item, section and field names to letters, digits, `.`, `_` and `-`; the check rejects anything else, spaces included. Doppler, sops and HashiCorp Vault are sanctioned alternatives: a project using one adds that tool's reference grammar, with its source, to the check's allowlist.
+
+References point at a shared team vault that holds development and test credentials only, and onboarding includes access to it.
+
+**Runner.** A runner resolves every reference, fails closed by launching nothing if any reference does not resolve, and puts the values in the environment of the one command it launches. Nothing sources a reference file into a shell. The command a runner launches is the application or an integration-test target. It is never an agent, an editor, a terminal multiplexer, a general-purpose `make` target, or a shell-integration tool such as direnv, because each of those passes the values to everything it starts.
+
+1Password's usual runner is `op run`. Its flags, whether it fails closed and whether it masks output could not be verified when this section was written (2026-09-24), so this standard states none of them and does not rely on masking. Check `op run --help` for the version you install.
+
+To resolve one value by hand, `op read <reference>` prints it. Run by an agent, the value enters the session transcript.
+
+#### Tier 2: A File Outside the Tree
+
+The file:
+
+- is not named `.env` and sits in no directory above a working tree. Called without a path, `load_dotenv()` searches upward from the calling file for `.env`, so a `.env` in a parent directory is loaded without anyone asking for it.
+- is not under version control, in a dotfiles repository or in a synced folder.
+- has mode `0600`.
+
+Load it into the one launched process, for example `uv run --env-file ~/.config/project-name/secrets.env -- python -m project_name`. `uv run --env-file` leaves a variable that is already set untouched and refuses to run when the file is missing.
+
+#### Tier 3: An In-Tree `.env`
+
+Under the condition above, `.env` holds the secret values as well as configuration, and `example.env` holds a safe placeholder for each secret. The rest of Configuration Management applies unchanged.
+
+#### The Limit
+
+An agent running commands as the developer can call the manager's CLI and read the environment it resolves into. Tier 1 turns retrieval into an explicit call rather than a file read; it does not prevent it.
+
+- In this repository's starter kit, `Bash(uv:*)` pre-approves `uv run op read <reference>`, `uv run env` and `uv run cat <file>`, where a bare `op read` or `cat .env` prompts, and `Bash(make:*)` pre-approves every `make` target. This was checked with the permission-rule matcher in `scripts/check-template-kit.mjs` on 2026-09-24.
+- An agent can reach everything the signed-in manager identity can read, which can be more than a tier 3 `.env` held: the developer's personal vault and every vault shared with them, whatever the references point at. Hold staging and production access under a different identity from the one signed in during daily development.
+- Never add a manager CLI to an agent's allow list, and never let a Makefile target or script that an agent's allow list reaches invoke the runner or the manager CLI. Under `Bash(make:*)` such a target is an allow-list entry for the manager. Type the runner command yourself.
+- The explicit call assumes interactive sign-in. A manager token exported in the shell or a profile reaches every command an agent starts, and is itself a secret at rest.
+- Whether the manager logs CLI access depends on the manager and the plan. This standard does not claim that retrieval is audited.
+
+**Moving to tier 1.** Rotate every secret that sat in a file an agent could read. Moving the file does not un-read it.
+
+#### CI
+
+CI never reads `secret-refs.env`. Secrets CI needs come from the CI platform's secret store under the same names, and throwaway service credentials stay literal configuration.
+
+- Expose a CI secret to the one step that needs it, never to a job that runs an agent or runs PR-authored code under `pull_request_target`.
+- A secret available to a same-repository `pull_request` run can be read by anyone who can push a branch, agents included, so CI secrets are development and test credentials only.
+- A test that needs a third-party secret skips when the secret is absent only on runs where the platform withholds secrets, such as a pull request from a fork. On any other run, an absent secret fails the test.
+
+#### Sources
+
+Every tool behaviour stated in this section was checked on 2026-09-24 against:
+
+- `@1password/sdk` 0.5.0 (npm, published by 1Password): the `op://` reference syntax.
+- `@1password/op-js` 0.1.13 (npm, same publisher): `op read <reference>` returns the value on standard output.
+- `python-dotenv` 1.2.3, `dotenv/main.py`: `load_dotenv()` defaults to `override=False`, so a variable already set wins; without a path it calls `find_dotenv()`, which walks up from the calling file's directory to the filesystem root; `dotenv_values()` of a missing file returns no keys.
+- `uv` 0.8.17: `uv run --env-file`, by running it.
+
+Not verified: any `op run` flag or behaviour, 1Password item-ID syntax in references, and whether `op read` adds a trailing newline.
+
 ### Environment Variables Strategy
 
-**Philosophy**: Secrets are injected directly as environment variables (not file paths). This works universally across AWS, Kubernetes, Docker, and local development.
+**Philosophy**: Values are injected directly as environment variables (not file paths). This works universally across AWS, Kubernetes, Docker, and local development.
 
 **Pattern**:
-- `.env` file for local development (gitignored)
-- `example.env` committed to repo as template and documentation
-- Secrets injected as environment variables by infrastructure
+- `example.env` committed as the template and documentation for configuration; `make setup` copies it to a gitignored `.env`
+- `secret-refs.env` committed with a reference for each secret (see [Secrets](#secrets))
+- Secrets injected as environment variables by infrastructure in deployed environments
 - Complex configuration in YAML/JSON files, referenced via env vars
 
 ### Naming Conventions
