@@ -106,8 +106,9 @@ project-name/
 │   └── .gitkeep
 ├── scripts/                    # Development/deployment scripts
 ├── .venv/                      # Virtual environment (gitignored)
-├── .env                        # Local environment variables (gitignored)
-├── example.env                 # Environment template (committed)
+├── .env                        # Local configuration (gitignored)
+├── example.env                 # Configuration template (committed)
+├── secret-refs.env             # Secret references, no values (committed)
 ├── .pre-commit-config.yaml     # Pre-commit hook configuration
 ├── .python-version             # Python version for pyenv
 ├── pyproject.toml              # Project metadata and tool configuration
@@ -757,7 +758,7 @@ uv run pip-audit
 ### Best Practices
 
 1. **Never commit secrets** - Use environment variables or secret management services
-2. **Use `.env` files locally** - Add to `.gitignore`
+2. **Keep secrets out of the working tree** - See [Secrets](#secrets); `.gitignore` stops commits, not reads
 3. **Scan dependencies regularly** - Weekly or on each PR
 4. **Pin dependencies** - Lock file ensures reproducible, scannable builds
 5. **Review direct and transitive dependencies** - Understand what you depend on
@@ -1639,6 +1640,7 @@ jobs:
 4. **Fast feedback** - Fail fast, parallelize when possible
 5. **Coverage reporting** - Use codecov or similar
 6. **Dependency caching** - Cache `.venv/` to speed up builds
+7. **Scope secrets to the step that needs them** - See [Secrets](#secrets) for CI
 
 ### Required Status Checks
 
@@ -1684,7 +1686,7 @@ Configure branch protection for `main`:
 
 ### Security
 
-1. **Never commit secrets** - Use environment variables
+1. **Never commit secrets** - See [Secrets](#secrets)
 2. **Scan dependencies** - Run security checks in CI
 3. **Update dependencies promptly** - Apply security patches quickly
 4. **Use type checking** - Prevents many runtime errors
@@ -1797,7 +1799,7 @@ cd my-project
 
 # Initialize git
 git init
-echo ".venv/\n*.pyc\n__pycache__/\n.pytest_cache/\n.mypy_cache/\n.ruff_cache/" > .gitignore
+printf '%s\n' .venv/ '*.pyc' __pycache__/ .pytest_cache/ .mypy_cache/ .ruff_cache/ .env > .gitignore
 
 # Set Python version
 echo "3.11" > .python-version
