@@ -136,7 +136,7 @@ Each `docs/` subdirectory should have a `README.md` that:
 
 ### Automated Checks
 
-This repository's product is Markdown, so a rendering defect is a production defect. `scripts/check-docs.mjs` runs on every pull request touching a `.md` file, and each check exists because the defect it looks for reached the default branch:
+This repository's product is Markdown, so a rendering defect is a production defect. `scripts/check-docs.mjs` runs on every pull request touching a `.md` file, and each check exists because the defect it looks for reached the default branch. The last row is the one exception, described below:
 
 | Check | Catches |
 |-------|---------|
@@ -149,6 +149,7 @@ This repository's product is Markdown, so a rendering defect is a production def
 | No fence nested in one the same length | A quoted template whose own fences are the same length ends early, spilling the rest into the document |
 | No absolute home-directory path | A path out of a contributor's machine, disclosing a local username and directory layout to every reader of a public repository |
 | Template kit hook entries register and behave | A `.claude/settings.json` hook entry with no `hooks` array, an unknown key on the matcher, a command naming a script that is not in the tree, a permission rule that auto-approves what the kit's own prose says reaches a human, or a hook command that exits 2 when its path fails to resolve — which on `PreToolUse` refuses every write |
+| Secret reference examples hold only references | A `secret-refs.env` example in `code/python-standards.md` that holds a literal, quotes, `$`, an inline comment, a browser-exposed key, a repeated key, or a key its `example.env` example also defines. A pass means only that the examples are well-formed |
 
 The anchor check matters here because this repository routes rules through "one
 document owns it, the others link to it": renaming a heading breaks links in
@@ -204,6 +205,21 @@ It needs no dependencies:
 
 ```bash
 node scripts/check-template-kit.mjs
+```
+
+The secret reference row is not a Markdown check either, and no shipped defect
+prompted it: it is preventive. `scripts/check-secret-refs.mjs` holds the rule in
+[Secrets](../code/python-standards.md#secrets), that a committed `secret-refs.env`
+contains references into a secret manager and never a secret. It runs as a third
+job with no dependencies, proves its line classifier against built-in fixtures
+before it reads any file, and with `--standard` checks the standard's own
+example blocks, so the standard cannot show an example its rule rejects. A
+project that adopts the rule runs the same script on its own files. A pass does
+not mean a reference resolves or that no secret sits elsewhere in the tree:
+
+```bash
+node scripts/check-secret-refs.mjs --standard
+node scripts/check-secret-refs.mjs secret-refs.env --config example.env
 ```
 
 The Mermaid check calls mermaid's `parse()` rather than rendering, because the two disagree — the render path accepts diagrams GitHub's parser rejects. Dependencies are pinned and installed from a committed lockfile so the check reproduces one specific parser.
