@@ -781,7 +781,7 @@ The rule covers application secrets supplied to a process as environment variabl
 
 | Tier | Where the value lives | Protects against | Does not protect against |
 |------|-----------------------|------------------|--------------------------|
-| 1 (recommended) | In the secret manager. A runner resolves references when the process starts and puts the values in that one process's environment, writing none to disk | A secret in the working tree; reading by agents, editors and indexers; accidental commit | An agent calling the manager's CLI (see [The limit](#the-limit)); anything the process prints, logs or passes to a container; the same user reading the process's environment while it runs |
+| 1 (recommended) | In the secret manager. A runner resolves references when the process starts and puts the values in the environment of the command it launches, which that command's child processes inherit. A runner that meets the contract under Runner writes none to disk; whether `op run` does was not verified (2026-09-24) | A secret in the working tree; file reads by agents, editors and indexers; accidental commit | An agent calling the manager's CLI (see [The limit](#the-limit)); anything the process prints, logs or passes to a container; the same user reading the process's environment while it runs |
 | 2 (fallback) | A file outside the working tree, at mode `0600` | Accidental commit; tools that read only the working tree | Any process running as the developer, an agent with a shell included, which reads this file as easily as one in the tree |
 | 3 (no agent access only) | An in-tree, gitignored `.env` | Accidental commit | Anything that reads the working tree |
 
@@ -844,18 +844,18 @@ An agent running commands as the developer can call the manager's CLI and read t
 
 #### CI
 
-CI never reads `secret-refs.env`. Secrets CI needs come from the CI platform's secret store under the same names, and throwaway service credentials stay literal configuration.
+CI never resolves the references in `secret-refs.env`. Secrets CI needs come from the CI platform's secret store under the same names, and throwaway service credentials stay literal configuration.
 
 - Expose a CI secret to the one step that needs it, never to a job that runs an agent or runs PR-authored code under `pull_request_target`.
 - A secret available to a same-repository `pull_request` run can be read by anyone who can push a branch, agents included, so CI secrets are development and test credentials only.
-- A test that needs a third-party secret skips when the secret is absent only on runs where the platform withholds secrets, such as a pull request from a fork. On any other run, an absent secret fails the test.
+- A test that needs a third-party secret skips when the secret is absent only on runs where the platform withholds secrets, such as a pull request from a fork. On any other run, an absent secret fails the test. A smoke test that starts the application is such a test: the test skips, and `validate_config()` stays strict.
 
 #### Sources
 
 Every tool behaviour stated in this section was checked on 2026-09-24 against:
 
 - `@1password/sdk` 0.5.0 (npm, published by 1Password): the `op://` reference syntax.
-- `@1password/op-js` 0.1.13 (npm, same publisher): `op read <reference>` returns the value on standard output.
+- `@1password/op-js` 0.1.13 (npm, same publisher): `op read <reference>`, as that wrapper invokes it, returns the value on standard output.
 - `python-dotenv` 1.2.3, `dotenv/main.py`: `load_dotenv()` defaults to `override=False`, so a variable already set wins; without a path it calls `find_dotenv()`, which walks up from the calling file's directory to the filesystem root; `dotenv_values()` of a missing file returns no keys.
 - `uv` 0.8.17: `uv run --env-file`, by running it.
 
@@ -1062,7 +1062,7 @@ def main() -> None:
     ...
 ```
 
-`validate_config()` refuses to start when `.env` defines a key that `secret-refs.env` holds, so an entrypoint that calls it never uses a real value typed into `.env`. It reads its list of secrets from `secret-refs.env`, so that file ships with the application; see the Dockerfile below. Unit tests never call it. They set fakes instead, and need no secret-manager session:
+`validate_config()` refuses to start when `.env` defines a key that `secret-refs.env` holds, so an entrypoint that calls it refuses to start rather than use a real value typed into `.env`. It reads its list of secrets from `secret-refs.env`, so that file ships with the application; see the Dockerfile below. Unit tests never call it. They set fakes instead, and need no secret-manager session:
 
 ```python
 # tests/unit/test_config.py

@@ -110,11 +110,13 @@ function classifyLine(line) {
 /**
  * A comment passes unless it is a commented-out entry whose value is not a
  * reference, such as `# STRIPE_API_KEY=<old value>` left behind after a
- * migration. Other free text in a comment is not checked.
+ * migration. The match is deliberately loose (repeated `#`, `export`, spaces
+ * around `=`, any case), so a free-text comment shaped like `name=value` fails
+ * too. Other free text in a comment is not checked.
  */
 function classifyComment(line) {
-  const entry = /^#[ \t]*[A-Z_][A-Z0-9_]*=(.*)$/.exec(line);
-  if (entry && !isReference(entry[1])) {
+  const entry = /^#[#\s]*(?:export\s+)?[A-Za-z_]\w*\s*=(.*)$/.exec(line);
+  if (entry && !isReference(entry[1].trim())) {
     return { kind: 'literal', reason: 'is a commented-out entry whose value is not a reference' };
   }
   return { kind: 'comment' };
@@ -209,6 +211,8 @@ const LINE_FIXTURES = [
   ['KEY=op://dev.vault/my_item/field-1', 'reference'],
   ['# rotated 2026-09', 'comment'],
   ['# STRIPE_API_KEY=op://dev/stripe/credential', 'comment'],
+  ['# STRIPE_API_KEY = op://dev/stripe/credential', 'comment'],
+  ['# rotated=2026-09 by ops', 'literal'],
   ['# see https://example.com/?a=b', 'comment'],
   ['#', 'comment'],
   ['', 'blank'],
@@ -258,6 +262,10 @@ const LINE_FIXTURES = [
   ['# STRIPE_API_KEY=hunter2', 'literal'],
   ['#STRIPE_API_KEY=hunter2', 'literal'],
   ['# STRIPE_API_KEY=', 'literal'],
+  ['# export STRIPE_API_KEY=hunter2', 'literal'],
+  ['# STRIPE_API_KEY = hunter2', 'literal'],
+  ['## STRIPE_API_KEY=hunter2', 'literal'],
+  ['# stripe_api_key=hunter2', 'literal'],
   ['KEY-NAME=op://dev/a/b', 'malformed'],
 ];
 
