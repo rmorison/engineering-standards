@@ -248,9 +248,10 @@ typecheck:  ## Run mypy type checking
 	uv run mypy $(SRC_DIR)
 
 .PHONY: security
-security:  ## Scan tracked files for secrets, check the baseline is audited, audit dependencies
+security:  ## Scan tracked files for secrets, check the allowlist is reviewed, audit dependencies
 	uv run detect-secrets-hook --baseline .secrets.baseline $$(git ls-files)
 	@uv run python -c "import json, sys; bad = [(f, s['line_number']) for f, ss in json.load(open('.secrets.baseline'))['results'].items() for s in ss if s.get('is_secret') is not False]; [print(f'{f}:{n}: baseline entry not audited as a false positive', file=sys.stderr) for f, n in bad]; sys.exit(bool(bad))"
+	@! git grep -noE 'pragma: (allow|white)list (nextline )?secret|gitleaks:allow' -- ':!tests/' ':!Makefile' || { echo 'allowlist pragma outside tests/: move the finding to the reviewed allowlist' >&2; exit 1; }
 	uv run pip-audit
 
 .PHONY: pre-commit
@@ -288,7 +289,7 @@ help:  ## Show this help message
 
 **`SRC_DIR`** names the one directory or package that coverage, lint, format and type checking read. `--cov` takes one path, and a path to a single file collects nothing, so `SRC_DIR` is always a directory. Each profile gives its value (see [Project Profiles](#project-profiles)), and CI reaches these commands through `make`, so the Makefile is the only place it is set.
 
-**`security`** runs the secret scanner over every tracked file, then fails if any entry in `.secrets.baseline` has not been audited as a false positive, then audits dependencies. [Secret Detection](#secret-detection) explains each step and its exit codes.
+**`security`** runs the secret scanner over every tracked file, then fails if any entry in `.secrets.baseline` has not been audited as a false positive, then fails if an allowlist pragma appears outside `tests/`, then audits dependencies. [Secret Detection](#secret-detection) explains each step and its exit codes.
 
 ---
 
@@ -774,7 +775,7 @@ detect-secrets is the default, and the rest of this section describes it. gitlea
 
 A failure names the file, the line and the detector type, never the value. The hook suggests an inline `pragma: allowlist secret` comment. Use the baseline instead, except as allowed below.
 
-**The baseline is reviewed, and CI enforces it.** The hook ignores every finding that has an entry in the baseline, whatever its audit says. `make security` therefore also fails when any entry is not audited as a false positive (`"is_secret": false`). That covers an entry never audited and one audited as a real secret. The check reads only the baseline, so it prints a file and line number, never a value.
+**The baseline is reviewed, and CI enforces it.** The hook ignores every finding that has an entry in the baseline, whatever its audit says. `make security` therefore also fails when any entry is not audited as a false positive (`"is_secret": false`). That covers an entry never audited and one audited as a real secret. The check reads only the baseline, so it prints a file and line number, never a value. `make security` also fails on an allowlist pragma comment (`pragma: allowlist secret`, its `nextline` and legacy `whitelist` forms, or `gitleaks:allow`) in any tracked file outside `tests/`, because a pragma is an allowlist entry nobody audits. It prints the file, line and the pragma, never the line's value.
 
 **Handling a false positive**:
 
@@ -793,7 +794,7 @@ make security
 
 - The audit shows each flagged line on screen, so a person runs it, not an agent, which would copy the value into its transcript. For the same reason `detect-secrets audit --report`, which prints flagged values, never runs in CI or behind a `make` target.
 - A finding in `secret-refs.env` or `example.env` goes into the baseline. Never put a pragma comment in a `*.env` file: `check-secret-refs.mjs` rejects inline comments, and a `pragma: allowlist nextline secret` comment hides the next line from the scanner.
-- An inline `# pragma: allowlist secret` is acceptable only in test code, on a line that holds an obvious fake.
+- An inline `# pragma: allowlist secret` is acceptable only under `tests/`, on a line that holds an obvious fake. `make security` enforces the location.
 
 #### Using gitleaks Instead
 
@@ -801,15 +802,17 @@ gitleaks meets the same requirement with a different allowlist and no baseline f
 
 | Part | detect-secrets (default) | gitleaks |
 |------|--------------------------|----------|
-| Install | dev dependency, pinned in `uv.lock` | a release binary pinned to one version in both places it runs: the hook's `rev` and the CI download |
+| Install | dev dependency, pinned in `uv.lock` | one version, pinned in both places it runs: the hook's `rev` (pre-commit builds it from source) and the CI binary download |
 | Pre-commit hook | local hook, `entry: uv run detect-secrets-hook` | `repo: https://github.com/gitleaks/gitleaks`, `rev: v8.24.2`, `id: gitleaks` |
 | CI scan | `make security` | `gitleaks dir .`, as the first step after checkout |
+| `make security` | as written | delete the `detect-secrets-hook` line and the baseline audit check; keep the pragma check and `pip-audit`. The tree scan stays a separate CI step, because run locally `gitleaks dir` also scans `.venv/` |
 | Allowlist | `.secrets.baseline`, audited | `.gitleaksignore`, one finding fingerprint per line, added and reviewed by a person |
 
+- Remove detect-secrets from the dev dependencies and delete `.secrets.baseline`. CI keeps its `make security` step, so `pip-audit` still runs.
 - The hook scans staged changes only. `pre-commit run gitleaks --all-files` passes on a tree with a committed secret, so it cannot stand in for the CI scan.
 - `gitleaks dir` does not read `.gitignore`. Run it straight after `actions/checkout` and before `uv sync`, or it scans `.venv/` and any other untracked files as well.
 - A fingerprint for `gitleaks dir` has the form `path:rule-id:line`, so it stops matching when the line moves.
-- A `gitleaks:allow` comment follows the pragma rule above: test code only, never a `*.env` file.
+- A `gitleaks:allow` comment follows the pragma rule above: under `tests/` only, never a `*.env` file. The `make security` pragma check enforces it.
 - `gitleaks/gitleaks-action` needs a `GITLEAKS_LICENSE` secret for repositories owned by an organization; the binary does not.
 
 CI step:
