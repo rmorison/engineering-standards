@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(make:*)",
-      "Bash(uv:*)",
+      "Bash(uv sync)",
+      "Bash(uv sync --all-extras)",
+      "Bash(uv lock)",
+      "Bash(uv lock --upgrade)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run mypy:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
