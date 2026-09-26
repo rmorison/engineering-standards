@@ -199,8 +199,9 @@ incomplete, it was contradicted by the allow list three lines above it.
 
 `rm` typed as `rm` is the only form that holds for. Any command reaches the
 shell through `make`, which the allow list approves whatever follows it - see
-[Why `Bash(make:*)` stays](#why-bashmake-stays). Until the uv entries were
-narrowed, `uv run rm -rf build` was approved the same way; see the next section.
+[Why `Bash(make:*)` stays](#why-bashmake-stays) - and through three git entries
+described below. Until the uv entries were narrowed, `uv run rm -rf build` was
+approved the same way; see the next section.
 
 The listed subcommands are what a routine session needs without a human in the
 loop. `push` is deliberately absent; every push reaches a decision.
@@ -212,19 +213,23 @@ rev-parse --show-toplevel` widens the list straight back to `Bash(git:*)` -
 which is the failure this whole section exists to prevent. Making the narrowing
 livable is what makes it survive.
 
-**`Bash(git grep:*)` is the one entry with a known exception, and it is stated
+**Three git entries run arbitrary commands through a flag, and they are stated
 rather than fenced.** `git grep -O<cmd>` and `git grep
---open-files-in-pager=<cmd>` run `<cmd>`, so that entry auto-approves arbitrary
-execution through a subcommand listed above as a read-only staple. Verified
-against git 2.43.0: `git grep -O'<cmd>' needle` ran `<cmd>` and exited 0. This
-is **not** fixed here, because it cannot be. These are prefix patterns; they
+--open-files-in-pager=<cmd>` run `<cmd>`, so `Bash(git grep:*)` auto-approves
+arbitrary execution through a subcommand listed above as a read-only staple.
+Verified against git 2.43.0: `git grep -O'<cmd>' needle` ran `<cmd>` and exited
+0. `git fetch --upload-pack=<cmd>` and `git pull --upload-pack=<cmd>` do the
+same for a local-path remote, which runs `<cmd>` through the shell; verified
+against git 2.34.1, the command ran and the fetch succeeded. This is **not**
+fixed here, because it cannot be. These are prefix patterns; they
 match on what a command starts with, and a flag can appear anywhere after the
 prefix, so no spelling of `Bash(git grep ...)` excludes `-O` while still
-admitting `git grep -n TODO`. A `deny` entry would catch `git grep -O` written
+admitting `git grep -n TODO`, and the same holds for `--upload-pack` after
+`git fetch` or `git pull`. A `deny` entry would catch `git grep -O` written
 in exactly that position and miss `git grep -n -O`, which is the decorative kind
 of rule this file warns about two sections up. What closes it is a `PreToolUse`
 hook reading `tool_input.command`, or sandboxing - the two things named above as
-boundaries. Weigh that when you copy the entry; do not read the narrowing of
+boundaries. Weigh that when you copy these entries; do not read the narrowing of
 `remote` and `worktree` as meaning every other entry on the list has been
 audited flag by flag.
 
@@ -325,8 +330,9 @@ the fixtures below.
 entry must match the command it exists for, and no entry may match `git push`,
 `git push -f`, `git push --force origin main`, `git push origin +main`, or any
 of the `uv` forms named above as reaching a human. `ALLOW_ACCEPTED_RISK` holds
-the `make --eval` form in the other direction: the check fails if `Bash(make:*)`
-stops matching it, so this section cannot outlive the entry it describes.
+the `make --eval`, `git grep -O` and `--upload-pack` forms in the other
+direction: the check fails if no allow entry approves one of them any more, so
+the statements of those risks cannot outlive the entries they describe.
 
 ## Adding more templates
 

@@ -457,8 +457,10 @@ const ALLOW_NEGATIVE = [
   // chose, and `uv add` / `uv remove` change the dependency set, so all of
   // these reach a human.
   'uv sync --default-index https://example.invalid/simple',
+  'uv sync --all-extras --default-index https://example.invalid/simple',
   'uv sync --script tool.py',
   'uv lock --project /tmp/p',
+  'uv lock --upgrade --project /tmp/p',
   'uv add requests',
   'uv remove requests',
   'uv tool run ruff',
@@ -479,9 +481,23 @@ const ALLOW_NEGATIVE = [
  * line: GNU Make 4.3 runs `make --eval='x: ; @cat .env' x` and prints the file.
  * Make targets are per-project, so a kit cannot name them; the entry stays and
  * the README says what it costs.
+ *
+ * The git rows are the same kind of fact. `git grep -O<cmd>` runs <cmd>, and
+ * `git fetch` / `git pull` with `--upload-pack=<cmd>` run <cmd> through the
+ * shell for a local-path remote (verified against git 2.34.1: the command ran
+ * and the fetch succeeded). A prefix rule cannot exclude a flag that may appear
+ * anywhere after the prefix, so these stay stated rather than fenced.
+ *
+ * Each row is checked as "some allow entry still approves this command", not
+ * as an exact entry string, so an equivalent rewrite such as `Bash(make *)`
+ * keeps the row passing while the risk is still there. The entry column is
+ * documentation of which entry carries it today.
  */
 const ALLOW_ACCEPTED_RISK = [
   ['Bash(make:*)', "make --eval='x: ; @cat .env' x"],
+  ['Bash(git grep:*)', "git grep -O'sh -c id' needle"],
+  ['Bash(git fetch:*)', "git fetch --upload-pack='id; git-upload-pack' ."],
+  ['Bash(git pull:*)', "git pull --upload-pack='id; git-upload-pack' ."],
 ];
 
 /** Commands each deny entry is meant to cover. */
@@ -568,14 +584,11 @@ function checkKitPermissions(file, source, settings) {
   }
 
   for (const [entry, command] of ALLOW_ACCEPTED_RISK) {
-    if (!allow.includes(entry)) {
+    if (!allow.some((e) => bashRuleMatches(e, command))) {
       fail(file, lineOf(source, 'allow'), 'permissions',
-        `allow entry ${entry} is missing, but ALLOW_ACCEPTED_RISK says the kit keeps it — ` +
-        'update templates/README.md, which states the risk, and remove the row');
-    } else if (!bashRuleMatches(entry, command)) {
-      fail(file, lineOf(source, entry), 'permissions',
-        `allow entry ${entry} no longer matches \`${command}\`, the risk ` +
-        'templates/README.md says it carries — update the README and the row');
+        `no allow entry approves \`${command}\` any more, though ALLOW_ACCEPTED_RISK ` +
+        `says the kit accepts that risk through ${entry} — update templates/README.md, ` +
+        'which states it, and remove the row');
     }
   }
 }
