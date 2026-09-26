@@ -444,6 +444,13 @@ const ALLOW_NEGATIVE = [
   'uv run python -c "print(1)"',
   'uv run --env-file .env pytest',
   'uv run --env-file .env -- python -m app',
+  'uv run --with x pytest',
+  // The `uv run` forms templates/README.md names as reaching a human through a
+  // prompt; the Python standard reaches the first three via make targets.
+  'uv run detect-secrets scan --baseline .secrets.baseline',
+  'uv run pip-audit',
+  'uv run pre-commit run --all-files',
+  'uv run mkdocs build',
   // `uv sync` and `uv lock` are pinned to the forms the Python standard
   // documents. A wildcard on either would approve index, `--script` and
   // `--project` options that install or build packages from a source nobody

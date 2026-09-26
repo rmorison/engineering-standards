@@ -283,10 +283,11 @@ retrieved 2026-09-25:
 The page does not name uv. `uv run` is in the same class, and the kit follows
 that advice, with one departure for arguments noted below:
 
-- `Bash(uv run pytest:*)`, `Bash(uv run ruff:*)` and `Bash(uv run mypy:*)` -
-  the three tools the Python standard's Makefile and CI run through uv. They
-  keep a wildcard for arguments, where the page's example is an exact rule,
-  because test and lint invocations vary by path and flag. A flag written between `run` and the tool - `uv run --with x pytest`,
+- `Bash(uv run pytest:*)`, `Bash(uv run ruff:*)` and `Bash(uv run mypy:*)` - the
+  test, lint and type-check tools the Python standard's Makefile and CI run
+  through uv. They keep a wildcard for arguments, where the page's example is an
+  exact rule, because test and lint invocations vary by path and flag. A flag
+  written between `run` and the tool - `uv run --with x pytest`,
   `uv run --env-file .env pytest` - does not match, and reaches a human.
 - `Bash(uv sync)`, `Bash(uv sync --all-extras)`, `Bash(uv lock)` and
   `Bash(uv lock --upgrade)` - the four forms the Python standard documents, with
