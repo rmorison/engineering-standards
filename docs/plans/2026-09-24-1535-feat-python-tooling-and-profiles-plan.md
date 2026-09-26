@@ -47,7 +47,7 @@ Checking the secret-scanning text against detect-secrets 1.5.0 showed it is not 
 - No documented command creates the first baseline. The hook exits 2 without one.
 - The pre-commit hook is pinned at `v1.4.0`, while the dev dependency resolves to 1.5.0. The 1.4.0 hook crashes on a baseline written by 1.5.0.
 
-The CI matrix is also a no-op: with `.python-version` committed, `uv sync` uses the pin on every leg, whatever `actions/setup-python` installed. Finally, every example assumes one src-layout package, so a stdlib-only ops repo that runs from its checkout deviates from the standard without guidance.
+The CI matrix is also a no-op: with `.python-version` committed, `uv sync` uses the pin on every leg, whatever `actions/setup-python` installed. Finally, every example assumes one src-layout package, so an ops repo that runs from its checkout deviates from the standard without guidance.
 
 ### Key Decisions
 
@@ -55,6 +55,7 @@ The CI matrix is also a no-op: with `.python-version` committed, `uv sync` uses 
 - **pyenv is removed from the stack, with one line on how it coexists with uv.** (session-settled: user-approved — chosen over keeping pyenv as a documented second path: two interpreter managers is the ceremony #29 removes.) Governs R1, R3.
 - **"Is an agent operating this repo?" is not a profile axis; the profiles link to Configuration Management > Secrets.** (session-settled: user-approved — chosen over a third profile dimension: #46 already made tier 3 a per-repository choice, made by committing no `secret-refs.env`, so a profile axis would restate it.) Governs R13.
 - **Layout-dependent commands take their source path from one variable set per profile.** (session-settled: user-approved — chosen over leaving the examples library-shaped with a note: a note is exactly the silent deviation #29 describes.) Governs R11, R12.
+- **The tooling/ops profile is defined by shape, not by dependencies: flat layout, not packaged, run from the checkout. Runtime dependencies are allowed and often absent.** (session-settled: user-approved 2026-09-25 — chosen over requiring stdlib-only code, which leaves a checkout-run service with one third-party dependency in neither profile, and over a third profile.) Governs R10, KTD11.
 - **The default profile is named "packaged project (library, CLI or service)".** #29 names it "packaged library/CLI", but the standard's Configuration Management and Docker sections are written for services, and the web-app backend follows this standard. Governs R10.
 
 ### Requirements
@@ -80,7 +81,7 @@ The CI matrix is also a no-op: with `.python-version` committed, `uv sync` uses 
 
 **Profiles**
 
-- R10. A Project Profiles section inside `code/python-standards.md` covers two profiles: packaged project (library, CLI or service), and tooling/ops repo (stdlib-only, flat layout, run from the checkout). For each convention that differs, it says whether the convention applies as written or is relaxed.
+- R10. A Project Profiles section inside `code/python-standards.md` covers two profiles: packaged project (library, CLI or service), and tooling/ops repo (flat layout, not packaged, run from the checkout; runtime dependencies allowed, often none). For each convention that differs, it says whether the convention applies as written or is relaxed.
 - R11. The Makefile's coverage, lint, format and type-check commands take their source path from one variable whose value each profile gives.
 - R12. CI reaches those commands through `make`, so the variable has one source.
 - R13. The profiles link to Configuration Management > Secrets and restate none of it.
@@ -95,7 +96,7 @@ The CI matrix is also a no-op: with `.python-version` committed, `uv sync` uses 
 - AE1. **Covers R5, R6.** Given a clean project with a committed baseline, when a token is committed with `--no-verify` and `make security` runs, then it exits non-zero, and `git diff --exit-code .secrets.baseline` passes.
 - AE2. **Covers R7.** Given `secret-refs.env` flagged by the Keyword detector, when the developer follows the false-positive workflow, then `make security` exits 0, the baseline diff shows one audited entry per line, and `check-secret-refs.mjs` still passes.
 - AE3. **Covers R4.** Given `.python-version` = `3.11` and a matrix leg of `3.13`, when that leg runs `make test`, then pytest reports Python 3.13.
-- AE4. **Covers R11.** Given the tooling profile's `SRC_DIR` value, when `make lint format-check typecheck test security` runs on a stdlib-only, flat-layout project, then every target exits 0, and coverage measures the package, not `tests/`.
+- AE4. **Covers R11.** Given the tooling profile's `SRC_DIR` value, when `make lint format-check typecheck test security` runs on a flat-layout project with no runtime dependencies, then every target exits 0, and coverage measures the package, not `tests/`.
 
 ### Scope Boundaries
 
@@ -147,7 +148,7 @@ Each of these gets its own issue when the PR opens.
   - `SRC_DIR` is that directory.
   - pytest sets `pythonpath = ["."]`. The flat layout fails at collection without it.
   - There is no `[build-system]`, `[project.scripts]`, `py.typed` or Docker.
-  - `pyproject.toml` holds only dev dependencies and tool configuration.
+  - `pyproject.toml` holds `[project]` metadata, any runtime dependencies, dev dependencies and tool configuration. With no `[build-system]`, uv treats it as a virtual project and installs the dependencies without building the directory.
   - Configuration comes from `os.environ`, loaded by the runner or `uv run --env-file`, not python-dotenv.
   - `PROJECT_ROOT` is computed for the layout and must never resolve above the checkout.
 - KTD12. **`make setup` does not run tests.** A new project has none, and pytest exits 5 when it collects nothing, which fails the Example Project Setup.
@@ -177,7 +178,7 @@ The profile table the Project Profiles section carries (rows are conventions; th
 | Layout | `src/project_name/` | one top-level package in the checkout |
 | `SRC_DIR` | `src/project_name` | the package directory |
 | `[build-system]`, `[project.scripts]`, `py.typed` | as written | omitted |
-| Runtime dependencies | as needed | none (stdlib only) |
+| Runtime dependencies | as needed | allowed, in `[project] dependencies`; often none |
 | pytest | as written | adds `pythonpath = ["."]` |
 | Config loading | `config.py` with python-dotenv | `os.environ`, loaded by the runner |
 | Docker | as written | not applicable |
@@ -285,7 +286,8 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7. U2 and U4 both edit the Makefile b
   - Overview: its project-type description is aligned with the profiles.
 - **Approach:** a short intro, the profile table from the High-Level Technical Design, and one paragraph on setting `SRC_DIR`. Secrets get a single link (R13).
 - **Test scenarios:**
-  - A stdlib-only, flat scratch repo (`opstool/`, `tests/`, no `[build-system]`, `SRC_DIR=opstool`). Every `make` target in AE4 exits 0, and the coverage report lists only `opstool/` files.
+  - A flat scratch repo with no runtime dependencies (`opstool/`, `tests/`, no `[build-system]`, `SRC_DIR=opstool`). Every `make` target in AE4 exits 0, and the coverage report lists only `opstool/` files.
+  - The same repo with one runtime dependency added to `[project] dependencies`: `make setup` installs it without building the project, and `make check` exits 0.
   - The packaged scratch project from U2 still passes `make check` with the default `SRC_DIR`.
 - **Verification:** `grep -n 'src/project_name\|src/ tests/\|mypy src/' code/python-standards.md` shows no layout path outside these: `SRC_DIR`'s default, the layout tree, Directory Conventions, the `py.typed` guideline, the `config.py` and `__main__.py` example comments, and Best Practices > Code Organization.
 
