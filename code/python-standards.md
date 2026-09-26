@@ -1,10 +1,10 @@
 # Python Project Standards
 
-*Modern tooling and practices for Python command-line and library projects*
+*Modern tooling and practices for Python libraries, command-line tools, services and tooling repositories*
 
 ## Overview
 
-This document defines standards for Python-based computational engine projects, covering project structure, tooling, code quality, testing, and deployment. These standards prioritize:
+This document defines standards for Python projects, covering project structure, tooling, code quality, testing, and deployment. It is written for packaged projects (libraries, command-line tools and services), and [Project Profiles](#project-profiles) says what changes for a tooling or operations repository that runs from its checkout. These standards prioritize:
 
 - **Developer experience** - Fast setup, consistent tooling, clear workflows
 - **Code quality** - Type safety, linting, formatting, security scanning
@@ -49,21 +49,21 @@ These standards focus on project structure and development workflow, not applica
 
 | Tool | Purpose | Rationale |
 |------|---------|-----------|
-| **uv** | Package manager | Fast, reliable dependency resolution and environment management |
-| **pyenv** | Python version manager | Manage multiple Python versions (installed outside project) |
+| **uv** | Package and Python version manager | Installs and pins interpreters, resolves dependencies and manages the environment in one tool |
 | **make** | Build automation | Simple, universal task runner for setup, test, lint, etc. |
 | **ruff** | Linter & formatter | Fast, comprehensive linting and formatting in one tool |
 | **mypy** | Type checker | Static type checking for improved correctness |
 | **pytest** | Test framework | Industry standard with excellent plugin ecosystem |
 | **pytest-cov** | Coverage reporting | Integrated coverage measurement |
 | **pre-commit** | Git hooks | Automated quality checks before commits |
-| **detect-secrets** | Secret scanning | Prevent committing credentials and sensitive data |
+| **Secret scanner** (detect-secrets by default) | Secret scanning | Block committed credentials in pre-commit and in CI; see [Secret Detection](#secret-detection) |
 | **pip-audit** | Vulnerability scanner | Check dependencies for known security vulnerabilities |
 
 ### Development Environment
 
 - **Virtual environment**: `.venv/` managed by uv
-- **Python versions**: Managed by pyenv (not committed to repository)
+- **Python version**: `.python-version` pins the version and is committed. `uv python pin <version>` writes it, and `make setup` runs `uv python install`, which installs it. The interpreters themselves are not committed. The pin names a minor version, such as `3.11`, so patch levels can differ between machines.
+- **pyenv users**: pyenv reads the same `.python-version`, but uv prefers the interpreter it installed itself unless `UV_PYTHON_PREFERENCE=only-system` is set.
 - **Configuration**: `pyproject.toml` (primary), `.pre-commit-config.yaml`, `Makefile`
 
 ### Containerization
@@ -110,7 +110,7 @@ project-name/
 ├── example.env                 # Configuration template (committed)
 ├── secret-refs.env             # Secret references, no values (committed)
 ├── .pre-commit-config.yaml     # Pre-commit hook configuration
-├── .python-version             # Python version for pyenv
+├── .python-version             # Pinned Python version (commit this)
 ├── pyproject.toml              # Project metadata and tool configuration
 ├── uv.lock                     # Locked dependencies (commit this)
 ├── Makefile                    # Development task automation
@@ -146,29 +146,35 @@ project-name/
 
 ---
 
+## Project Profiles
+
+This standard is written for a packaged project. A tooling or operations repository follows the same standard with the relaxations below, so adopting it does not mean deviating from it.
+
+- **Packaged project (library, CLI or service)**: the code is built and installed as a package: published to an index, installed as a command, or copied into a container image. This is the default, and everything in this standard applies as written.
+- **Tooling/ops repo**: the code runs straight from the git checkout, as scripts, scheduled jobs, git hooks or a service started from its working tree, and is never built or installed. Runtime dependencies are allowed, and many such repositories have none.
+
+A convention not in this table applies to both profiles as written.
+
+| Convention | Packaged project | Tooling/ops repo |
+|------------|------------------|------------------|
+| Layout | `src/project_name/` (src-layout) | One top-level package directory in the checkout, such as `opstool/`, next to `tests/` |
+| `SRC_DIR` in the Makefile | `src/project_name` | The package directory, such as `opstool` |
+| `[build-system]`, `[project.scripts]`, `py.typed` | As written | Omitted. Without `[build-system]`, uv installs the dependencies and does not build or install the project |
+| Runtime dependencies | As needed | Allowed, in `[project] dependencies`; often none |
+| pytest configuration | As written | Adds `pythonpath = ["."]` to `[tool.pytest.ini_options]`. The package is not installed, so without it test collection fails with `ModuleNotFoundError` |
+| Loading configuration | `config.py` with python-dotenv (see [Loading Environment Variables](#loading-environment-variables)) | Code reads `os.environ`, and whatever starts it loads the files, for example `uv run --env-file .env`. A `PROJECT_ROOT`, if the code needs one, is computed for this layout and never resolves above the checkout |
+| Docker | As written | Not applicable |
+| `.python-version`, dev dependencies, pre-commit, secret scanning, coverage thresholds, CI | As written | As written |
+
+Neither profile changes how secrets are handled: [Secrets](#secrets) applies to both, including which tier a repository may use.
+
+---
+
 ## Development Environment Setup
 
 ### Prerequisites
 
-**Install pyenv** (one-time setup per machine):
-
-```bash
-# macOS
-brew install pyenv
-
-# Linux
-curl https://pyenv.run | bash
-```
-
-Add to shell profile (`~/.bashrc`, `~/.zshrc`):
-
-```bash
-export PYENV_ROOT="$HOME/.pyenv"
-export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init -)"
-```
-
-**Install uv** (one-time setup per machine):
+**Install uv** (one-time setup per machine). uv also installs the Python interpreter, so no separate version manager is needed:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -183,60 +189,68 @@ make setup
 ```
 
 This command:
-1. Installs the Python version specified in `.python-version` via pyenv
-2. Creates virtual environment in `.venv/` via uv
-3. Installs dependencies (including dev dependencies)
-4. Installs pre-commit hooks
-5. Runs initial tests to verify setup
+1. Installs the Python version pinned in `.python-version` (`uv python install`)
+2. Creates the virtual environment in `.venv/` and installs dependencies, dev dependencies included (`uv sync --all-extras`)
+3. Installs pre-commit hooks
+4. Copies `example.env` to `.env` if `.env` does not exist
+
+It runs no tests: a new project has none, and pytest exits non-zero when it collects nothing. Run `make check` once the first test exists.
 
 ### Makefile Targets
 
 Standard `Makefile` should provide these targets:
 
 ```makefile
+# The one directory or package that coverage, lint, format and type checking
+# read. Its value depends on the project profile (see Project Profiles).
+SRC_DIR ?= src/project_name
+
 # Coverage thresholds (adjust as needed)
 COVERAGE_MIN_UNIT ?= 80
 COVERAGE_MIN_INTEGRATION ?= 80
 
 .PHONY: setup
-setup:  ## Initial project setup (install Python, deps, pre-commit)
-	# Check for pyenv and install Python version
-	# Create .venv with uv
-	# Install dependencies
-	# Install pre-commit hooks
-	# Run tests to verify
+setup:  ## Initial project setup (install Python, deps, pre-commit, .env)
+	uv python install
+	uv sync --all-extras
+	uv run pre-commit install
+	@if [ ! -f .env ]; then \
+		cp example.env .env; \
+		echo "Created .env from example.env (configuration only; secrets come from secret-refs.env)"; \
+	fi
 
 .PHONY: test
 test:  ## Run unit tests with coverage
-	uv run pytest tests/unit/ --cov=src/project_name --cov-report=term --cov-report=html --cov-fail-under=$(COVERAGE_MIN_UNIT)
+	uv run pytest tests/unit/ --cov=$(SRC_DIR) --cov-report=term --cov-report=html --cov-report=xml --cov-fail-under=$(COVERAGE_MIN_UNIT)
 
 .PHONY: test-integration
 test-integration:  ## Run integration tests with coverage
-	uv run pytest tests/integration/ --cov=src/project_name --cov-report=term --cov-report=html --cov-fail-under=$(COVERAGE_MIN_INTEGRATION)
+	uv run pytest tests/integration/ --cov=$(SRC_DIR) --cov-report=term --cov-report=html --cov-report=xml --cov-fail-under=$(COVERAGE_MIN_INTEGRATION)
 
 .PHONY: test-all
 test-all:  ## Run all tests with coverage
-	uv run pytest tests/ --cov=src/project_name --cov-report=term --cov-report=html --cov-fail-under=$(COVERAGE_MIN_UNIT)
+	uv run pytest tests/ --cov=$(SRC_DIR) --cov-report=term --cov-report=html --cov-report=xml --cov-fail-under=$(COVERAGE_MIN_UNIT)
 
 .PHONY: lint
 lint:  ## Run ruff linter
-	uv run ruff check src/ tests/
+	uv run ruff check $(SRC_DIR) tests
 
 .PHONY: format
 format:  ## Format code with ruff
-	uv run ruff format src/ tests/
+	uv run ruff format $(SRC_DIR) tests
 
 .PHONY: format-check
 format-check:  ## Check code formatting without changes
-	uv run ruff format --check src/ tests/
+	uv run ruff format --check $(SRC_DIR) tests
 
 .PHONY: typecheck
 typecheck:  ## Run mypy type checking
-	uv run mypy src/
+	uv run mypy $(SRC_DIR)
 
 .PHONY: security
-security:  ## Run security scans (secrets and vulnerabilities)
-	uv run detect-secrets scan --baseline .secrets.baseline
+security:  ## Scan tracked files for secrets, check the baseline is audited, audit dependencies
+	uv run detect-secrets-hook --baseline .secrets.baseline $$(git ls-files)
+	@uv run python -c "import json, sys; bad = [(f, s['line_number']) for f, ss in json.load(open('.secrets.baseline'))['results'].items() for s in ss if s.get('is_secret') is not False]; [print(f'{f}:{n}: baseline entry not audited as a false positive', file=sys.stderr) for f, n in bad]; sys.exit(bool(bad))"
 	uv run pip-audit
 
 .PHONY: pre-commit
@@ -248,7 +262,7 @@ update-hooks:  ## Update pre-commit hook versions
 	uv run pre-commit autoupdate
 
 .PHONY: check
-check: lint format-check typecheck security test  ## Run all checks (CI equivalent)
+check: lint format-check typecheck security test  ## Run all checks (CI runs these plus test-integration)
 
 .PHONY: clean
 clean:  ## Remove generated files
@@ -256,7 +270,7 @@ clean:  ## Remove generated files
 	rm -rf .pytest_cache/
 	rm -rf .mypy_cache/
 	rm -rf .ruff_cache/
-	rm -rf htmlcov/
+	rm -rf htmlcov/ coverage.xml
 	rm -rf dist/
 	rm -rf *.egg-info/
 	find . -type d -name __pycache__ -exec rm -rf {} +
@@ -271,6 +285,10 @@ help:  ## Show this help message
 ```makefile
 .DEFAULT_GOAL := help
 ```
+
+**`SRC_DIR`** names the one directory or package that coverage, lint, format and type checking read. `--cov` takes one path, and a path to a single file collects nothing, so `SRC_DIR` is always a directory. Each profile gives its value (see [Project Profiles](#project-profiles)), and CI reaches these commands through `make`, so the Makefile is the only place it is set.
+
+**`security`** runs the secret scanner over every tracked file, then fails if any entry in `.secrets.baseline` has not been audited as a false positive, then audits dependencies. [Secret Detection](#secret-detection) explains each step and its exit codes.
 
 ---
 
@@ -304,7 +322,7 @@ dev = [
     "ruff>=0.6.0",
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
-    "detect-secrets>=1.4.0",
+    "detect-secrets>=1.5.0",
     "pip-audit>=2.7.0",
 ]
 
@@ -535,7 +553,7 @@ markers = [
 **Minimum coverage**: 80% for new projects, 90% target for mature projects
 
 **Enforcement strategy**:
-- Coverage thresholds are enforced via `--cov-fail-under` in make targets and CI
+- Coverage thresholds are enforced via `--cov-fail-under` in the make targets, which CI runs
 - Tests fail if coverage drops below the configured minimum
 - Configured via Makefile variables (see Makefile Targets section):
   - `COVERAGE_MIN_UNIT` - Unit test coverage threshold (default: 80%)
@@ -561,7 +579,7 @@ COVERAGE_MIN_INTEGRATION ?= 75
 
 ```toml
 [tool.coverage.run]
-source = ["src"]
+# No source setting: make passes --cov=$(SRC_DIR), so the path has one home
 omit = [
     "*/tests/*",
     "*/__pycache__/*",
@@ -677,14 +695,18 @@ repos:
         additional_dependencies: []  # Add type stub packages if needed
         args: [--strict, --ignore-missing-imports]
 
-  - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.4.0
+  # A local hook runs the detect-secrets pinned in uv.lock, so the hook and
+  # make security cannot drift to different versions.
+  - repo: local
     hooks:
       - id: detect-secrets
+        name: detect-secrets
+        entry: uv run detect-secrets-hook
         args: ['--baseline', '.secrets.baseline']
+        language: system
 ```
 
-**Note on versions**: Hook versions shown above are examples and will become outdated. Update hooks quarterly or when adopting new Python versions using `make update-hooks` (see Makefile targets).
+**Note on versions**: Hook versions shown above are examples and will become outdated. Update hooks quarterly or when adopting new Python versions using `make update-hooks` (see Makefile targets). The detect-secrets hook has no `rev`: its version comes from `uv.lock`, so `make update-hooks` does not touch it. A separately pinned remote hook drifts from the dev dependency, and the v1.4.0 hook crashes on a baseline created by detect-secrets 1.5.0.
 
 ### Setup and Usage
 
@@ -702,21 +724,20 @@ uv run pre-commit autoupdate
 git commit --no-verify
 ```
 
+A commit made with `--no-verify`, through a web UI, or in a clone where `make setup` never ran skips every hook. CI's `make security` is the backstop for secrets (see [Secret Detection](#secret-detection)).
+
 ### Secrets Baseline
 
-Initialize detect-secrets baseline:
+The detect-secrets hook needs `.secrets.baseline` to exist, and exits 2 without it. Create it once, with the project's files staged, and audit it before committing it:
 
 ```bash
-uv run detect-secrets scan --baseline .secrets.baseline
+git add .
+uv run detect-secrets scan $(git ls-files) > .secrets.baseline
+uv run detect-secrets audit .secrets.baseline
+git add .secrets.baseline
 ```
 
-**Review and commit `.secrets.baseline`** - Contains hashes of known false positives
-
-**Update baseline when adding new files**:
-
-```bash
-uv run detect-secrets scan --baseline .secrets.baseline
-```
+[Secret Detection](#secret-detection) covers updating it and what the audit means.
 
 ---
 
@@ -724,15 +745,83 @@ uv run detect-secrets scan --baseline .secrets.baseline
 
 ### Secret Detection
 
-**Tool**: detect-secrets pre-commit hook
+**Requirement**: every project scans for secrets in four ways:
 
-**Purpose**: Prevent committing API keys, passwords, tokens
+1. A pre-commit hook scans staged changes and blocks the commit on a finding.
+2. CI scans every tracked file and fails on any finding that is not in a reviewed allowlist committed to the repository. The hook is skipped by `git commit --no-verify`, by commits made in a web UI, and in any clone where the hooks were never installed, so CI is the check that cannot be bypassed.
+3. Only a person adds a finding to the allowlist. No hook, `make` target or CI step does.
+4. The scanner's version has one source, so the hook and the CI scan cannot disagree.
 
-**Configuration**: See pre-commit section
+detect-secrets is the default, and the rest of this section describes it. gitleaks is a sanctioned alternative; see [Using gitleaks Instead](#using-gitleaks-instead).
 
-**Handling false positives**:
-1. Add to baseline: `detect-secrets scan --baseline .secrets.baseline`
-2. Inline pragma: `password = "fake_password"  # pragma: allowlist secret`
+**A secret that reached a commit is rotated first and removed from history second.** Once pushed, it can have been cloned, cached or read by an agent, and rewriting history does not undo that. See [Secrets](#secrets).
+
+#### How detect-secrets Meets It
+
+- **Pre-commit**: the local hook under [Pre-commit Hooks](#pre-commit-hooks) runs `detect-secrets-hook` on the staged files.
+- **CI and `make security`**: `uv run detect-secrets-hook --baseline .secrets.baseline $(git ls-files)` scans every tracked file. `uv run detect-secrets scan --baseline .secrets.baseline` is not a check: it writes each new finding into the baseline and exits 0, so it cannot fail. Running the hook through `pre-commit run` is not used either, because pre-commit runs hooks from the git root. In a project that sits in a subdirectory of a monorepo, the hook then looks for `.secrets.baseline` in the wrong directory and exits 2.
+- **Allowlist**: `.secrets.baseline`, committed. It holds a hash of each accepted finding, never the value, and the audit decision for each.
+- **One version**: the hook and `make security` both run the detect-secrets in `uv.lock`.
+
+`detect-secrets-hook` exit codes (detect-secrets 1.5.0):
+
+| Exit | Meaning | What to do |
+|------|---------|------------|
+| 0 | No finding outside the baseline | Nothing |
+| 1 | A finding that is not in the baseline, or `.secrets.baseline` has unstaged changes | Remove the secret and move it to the secret manager; or, for a false positive, follow the workflow below. For unstaged changes, stage the baseline |
+| 2 | `.secrets.baseline` does not exist | Create it (see [Secrets Baseline](#secrets-baseline)) |
+| 3 | The hook rewrote the baseline without adding a finding: a baselined line moved, or the installed detect-secrets version differs from the baseline's `version` | Stage `.secrets.baseline` and run again. In CI, exit 3 means the committed baseline is stale: run `make security` locally and commit the rewritten baseline. A commit that upgrades detect-secrets includes it |
+
+A failure names the file, the line and the detector type, never the value. The hook suggests an inline `pragma: allowlist secret` comment. Use the baseline instead, except as allowed below.
+
+**The baseline is reviewed, and CI enforces it.** The hook ignores every finding that has an entry in the baseline, whatever its audit says. `make security` therefore also fails when any entry is not audited as a false positive (`"is_secret": false`). That covers an entry never audited and one audited as a real secret. The check reads only the baseline, so it prints a file and line number, never a value.
+
+**Handling a false positive**:
+
+```bash
+# With the flagged file staged, add its finding to the baseline, unaudited
+uv run detect-secrets scan --baseline .secrets.baseline $(git ls-files)
+
+# Answer each prompt: y marks the finding as a false positive
+uv run detect-secrets audit .secrets.baseline
+
+# Stage it, review the diff, then confirm the check passes
+git add .secrets.baseline
+git diff --cached .secrets.baseline
+make security
+```
+
+- The audit shows each flagged line on screen, so a person runs it, not an agent, which would copy the value into its transcript. For the same reason `detect-secrets audit --report`, which prints flagged values, never runs in CI or behind a `make` target.
+- A finding in `secret-refs.env` or `example.env` goes into the baseline. Never put a pragma comment in a `*.env` file: `check-secret-refs.mjs` rejects inline comments, and a `pragma: allowlist nextline secret` comment hides the next line from the scanner.
+- An inline `# pragma: allowlist secret` is acceptable only in test code, on a line that holds an obvious fake.
+
+#### Using gitleaks Instead
+
+gitleaks meets the same requirement with a different allowlist and no baseline file. Only these parts change:
+
+| Part | detect-secrets (default) | gitleaks |
+|------|--------------------------|----------|
+| Install | dev dependency, pinned in `uv.lock` | a release binary pinned to one version in both places it runs: the hook's `rev` and the CI download |
+| Pre-commit hook | local hook, `entry: uv run detect-secrets-hook` | `repo: https://github.com/gitleaks/gitleaks`, `rev: v8.24.2`, `id: gitleaks` |
+| CI scan | `make security` | `gitleaks dir .`, as the first step after checkout |
+| Allowlist | `.secrets.baseline`, audited | `.gitleaksignore`, one finding fingerprint per line, added and reviewed by a person |
+
+- The hook scans staged changes only. `pre-commit run gitleaks --all-files` passes on a tree with a committed secret, so it cannot stand in for the CI scan.
+- `gitleaks dir` does not read `.gitignore`. Run it straight after `actions/checkout` and before `uv sync`, or it scans `.venv/` and any other untracked files as well.
+- A fingerprint for `gitleaks dir` has the form `path:rule-id:line`, so it stops matching when the line moves.
+- A `gitleaks:allow` comment follows the pragma rule above: test code only, never a `*.env` file.
+- `gitleaks/gitleaks-action` needs a `GITLEAKS_LICENSE` secret for repositories owned by an organization; the binary does not.
+
+CI step:
+
+```yaml
+      - name: Secret scan
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz | tar xz gitleaks
+          ./gitleaks dir .
+```
+
+gitleaks 8.24.2 was run on 2026-09-25 for these claims: the hook, the committed-secret gap, `gitleaks dir` failing on a committed secret and scanning a gitignored `.venv/`, the release URL, and a `.gitleaksignore` fingerprint clearing a finding. The `GITLEAKS_LICENSE` requirement comes from the gitleaks README (fetched 2026-09-24) and was not run.
 
 ### Dependency Vulnerability Scanning
 
@@ -759,9 +848,10 @@ uv run pip-audit
 
 1. **Never commit secrets** - Use environment variables or secret management services
 2. **Keep secrets out of the working tree** - See [Secrets](#secrets); `.gitignore` stops commits, not reads
-3. **Scan dependencies regularly** - Weekly or on each PR
-4. **Pin dependencies** - Lock file ensures reproducible, scannable builds
-5. **Review direct and transitive dependencies** - Understand what you depend on
+3. **Scan for secrets in pre-commit and in CI** - See [Secret Detection](#secret-detection); the hook alone can be skipped
+4. **Scan dependencies regularly** - Weekly or on each PR
+5. **Pin dependencies** - Lock file ensures reproducible, scannable builds
+6. **Review direct and transitive dependencies** - Understand what you depend on
 
 ---
 
@@ -959,20 +1049,7 @@ STRIPE_API_KEY=op://dev/stripe/credential
 
 ### Makefile Integration
 
-Update `make setup` target to initialize environment:
-
-```makefile
-.PHONY: setup
-setup:  ## Initial project setup (install Python, deps, pre-commit)
-	# ... existing setup steps ...
-	# Initialize environment
-	@if [ ! -f .env ]; then \
-		cp example.env .env; \
-		echo "Created .env from example.env (configuration only; secrets come from secret-refs.env)"; \
-	fi
-	@mkdir -p config
-	@touch config/.gitkeep
-```
+The `setup` recipe under [Makefile Targets](#makefile-targets) copies `example.env` to `.env` when `.env` does not exist, and never overwrites an existing `.env`.
 
 ### .gitignore Entries
 
@@ -997,7 +1074,7 @@ from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # src/project_name/config.py -> checkout root
 ENV_FILE = PROJECT_ROOT / ".env"
 SECRET_REFS_FILE = PROJECT_ROOT / "secret-refs.env"
 REFERENCE_PREFIXES = ("op://",)
@@ -1046,6 +1123,8 @@ def validate_config() -> None:
     for key in sorted(secret_keys):
         get_secret(key)
 ```
+
+`PROJECT_ROOT` counts parent directories from this file, so it depends on the layout. In a tooling/ops repo, where no `src/` level exists, compute it for that layout and check that it never resolves above the checkout (see [Project Profiles](#project-profiles)).
 
 Call `validate_config()` from the entrypoint, and resolve each secret where it is used:
 
@@ -1504,7 +1583,7 @@ Brief description (1-2 sentences).
 
 ### Prerequisites
 
-- Python 3.11+ (managed via pyenv)
+- Python 3.11+ (installed by `make setup`)
 - uv package manager
 - make
 
@@ -1585,51 +1664,43 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  COVERAGE_MIN_UNIT: 80
-  COVERAGE_MIN_INTEGRATION: 80
-
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
+    # Every uv command in this leg uses this version instead of the
+    # .python-version pin, and uv downloads it if it is missing.
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
       - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+        uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
-        run: |
-          uv sync --all-extras
+        run: uv sync --all-extras
 
       - name: Run linting
-        run: uv run ruff check src/ tests/
+        run: make lint
 
       - name: Check formatting
-        run: uv run ruff format --check src/ tests/
+        run: make format-check
 
       - name: Type checking
-        run: uv run mypy src/
+        run: make typecheck
 
       - name: Run unit tests
-        run: uv run pytest tests/unit/ --cov=src/project_name --cov-report=xml --cov-fail-under=${{ env.COVERAGE_MIN_UNIT }}
+        run: make test
 
       - name: Run integration tests
-        run: uv run pytest tests/integration/ --cov=src/project_name --cov-report=xml --cov-fail-under=${{ env.COVERAGE_MIN_INTEGRATION }}
+        run: make test-integration
 
       - name: Security scan
-        run: |
-          uv run detect-secrets scan --baseline .secrets.baseline
-          uv run pip-audit
+        run: make security
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3
@@ -1639,9 +1710,9 @@ jobs:
 
 ### CI Best Practices
 
-1. **Test on all supported Python versions** - Use matrix strategy
+1. **Test on all supported Python versions** - Use a matrix, and set `UV_PYTHON` per leg: with `.python-version` committed, every leg otherwise runs the pinned version
 2. **Run all checks** - Lint, format, type check, test, security
-3. **Enforce coverage thresholds** - Use `--cov-fail-under` to fail builds when coverage drops
+3. **Enforce coverage thresholds** - The `make` test targets pass `--cov-fail-under`, so CI and developers use the same thresholds
 4. **Fast feedback** - Fail fast, parallelize when possible
 5. **Coverage reporting** - Use codecov or similar
 6. **Dependency caching** - Cache `.venv/` to speed up builds
@@ -1668,7 +1739,7 @@ Configure branch protection for `main`:
 
 ### Code Organization
 
-1. **Src layout** - Use `src/project_name/` structure
+1. **Src layout** - Use `src/project_name/` structure (a tooling/ops repo uses one top-level package; see [Project Profiles](#project-profiles))
 2. **Small modules** - One class or a few related functions per file
 3. **Clear imports** - Absolute imports, organized by stdlib/third-party/local
 4. **Avoid circular imports** - Restructure if needed
@@ -1779,7 +1850,7 @@ CI runs on all branches, provides automated validation before PR review.
 
 These standards assume:
 - Python 3.11+ projects
-- Library or command-line applications
+- One of the two [Project Profiles](#project-profiles): a packaged project, or a tooling/ops repo run from its checkout
 - Team development with CI/CD
 
 **Consider alternatives if**:
@@ -1804,14 +1875,14 @@ cd my-project
 
 # Initialize git
 git init
-printf '%s\n' .venv/ '*.pyc' __pycache__/ .pytest_cache/ .mypy_cache/ .ruff_cache/ .env > .gitignore
+printf '%s\n' .venv/ '*.pyc' __pycache__/ .pytest_cache/ .mypy_cache/ .ruff_cache/ htmlcov/ .coverage coverage.xml .env > .gitignore
 
-# Set Python version
-echo "3.11" > .python-version
-pyenv install 3.11
+# Pin the Python version (make setup installs it)
+uv python pin 3.11
 
-# Create project structure
+# Create project structure: uv builds the package, which needs __init__.py
 mkdir -p src/my_project tests/{unit,integration} docs/{product,engineering} scripts .github/workflows
+touch src/my_project/__init__.py src/my_project/py.typed
 
 # Initialize pyproject.toml
 cat > pyproject.toml << 'EOF'
@@ -1830,7 +1901,7 @@ dev = [
     "ruff>=0.6.0",
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
-    "detect-secrets>=1.4.0",
+    "detect-secrets>=1.5.0",
     "pip-audit>=2.7.0",
 ]
 
@@ -1839,19 +1910,24 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 EOF
 
-# Create Makefile (see Makefile section for full content)
-touch Makefile
+# Now copy in this standard's blocks: the Makefile from Makefile Targets
+# (with SRC_DIR ?= src/my_project), .pre-commit-config.yaml from Pre-commit
+# Hooks, and example.env from example.env Template
 
-# Create pre-commit config (see Pre-commit section)
-touch .pre-commit-config.yaml
-
-# Run setup
+# Install Python and dependencies, install the hooks, create .env
 make setup
 
-# Initialize git
+# Stage everything, then create and audit the secrets baseline
 git add .
+uv run detect-secrets scan $(git ls-files) > .secrets.baseline
+uv run detect-secrets audit .secrets.baseline
+git add .secrets.baseline
+
+# First commit: every hook runs
 git commit -m "feat: initial project setup"
 ```
+
+The audit asks about the two local-only credentials in `example.env`; answer `y` to each. Create the baseline only after `git add .`: a baseline created earlier is empty, and the first commit then fails on those two lines. Run `make check` once the first unit test exists.
 
 ---
 
@@ -1859,12 +1935,13 @@ git commit -m "feat: initial project setup"
 
 ### Tools
 - [uv - Python package manager](https://github.com/astral-sh/uv)
-- [pyenv - Python version management](https://github.com/pyenv/pyenv)
 - [ruff - Linter and formatter](https://github.com/astral-sh/ruff)
 - [mypy - Static type checker](https://mypy-lang.org/)
 - [pytest - Testing framework](https://pytest.org/)
 - [pre-commit - Git hook framework](https://pre-commit.com/)
-- [detect-secrets - Secret scanning](https://github.com/Yelp/detect-secrets)
+- [detect-secrets - Secret scanning (default)](https://github.com/Yelp/detect-secrets)
+- [gitleaks - Secret scanning (sanctioned alternative)](https://github.com/gitleaks/gitleaks)
+- [pip-audit - Dependency vulnerability scanning](https://github.com/pypa/pip-audit)
 
 ### Standards
 - [PEP 8 - Style Guide](https://peps.python.org/pep-0008/)
