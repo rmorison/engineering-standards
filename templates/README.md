@@ -192,10 +192,15 @@ retrieved 2026-09-22:
 So `allow` is the last box: a command that reaches it matched nothing else, and
 a broad entry there is not a convenience, it is the decision. The asymmetry
 between the two `deny` entries makes the point. `rm` appears in no `allow`
-entry, so a variant the deny rule misses still reaches a human prompt - there
-the deny rule is decorative but harmless. `git push -f` was a different case:
-`Bash(git:*)` auto-approved it, so the deny rule was not merely incomplete, it
-was contradicted by the allow list three lines above it.
+entry, so a variant the deny rule misses, typed as `rm`, still reaches a human
+prompt - there the deny rule is decorative but harmless. `git push -f` was a
+different case: `Bash(git:*)` auto-approved it, so the deny rule was not merely
+incomplete, it was contradicted by the allow list three lines above it.
+
+`rm` typed as `rm` is the only form that holds for. Any command reaches the
+shell through `make`, which the allow list approves whatever follows it - see
+[Why `Bash(make:*)` stays](#why-bashmake-stays). Until the uv entries were
+narrowed, `uv run rm -rf build` was approved the same way; see the next section.
 
 The listed subcommands are what a routine session needs without a human in the
 loop. `push` is deliberately absent; every push reaches a decision.
@@ -255,9 +260,73 @@ entries above were signed off as they stand. If you are adapting the kit and
 your own work is more often uncommitted than pushed, that is the trade to
 revisit first.
 
+### Why `allow` names uv commands rather than `Bash(uv:*)`
+
+`uv run` is a command launcher, not a tool: it runs whatever follows it in the
+project's environment. So `Bash(uv:*)`, which this kit used to carry, approved
+`uv run cat .env`, `uv run env`, `uv run bash -c ...` and `uv run rm -rf build`
+without a prompt, and the `rm -rf` deny rule never saw the last of those,
+because it starts with `uv`. Claude Code does not strip `uv run` before
+matching. From
+[Wrappers](https://code.claude.com/docs/en/permissions#process-wrappers),
+retrieved 2026-09-25:
+
+> This wrapper list is built in and is not configurable. Development environment
+> runners such as `direnv exec`, `devbox run`, `mise exec`, `npx`, and `docker
+> exec` are not in the list. Because these tools execute their arguments as a
+> command, a rule like `Bash(devbox run *)` matches whatever comes after `run`,
+> including `devbox run rm -rf .`. To approve work inside an environment runner,
+> write a specific rule that includes both the runner and the inner command,
+> such as `Bash(devbox run npm test)`. Add one rule per inner command you want
+> to allow.
+
+The page does not name uv. `uv run` is in the same class, and the kit follows
+that advice, with one departure for arguments noted below:
+
+- `Bash(uv run pytest:*)`, `Bash(uv run ruff:*)` and `Bash(uv run mypy:*)` - the
+  test, lint and type-check tools the Python standard's Makefile and CI run
+  through uv. They keep a wildcard for arguments, where the page's example is an
+  exact rule, because test and lint invocations vary by path and flag. A flag
+  written between `run` and the tool - `uv run --with x pytest`,
+  `uv run --env-file .env pytest` - does not match, and reaches a human.
+- `Bash(uv sync)`, `Bash(uv sync --all-extras)`, `Bash(uv lock)` and
+  `Bash(uv lock --upgrade)` - the four forms the Python standard documents, with
+  no wildcard. A wildcard would approve uv's index, `--script`, `--project` and
+  `--directory` options, which install or build packages from a source nobody
+  chose.
+
+What reaches a human by design: `uv add` and `uv remove`, which change the
+dependency set; `uvx`, `uv tool run`, `uv pip` and `uv run python`; and the
+`uv run` forms of `detect-secrets`, `pip-audit`, `pre-commit` and `mkdocs`. The
+first three of those have `make` targets in the Python standard, which is how a
+routine session reaches them.
+
+**A named entry controls which program starts, not what it does.** `uv sync`
+and `uv lock` build the project, and uv's docs say a build backend may run
+arbitrary Python code. `uv run pytest` imports the project's tests and every
+`conftest.py`. These entries are narrower than `Bash(uv:*)`; they are not safe
+in any stronger sense than the code they run.
+
+### Why `Bash(make:*)` stays
+
+`Bash(make:*)` approves any target, including one written on the command line.
+`make --eval='x: ; @cat .env' x` defines a target and runs it; verified against
+GNU Make 4.3, it printed the file and exited 0. So `make` is a route to any
+command, and the secrets rule in the Python standard already says never to let a
+Makefile target an agent can reach invoke the secret manager.
+
+The entry stays because make targets belong to each project. A kit cannot list
+targets its adopters do not have yet, and an adopter prompted for `make test`
+every few minutes widens the list back. If your Makefile is settled, replace the
+entry with your own targets - `Bash(make test)`, `Bash(make lint)` - and update
+the fixtures below.
+
 `node scripts/check-template-kit.mjs` holds the list to both directions: every
 entry must match the command it exists for, and no entry may match `git push`,
-`git push -f`, `git push --force origin main` or `git push origin +main`.
+`git push -f`, `git push --force origin main`, `git push origin +main`, or any
+of the `uv` forms named above as reaching a human. `ALLOW_ACCEPTED_RISK` holds
+the `make --eval` form in the other direction: the check fails if `Bash(make:*)`
+stops matching it, so this section cannot outlive the entry it describes.
 
 ## Adding more templates
 

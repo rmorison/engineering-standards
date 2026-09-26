@@ -364,6 +364,12 @@ const RULE_SYNTAX_FIXTURES = [
 const ALLOW_POSITIVE = [
   'make test',
   'uv sync',
+  'uv sync --all-extras',
+  'uv lock',
+  'uv lock --upgrade',
+  'uv run pytest -q',
+  'uv run ruff check .',
+  'uv run mypy src',
   'git status --short',
   'git diff --cached',
   'git log --oneline -5',
@@ -419,6 +425,63 @@ const ALLOW_NEGATIVE = [
   'git remote -v set-url origin git@github.com:o/r.git',
   'git remote -v remove upstream',
   'git remote -v update --prune',
+  // `uv run` is a general command launcher, not a tool, so `Bash(uv:*)`
+  // pre-approved anything written after it: the first five rows below all
+  // matched it. Claude Code does not strip `uv run` before matching — its
+  // wrapper list is fixed and does not include it — so the entry is matched as
+  // a plain prefix. The kit now names `uv run pytest`, `ruff` and `mypy`
+  // instead. The rows after the first five are the option-placement spellings:
+  // a flag between `run` and the program, or a different program, must reach a
+  // human, and a negative sweep only excludes the spellings someone thought to
+  // write down.
+  'uv run cat .env',
+  'uv run env',
+  'uv run op read op://dev/a/b',
+  'uv run bash -c "cat .env"',
+  'uv run rm -rf build',
+  'uv run -- cat .env',
+  'uv run --with requests env',
+  'uv run python -c "print(1)"',
+  'uv run --env-file .env pytest',
+  'uv run --env-file .env -- python -m app',
+  'uv run --with x pytest',
+  // The `uv run` forms templates/README.md names as reaching a human through a
+  // prompt; the Python standard reaches the first three via make targets.
+  'uv run detect-secrets scan --baseline .secrets.baseline',
+  'uv run pip-audit',
+  'uv run pre-commit run --all-files',
+  'uv run mkdocs build',
+  // `uv sync` and `uv lock` are pinned to the forms the Python standard
+  // documents. A wildcard on either would approve index, `--script` and
+  // `--project` options that install or build packages from a source nobody
+  // chose, and `uv add` / `uv remove` change the dependency set, so all of
+  // these reach a human.
+  'uv sync --default-index https://example.invalid/simple',
+  'uv sync --script tool.py',
+  'uv lock --project /tmp/p',
+  'uv add requests',
+  'uv remove requests',
+  'uv tool run ruff',
+  'uv pip install requests',
+  // `Bash(uv:*)` expands to `uv *` and never matched this row; it guards
+  // against a later `Bash(uv*)` or `Bash(uvx:*)`.
+  'uvx cowsay',
+];
+
+/**
+ * Entries the kit keeps although they approve a dangerous form, each paired
+ * with a command it must match. These are not in ALLOW_NEGATIVE because the
+ * entry is there on purpose; they are here so the README's statement of the
+ * risk is checked rather than asserted, and goes stale loudly if the entry is
+ * narrowed or removed.
+ *
+ * `Bash(make:*)` approves any target, including one defined on the command
+ * line: GNU Make 4.3 runs `make --eval='x: ; @cat .env' x` and prints the file.
+ * Make targets are per-project, so a kit cannot name them; the entry stays and
+ * the README says what it costs.
+ */
+const ALLOW_ACCEPTED_RISK = [
+  ['Bash(make:*)', "make --eval='x: ; @cat .env' x"],
 ];
 
 /** Commands each deny entry is meant to cover. */
@@ -501,6 +564,18 @@ function checkKitPermissions(file, source, settings) {
     } else if (!bashRuleMatches(entry, command)) {
       fail(file, lineOf(source, entry), 'permissions',
         `deny entry ${entry} does not match \`${command}\`, the command it exists for`);
+    }
+  }
+
+  for (const [entry, command] of ALLOW_ACCEPTED_RISK) {
+    if (!allow.includes(entry)) {
+      fail(file, lineOf(source, 'allow'), 'permissions',
+        `allow entry ${entry} is missing, but ALLOW_ACCEPTED_RISK says the kit keeps it — ` +
+        'update templates/README.md, which states the risk, and remove the row');
+    } else if (!bashRuleMatches(entry, command)) {
+      fail(file, lineOf(source, entry), 'permissions',
+        `allow entry ${entry} no longer matches \`${command}\`, the risk ` +
+        'templates/README.md says it carries — update the README and the row');
     }
   }
 }
@@ -845,8 +920,8 @@ if (VERBOSE || failures.length === 0) {
   console.log(
     `Checked ${files.length} .claude/settings.json file(s) and ${hookEntries} hook ` +
     `command(s); ${RULE_SYNTAX_FIXTURES.length} rule-syntax fixtures, ` +
-    `${ALLOW_POSITIVE.length} allow-list positive and ${ALLOW_NEGATIVE.length} ` +
-    `negative cases. ${pathsSkipped} command path(s) skipped as not statically resolvable.`);
+    `${ALLOW_POSITIVE.length} allow-list positive, ${ALLOW_NEGATIVE.length} negative and ` +
+    `${ALLOW_ACCEPTED_RISK.length} accepted-risk cases. ${pathsSkipped} command path(s) skipped as not statically resolvable.`);
 }
 
 if (failures.length > 0) {
