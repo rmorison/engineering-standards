@@ -225,7 +225,7 @@ test:  ## Run unit tests with coverage
 
 .PHONY: test-integration
 test-integration:  ## Run integration tests with coverage
-	uv run pytest tests/integration/ --cov=$(SRC_DIR) --cov-report=term --cov-report=html --cov-report=xml --cov-fail-under=$(COVERAGE_MIN_INTEGRATION)
+	uv run pytest tests/integration/ --cov=$(SRC_DIR) --cov-report=term --cov-report=html --cov-report=xml:coverage-integration.xml --cov-fail-under=$(COVERAGE_MIN_INTEGRATION)
 
 .PHONY: test-all
 test-all:  ## Run all tests with coverage
@@ -249,9 +249,9 @@ typecheck:  ## Run mypy type checking
 
 .PHONY: security
 security:  ## Scan tracked files for secrets, check the allowlist is reviewed, audit dependencies
-	uv run detect-secrets-hook --baseline .secrets.baseline $$(git ls-files)
+	git ls-files -z | xargs -0 uv run detect-secrets-hook --baseline .secrets.baseline
 	@uv run python -c "import json, sys; bad = [(f, s['line_number']) for f, ss in json.load(open('.secrets.baseline'))['results'].items() for s in ss if s.get('is_secret') is not False]; [print(f'{f}:{n}: baseline entry not audited as a false positive', file=sys.stderr) for f, n in bad]; sys.exit(bool(bad))"
-	@! git grep -noE 'pragma: (allow|white)list (nextline )?secret|gitleaks:allow' -- ':!tests/' ':!Makefile' || { echo 'allowlist pragma outside tests/: move the finding to the reviewed allowlist' >&2; exit 1; }
+	@! git grep -noE 'pragma: ?(allow|white)list([ -]nextline)?[ -]secret|gitleaks:allow' -- ':!tests/' ':!Makefile' || { echo 'allowlist pragma outside tests/: move the finding to the reviewed allowlist' >&2; exit 1; }
 	uv run pip-audit
 
 .PHONY: pre-commit
@@ -271,7 +271,7 @@ clean:  ## Remove generated files
 	rm -rf .pytest_cache/
 	rm -rf .mypy_cache/
 	rm -rf .ruff_cache/
-	rm -rf htmlcov/ coverage.xml
+	rm -rf htmlcov/ coverage.xml coverage-integration.xml
 	rm -rf dist/
 	rm -rf *.egg-info/
 	find . -type d -name __pycache__ -exec rm -rf {} +
@@ -733,7 +733,7 @@ The detect-secrets hook needs `.secrets.baseline` to exist, and exits 2 without 
 
 ```bash
 git add .
-uv run detect-secrets scan $(git ls-files) > .secrets.baseline
+git ls-files -z | xargs -0 uv run detect-secrets scan > .secrets.baseline
 uv run detect-secrets audit .secrets.baseline
 git add .secrets.baseline
 ```
@@ -760,11 +760,11 @@ detect-secrets is the default, and the rest of this section describes it. gitlea
 #### How detect-secrets Meets It
 
 - **Pre-commit**: the local hook under [Pre-commit Hooks](#pre-commit-hooks) runs `detect-secrets-hook` on the staged files.
-- **CI and `make security`**: `uv run detect-secrets-hook --baseline .secrets.baseline $(git ls-files)` scans every tracked file. `uv run detect-secrets scan --baseline .secrets.baseline` is not a check: it writes each new finding into the baseline and exits 0, so it cannot fail. Running the hook through `pre-commit run` is not used either, because pre-commit runs hooks from the git root. In a project that sits in a subdirectory of a monorepo, the hook then looks for `.secrets.baseline` in the wrong directory and exits 2.
+- **CI and `make security`**: `git ls-files -z | xargs -0 uv run detect-secrets-hook --baseline .secrets.baseline` scans every tracked file. The file list is NUL-separated because `$(git ls-files)` splits a path that contains a space, and the hook then passes a secret in that file with exit 0. In a repository large enough that `xargs` splits the list, each run can rewrite the baseline separately. `uv run detect-secrets scan --baseline .secrets.baseline` is not a check: it writes each new finding into the baseline and exits 0, so it cannot fail. Running the hook through `pre-commit run` is not used either, because pre-commit runs hooks from the git root. In a project that sits in a subdirectory of a monorepo, the hook then looks for `.secrets.baseline` in the wrong directory and exits 2.
 - **Allowlist**: `.secrets.baseline`, committed. It holds a hash of each accepted finding, never the value, and the audit decision for each.
 - **One version**: the hook and `make security` both run the detect-secrets in `uv.lock`.
 
-`detect-secrets-hook` exit codes (detect-secrets 1.5.0):
+`detect-secrets-hook` exit codes (detect-secrets 1.5.0). Through `xargs`, any non-zero code arrives as 123, so `make` reports `Error 123` and the hook's message says which case it is:
 
 | Exit | Meaning | What to do |
 |------|---------|------------|
@@ -775,13 +775,13 @@ detect-secrets is the default, and the rest of this section describes it. gitlea
 
 A failure names the file, the line and the detector type, never the value. The hook suggests an inline `pragma: allowlist secret` comment. Use the baseline instead, except as allowed below.
 
-**The baseline is reviewed, and CI enforces it.** The hook ignores every finding that has an entry in the baseline, whatever its audit says. `make security` therefore also fails when any entry is not audited as a false positive (`"is_secret": false`). That covers an entry never audited and one audited as a real secret. The check reads only the baseline, so it prints a file and line number, never a value. `make security` also fails on an allowlist pragma comment (`pragma: allowlist secret`, its `nextline` and legacy `whitelist` forms, or `gitleaks:allow`) in any tracked file outside `tests/`, because a pragma is an allowlist entry nobody audits. It prints the file, line and the pragma, never the line's value.
+**The baseline is reviewed, and CI enforces it.** The hook ignores every finding that has an entry in the baseline, whatever its audit says. `make security` therefore also fails when any entry is not audited as a false positive (`"is_secret": false`). That covers an entry never audited and one audited as a real secret. The check reads only the baseline, so it prints a file and line number, never a value. It proves an entry was marked a false positive, not that a person ran the audit, because `"is_secret": false` can be typed by hand. It also reads only `results`: removing a detector from `plugins_used`, raising a plugin's `limit`, or adding an exclusion to `filters_used` switches detection off for the whole repository and still passes. Review any change to those keys in the baseline diff, and give `.secrets.baseline` required review, for example through CODEOWNERS. `make security` also fails on an allowlist pragma comment (`pragma: allowlist secret` in every spelling detect-secrets accepts, including `pragma:allowlist secret`, `allowlist-secret`, its `nextline` and legacy `whitelist` forms, or `gitleaks:allow`) in any tracked file outside `tests/`, because a pragma is an allowlist entry nobody audits. It prints the file, line and the pragma, never the line's value.
 
 **Handling a false positive**:
 
 ```bash
 # With the flagged file staged, add its finding to the baseline, unaudited
-uv run detect-secrets scan --baseline .secrets.baseline $(git ls-files)
+git ls-files -z | xargs -0 uv run detect-secrets scan --baseline .secrets.baseline
 
 # Answer each prompt: y marks the finding as a false positive
 uv run detect-secrets audit .secrets.baseline
@@ -794,7 +794,7 @@ make security
 
 - The audit shows each flagged line on screen, so a person runs it, not an agent, which would copy the value into its transcript. For the same reason `detect-secrets audit --report`, which prints flagged values, never runs in CI or behind a `make` target.
 - A finding in `secret-refs.env` or `example.env` goes into the baseline. Never put a pragma comment in a `*.env` file: `check-secret-refs.mjs` rejects inline comments, and a `pragma: allowlist nextline secret` comment hides the next line from the scanner.
-- An inline `# pragma: allowlist secret` is acceptable only under `tests/`, on a line that holds an obvious fake. `make security` enforces the location.
+- An inline `# pragma: allowlist secret` is acceptable only under `tests/`, on a line that holds an obvious fake. `make security` enforces the location. A tracked document that quotes the pragma, such as a contributing guide, fails the check too: add it to the recipe's exclusions (`':!CONTRIBUTING.md'`) in the same commit.
 
 #### Using gitleaks Instead
 
@@ -802,9 +802,9 @@ gitleaks meets the same requirement with a different allowlist and no baseline f
 
 | Part | detect-secrets (default) | gitleaks |
 |------|--------------------------|----------|
-| Install | dev dependency, pinned in `uv.lock` | one version, pinned in both places it runs: the hook's `rev` (pre-commit builds it from source) and the CI binary download |
+| Install | dev dependency, pinned in `uv.lock` | the hook's `rev`, which pre-commit builds from source. The CI step reads its version from that `rev`, so `make update-hooks` moves both |
 | Pre-commit hook | local hook, `entry: uv run detect-secrets-hook` | `repo: https://github.com/gitleaks/gitleaks`, `rev: v8.24.2`, `id: gitleaks` |
-| CI scan | `make security` | `gitleaks dir .`, as the first step after checkout |
+| CI scan | `make security` | the step below: `gitleaks dir .` from a checksum-verified binary, as the first step after checkout |
 | `make security` | as written | delete the `detect-secrets-hook` line and the baseline audit check; keep the pragma check and `pip-audit`. The tree scan stays a separate CI step, because run locally `gitleaks dir` also scans `.venv/` |
 | Allowlist | `.secrets.baseline`, audited | `.gitleaksignore`, one finding fingerprint per line, added and reviewed by a person |
 
@@ -820,11 +820,17 @@ CI step:
 ```yaml
       - name: Secret scan
         run: |
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz | tar xz gitleaks
-          ./gitleaks dir .
+          V=$(sed -n '/gitleaks\/gitleaks/{n;s/.*rev: v//p;}' .pre-commit-config.yaml)
+          F="gitleaks_${V}_linux_x64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${V}/${F}"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${V}/gitleaks_${V}_checksums.txt" | grep " ${F}\$" | sha256sum -c -
+          tar xzf "$F" gitleaks
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/gitleaks" dir .
 ```
 
-gitleaks 8.24.2 was run on 2026-09-25 for these claims: the hook, the committed-secret gap, `gitleaks dir` failing on a committed secret and scanning a gitignored `.venv/`, the release URL, and a `.gitleaksignore` fingerprint clearing a finding. The `GITLEAKS_LICENSE` requirement comes from the gitleaks README (fetched 2026-09-24) and was not run.
+gitleaks 8.24.2 was run on 2026-09-25 for these claims: the hook, the committed-secret gap, `gitleaks dir` failing on a committed secret and scanning a gitignored `.venv/`, the release URL, and a `.gitleaksignore` fingerprint clearing a finding. The CI step above was run on 2026-09-26: it read `8.24.2` from the hook's `rev`, verified the checksum, failed on a tampered tarball, and exited 1 on a committed secret. The `GITLEAKS_LICENSE` requirement comes from the gitleaks README (fetched 2026-09-24) and was not run.
 
 ### Dependency Vulnerability Scanning
 
@@ -1708,7 +1714,7 @@ jobs:
       - name: Upload coverage
         uses: codecov/codecov-action@v3
         with:
-          files: ./coverage.xml
+          files: ./coverage.xml,./coverage-integration.xml
 ```
 
 ### CI Best Practices
@@ -1878,7 +1884,7 @@ cd my-project
 
 # Initialize git
 git init
-printf '%s\n' .venv/ '*.pyc' __pycache__/ .pytest_cache/ .mypy_cache/ .ruff_cache/ htmlcov/ .coverage coverage.xml .env > .gitignore
+printf '%s\n' .venv/ '*.pyc' __pycache__/ .pytest_cache/ .mypy_cache/ .ruff_cache/ htmlcov/ .coverage 'coverage*.xml' .env > .gitignore
 
 # Pin the Python version (make setup installs it)
 uv python pin 3.11
@@ -1922,7 +1928,7 @@ make setup
 
 # Stage everything, then create and audit the secrets baseline
 git add .
-uv run detect-secrets scan $(git ls-files) > .secrets.baseline
+git ls-files -z | xargs -0 uv run detect-secrets scan > .secrets.baseline
 uv run detect-secrets audit .secrets.baseline
 git add .secrets.baseline
 
@@ -1930,7 +1936,7 @@ git add .secrets.baseline
 git commit -m "feat: initial project setup"
 ```
 
-The audit asks about the two local-only credentials in `example.env`; answer `y` to each. Create the baseline only after `git add .`: a baseline created earlier is empty, and the first commit then fails on those two lines. Run `make check` once the first unit test exists.
+The audit asks about the two local-only credentials in `example.env`; answer `y` to each. Create the baseline only after `git add .`: a baseline created earlier is empty, and the first commit then fails on those two lines. Run `make check` once the first unit test exists. CI's integration step fails until the first integration test exists, because pytest exits 5 when it collects nothing, so add that step to `ci.yml` with the first integration test.
 
 ---
 
