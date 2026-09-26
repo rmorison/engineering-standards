@@ -64,7 +64,7 @@ Lean on framework defaults:
 | **lint-staged** + **Husky** | Pre-commit hooks | Run linting and formatting on staged files before commit |
 | **npm audit** | Dependency scanning | Detect known vulnerabilities in npm packages |
 
-**Note on pre-commit hooks in the monorepo**: Husky runs at the repo root for JavaScript (lint-staged, Prettier, ESLint). Python pre-commit hooks (`detect-secrets`, `pip-audit`, linting) run via `pre-commit` in `services/backend/` per [Python Project Standards](./python-standards.md). Both coexist — Husky's `.husky/pre-commit` can call `pre-commit run --config services/backend/.pre-commit-config.yaml` for Python files.
+**Note on pre-commit hooks in the monorepo**: Husky runs at the repo root for JavaScript (lint-staged, Prettier, ESLint). Python pre-commit hooks (secret scanning, ruff, mypy) run via `pre-commit` in `services/backend/` per [Python Project Standards](./python-standards.md); pip-audit runs in `make security`, not as a hook. The secret-scanning requirement in [Secret Detection](./python-standards.md#secret-detection) covers the whole repository, the JavaScript tree included, so a scan run only from `services/backend/` does not meet it on its own. Both coexist — Husky's `.husky/pre-commit` can call `pre-commit run --config services/backend/.pre-commit-config.yaml` for Python files.
 
 ### Backend
 
