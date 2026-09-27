@@ -198,7 +198,7 @@ U1 then U2 in one commit, so no commit has fixtures that fail against the settin
 | Kit permissions | `node scripts/check-template-kit.mjs` | R1, R2, R4, R6 on the merged kit |
 | Fail-first proof | same command against the scratch variants in U2 | R5; output pasted in the PR body |
 | Doc checks | `npm ci --prefix scripts && node scripts/check-docs.mjs` | links, anchors and fences in U3 and U4 |
-| Secret refs | `node scripts/check-secret-refs.mjs --standard` | U4 did not break the standard's parsed examples |
+| Secret refs | `python3 scripts/check_secret_refs.py --standard` (the Node script before #55) | U4 did not break the standard's parsed examples |
 
 All three scripts need Node 22, the version CI uses in `.github/workflows/docs.yml`. Node is not installed in the planning environment; install it before U2.
 
