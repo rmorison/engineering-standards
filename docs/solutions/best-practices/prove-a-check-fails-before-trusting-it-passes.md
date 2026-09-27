@@ -9,7 +9,7 @@ severity: high
 last_updated: 2026-09-27
 applies_when:
   - Adding a CI check meant to block a class of defect
-  - Reading a command's exit code as a yes/no answer
+  - Reading a command's exit code as a yes/no answer, including a command expected to fail under set -e
   - Pinning a dependency whose exact version is the point of the check
   - Reviewing a check that has never reported a failure
   - Replacing a rule that classifies every file in a corpus
@@ -17,7 +17,7 @@ resolution_type: workflow_improvement
 related_components:
   - documentation
   - development_workflow
-tags: [ci, verification, false-negative, exit-codes, gitignore, lockfile, tooling, differential-testing]
+tags: [ci, verification, false-negative, exit-codes, gitignore, lockfile, set-e, differential-testing]
 ---
 
 # Prove a check fails before trusting that it passes
@@ -203,7 +203,7 @@ picked that day.
 
 The pin is real now: `scripts/package-lock.json` is committed behind an explicit exception
 at `.gitignore:60-63`, and the workflow installs with `npm ci`
-(`.github/workflows/docs.yml:32-39`).
+(`.github/workflows/docs.yml:57-64`).
 
 ### `! cmd` in a CI step cannot fail the step
 
@@ -216,10 +216,12 @@ python scripts/check_secret_refs.py "$d/ok.env" --config "$d/example.env"
 ! python scripts/check_secret_refs.py "$d/missing.env" --config "$d/example.env"
 ```
 
-The `bad.env` line, the one that guards against a passed secret, could never fail the step.
+The `bad.env` line, the one that guards against a pasted secret, could never fail the step. This is habit 2 again: an
+exit status that nothing reads as the answer.
 
 A `run:` step with no `shell:` runs under `bash -e`, and `set -e` does not act on a command
-negated with `!`. When the check wrongly passes, `!` turns its exit 0 into 1, and bash keeps
+negated with `!`. The same holds for `shell: bash` (`-eo pipefail`) and for any other script
+under `set -e`, such as a git hook or a Makefile with `.SHELLFLAGS := -ec`. When the check wrongly passes, `!` turns its exit 0 into 1, and bash keeps
 going:
 
 ```
@@ -229,7 +231,8 @@ exit=0
 ```
 
 `!` is safe only where something reads its status: as the last command of the step, whose
-status becomes the step's, or on the left of `||`, as in the `security` recipe's pragma check
+status becomes the step's, as the condition of an `if` (`if ! cmd; then`), or on the left of
+`||`, as in the `security` recipe's pragma check
 (`code/python-standards.md:257`). So the suggestion's `missing.env` line, being last, would
 have worked, and its `bad.env` line, in the middle, would not. Whether a check can fail
 depended on its position in the step. The step uses `if` instead, which fails wherever it is
@@ -244,8 +247,10 @@ for f in bad.env missing.env; do
 done
 ```
 
-Habit 1 is what proves the replacement: with a planted bug in the script that accepts a
-secret, the `if` version goes red.
+Habit 1 shows the difference. Run against a copy of `scripts/check_secret_refs.py` with a
+planted bug that exits 0 on `bad.env`, the suggested step still exits 0 and the `if` version
+exits 1. Against the real script both exit 0. The probe is repeatable: copy the script, make
+`main()` return 0 when an argument ends in `bad.env`, and run each step body with `bash -e -c`.
 
 ## Related
 
