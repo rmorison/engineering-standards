@@ -48,9 +48,9 @@ Five habits follow.
 
 **A quote you did not read at the source is a paraphrase.** When research is delegated, the words that come back have passed through a summariser, even when the delegate was told to quote verbatim. Its report is evidence about what the source says, not the source. Before text goes between quotation marks or into a blockquote, open the page and copy it from there, anchor included. If you cannot open it, drop the quotation marks and attribute the text as the delegate's summary. A delegate's report carries the authority of its research the way a correction carries the authority of the debunking, and the same scepticism applies. A delegated summary drops qualifiers and merges sentences, and the dropped part is often the one that constrains you.
 
-**Review the fix delta on its own.** Code written to close review findings is a correction too. It is written at the moment of most confidence: the bug was just reproduced, and the new fixture just passed. The author writes it, and usually nobody else reads it. A re-review of the whole change spends its attention on the old findings again. Ask for a separate review of only the commits that made the fixes. Tell the reviewer the earlier findings are known and out of scope, and name the new logic's risky surfaces: new parsing, odd inputs, rules that now meet each other.
+**Review the fix delta on its own.** Code written to close review findings is a correction too. It is written at the moment of most confidence: the bug was just reproduced, and the new fixture just passed. On #61 and #56, nobody but the author read the fixes until a review scoped to them did. A re-review of the whole change spends its attention on the old findings again. Ask for a separate review of only the commits that made the fixes, read with the full files open rather than the patch alone. Tell the reviewer the earlier findings are known, but keep one question in scope: does each fix close its finding? Name the new logic's risky surfaces: new parsing, odd inputs, rules that now meet each other. Prefer a whole-change re-review when the fixes are most of the diff, or change something the unchanged code relies on. The delta review's own fixes are a new delta; stop when a round finds nothing new in the fixed code.
 
-**Reproduce a finding before you fix it.** A reviewer that could not run the tool labels some findings Plausible. That is a claim about the tool, not a result from it. Run the real tool on a fixture first. The finding is confirmed, sharpened, or fails to reproduce, and the fix should record which.
+**Reproduce a finding before you fix it.** A reviewer that reasons about code it could not run reports a claim about the tool, not a result from it. Some reviewers label such findings Plausible; one confirmed by reading alone is the same kind of claim. Run the real tool on a fixture first, which is habit 1 of [`prove-a-check-fails-before-trusting-it-passes.md`](./prove-a-check-fails-before-trusting-it-passes.md) applied to a finding. The finding is confirmed, sharpened, or fails to reproduce. Failing to reproduce is not a refutation, so record the tool, version and platform. When reproducing is impractical and the fix is cheap and harmless, apply it, say it is unreproduced, and do not add a fixture that passes either way.
 
 ## Why This Matters
 
@@ -58,7 +58,7 @@ A standard is followed without being re-derived. That is the point of writing on
 
 This repository already knew that claims drift and that corrections do not propagate. What it did not have written down is that the correction is itself a claim, drafted at the moment of least scepticism.
 
-Code has the same gap. A fix is accepted because the finding it answers was real, and the fix itself is often the least-reviewed code in the change.
+Code has the same gap. A fix is accepted because the finding it answers was real, and on #61 and #56 the fix was the least-reviewed code in the change.
 
 ## When to Apply
 
@@ -68,7 +68,7 @@ Code has the same gap. A fix is accepted because the finding it answers was real
 - Reviewing a diff that corrects a factual error, where the correction deserves the same scrutiny the original error received
 - Replacing a rule that classifies or filters input, where "it handles the case that prompted it" is the weakest evidence available and the corpus is the strong one
 - Recomputing a count or an identity offered as proof a change was sound, where a sum that balances proves nothing unless it is sensitive to what could have gone wrong
-- Pushing commits that fix review findings, before calling the change merge-ready
+- Pushing commits that fix review findings with new logic, such as parsing, new rules or precedence, before calling the change merge-ready
 - Acting on a review finding marked Plausible, or from a reviewer that could not run the tool
 - Adding a default or a precedence rule to a standard that already has rules; each sentence can hold alone while the combination asks for something nobody can do
 
@@ -140,18 +140,20 @@ as drafted:  > Development environment runners such as `devbox run`, `mise exec`
 
 The paraphrase dropped a runner, merged three sentences into one, and pointed at the wrong anchor. It also softened the one clause that constrained the change. The page recommends an exact rule per inner command, and the kit's `Bash(uv run pytest:*)` keeps a wildcard for arguments. With the real text in hand, the README states that as a departure. Under the paraphrase there was no departure to state.
 
-The same failure in code, in [PR #61](https://github.com/rmorison/engineering-standards/pull/61), the leak gate. The [whole-PR @claude review](https://github.com/rmorison/engineering-standards/pull/61#issuecomment-5859727039) could not install gitleaks, so it marked findings Confirmed or Plausible. Both top findings were reproduced with gitleaks 8.24.2 before they were fixed, and both held. The fixes were then reviewed [on their own](https://github.com/rmorison/engineering-standards/pull/61#issuecomment-5859931612): earlier findings out of scope, the risky surfaces listed, a `:` in a path among them. That [review](https://github.com/rmorison/engineering-standards/pull/61#issuecomment-5859933263) found three bugs the fixes had made. The third was two tables in the standard that no longer agreed. The other two:
+The same failure in code, in [PR #61](https://github.com/rmorison/engineering-standards/pull/61), the leak gate. The [whole-PR @claude review](https://github.com/rmorison/engineering-standards/pull/61#issuecomment-5859727039) could not install gitleaks, so it marked the findings it could not run as Plausible. Both top findings were reproduced with gitleaks 8.24.2 before they were fixed, and both held. The fixes were then reviewed [on their own](https://github.com/rmorison/engineering-standards/pull/61#issuecomment-5859931612): earlier findings out of scope, the risky surfaces listed, a `:` in a path among them. That [review](https://github.com/rmorison/engineering-standards/pull/61#issuecomment-5859933263) found three bugs the fixes had made. The third was two tables in the standard that no longer agreed. The other two:
 
 ```
 hidden-file scan:  copy each staged file hidden by .gitattributes with git show ":$p"
    REFUTED:        gitrevisions reads :[<n>:]<path> as a stage number (0 to 3), so a
-                   file named 2:notes.md was skipped without a message, and
-                   0:notes.md copied the contents of notes.md instead
+                   file named 2:notes.md failed the lookup and was skipped without a
+                   message (git cat-file -e ":$p" 2>/dev/null || continue), and
+                   0:notes.md, when a notes.md was also staged, copied notes.md
    STANDS:         blob id from git --literal-pathspecs ls-files -s, read with
                    git cat-file blob (scripts/leak-gate.sh:227, :234)
 
-two new rules:     "treat an undecided repo as one that may become public"
-                   and "when two cells apply, the stricter one wins"
+two new rules:     "unless a decision to keep it private is recorded ... treat
+                   it as one that may" [become public], and "When two cells
+                   apply to one item, the stricter one wins" (PR #61, 93595a4)
    REFUTED:        together they required every undecided private repo to use
                    GitHub private vulnerability reporting, which GitHub offers
                    for public repositories only
@@ -159,12 +161,12 @@ two new rules:     "treat an undecided repo as one that may become public"
                    follow actual visibility (process/repository-standards.md:22)
 ```
 
-Neither rule was wrong alone, and both came from fixes to separate findings. Each fix was checked against the finding that prompted it, and neither against the other. Each of these fixes gained a fixture that fails against the pre-fix code. Each review round found fewer real defects than the one before, in narrower classes, and that trend was part of the merge call. One finding in the last round, GNU grep dropping a Latin-1 line, did not reproduce locally. Its harmless fix, `grep -a`, stayed, recorded as unreproduced rather than confirmed.
+The rule text is quoted from the [pre-fix standard](https://github.com/rmorison/engineering-standards/blob/93595a4/process/repository-standards.md), a PR #61 commit that the squash merge left out of `main`. Neither rule was wrong alone, and both came from fixes to separate findings. Each fix was checked against the finding that prompted it, and neither against the other. The code fix gained fixtures that fail against the pre-fix code. The two prose fixes were checked by reading, and nothing would fail if they regressed. Each review round found fewer real defects than the one before, in narrower classes. One finding in the last round, GNU grep dropping a Latin-1 line, did not reproduce with GNU grep 3.7 on Linux. Its fix, `grep -a`, stayed because it is harmless, and [the reply](https://github.com/rmorison/engineering-standards/pull/61#issuecomment-5860071053) said it was unreproduced. The fixture added with it passes with or without the fix, so it pins nothing, which is the gap the habit above now names.
 
-It was the second time. In [PR #56](https://github.com/rmorison/engineering-standards/pull/56), a scoped @claude review after the in-session review and its fixes found that the new allow entries could be widened to a wildcard and still pass the check, and that a README sentence calling one command "the one exception" was false. In the same round, one of the fixes added a comment claiming that the first three new fixture rows ran through `make`; the first of them did not. Re-reading the diff caught it (session history).
+[PR #56](https://github.com/rmorison/engineering-standards/pull/56), earlier, showed the same pattern. After the in-session review and its fixes, a [scoped @claude review](https://github.com/rmorison/engineering-standards/pull/56#issuecomment-5850663916) found that two new allow entries could be widened to a wildcard and still pass the check, and that another allow entry still ran arbitrary commands, so a README claim of a single exception was false.
 
 ## Related
 
 - [`prove-a-check-fails-before-trusting-it-passes.md`](./prove-a-check-fails-before-trusting-it-passes.md) covers the same shape one layer down: a tool reporting success that does not mean what it appears to mean. This entry is about a person doing it. Its habit 4, diffing a rule's classifications across the corpus rather than checking the case that prompted the change, is this principle's concrete method when the corrected artifact is a rule.
-- [`process/compound-engineering-integration.md`](../../../process/compound-engineering-integration.md) carries the drift note on corrections that fail to propagate. Propagating a correction assumes the correction is right. Its [AI-review discipline](../../../process/compound-engineering-integration.md#ai-review-discipline-not-enforced-merge-gate) asks for a second review pass in a separate session for critical changes. It does not say to scope that pass to the fixes, which is what found the defects above.
-- [`a-check-must-read-a-file-the-way-its-consumer-does.md`](./a-check-must-read-a-file-the-way-its-consumer-does.md) is the same failure in a check that promised not to repeat values and never tested the promise.
+- [`process/compound-engineering-integration.md`](../../../process/compound-engineering-integration.md) carries the drift note on corrections that fail to propagate. Propagating a correction assumes the correction is right. Its [AI-review discipline](../../../process/compound-engineering-integration.md#ai-review-discipline-not-enforced-merge-gate) asks for a second review pass in a separate session for critical changes. It does not say to scope that pass to the fixes, which is what found the defects above. This doc recommends a broader habit than that discipline requires: it applies to any fix round that adds logic, not only to critical changes.
+- [`a-check-must-read-a-file-the-way-its-consumer-does.md`](./a-check-must-read-a-file-the-way-its-consumer-does.md) is the closest precedent for reproducing before fixing: its review fixes were written proof-first and watched fail before they were trusted.
