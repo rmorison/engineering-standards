@@ -50,8 +50,10 @@ jobs:
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
       # Before any real scan is trusted: each rule fails on a planted leak and
-      # passes its allowlisted cases, and nothing planted reaches this log.
-      - name: Prove the rules fire
+      # passes its allowlisted cases, and nothing planted reaches this log. The
+      # same script proves scripts/leak-gate.sh, the local wrapper, against
+      # invented values in temporary repositories; no real value list is read.
+      - name: Prove the rules and the wrapper fire
         run: sh scripts/test-leak-gate.sh
 
       # Every commit the change adds, so a leak added in one commit and removed
