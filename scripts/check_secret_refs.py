@@ -65,7 +65,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 STANDARD = os.path.join(REPO_ROOT, "code", "python-standards.md")
 
 # Character classes are spelled out rather than taken from `\s`, `\w` or `.`:
@@ -553,7 +553,10 @@ def self_test() -> list[str]:
 
 def display_path(path: str) -> str:
     """A path as the person running the check would type it."""
-    relative = os.path.relpath(path)
+    try:
+        relative = os.path.relpath(path)
+    except ValueError:  # on Windows, a path on another drive has no relative form
+        return path
     return path if relative == "." else relative
 
 

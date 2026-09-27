@@ -107,6 +107,7 @@ project-name/
 ├── config/                     # Configuration files (committed)
 │   └── .gitkeep
 ├── scripts/                    # Development/deployment scripts
+│   └── check_secret_refs.py    # Secret reference check, when secret-refs.env exists (see Secrets)
 ├── .venv/                      # Virtual environment (gitignored)
 ├── .env                        # Local configuration (gitignored)
 ├── example.env                 # Configuration template (committed)
@@ -906,7 +907,7 @@ The full example is under [example.env Template](#exampleenv-template). A refere
 - It needs required review, for example through CODEOWNERS, because repointing a key can send one service's secret to another.
 - `.gitattributes` holds `secret-refs.env text eol=lf`.
 
-`scripts/check_secret_refs.py` checks these rules. It needs only Python's standard library: copy it from this repository into the project's `scripts/` directory, and `make security` runs it whenever `secret-refs.env` exists (see [Automated Checks](../process/documentation-standards.md#automated-checks)). A pass means only that the named files are well-formed. It does not show that a reference resolves, that a value shaped like a reference is not a pasted secret, or that the free text of a comment holds no secret.
+[`scripts/check_secret_refs.py`](../scripts/check_secret_refs.py) checks these rules. It needs only Python's standard library: copy it from this repository into the project's `scripts/` directory, note the commit you copied it from in the commit that adds it, and `make security` runs it whenever `secret-refs.env` exists (see [Automated Checks](../process/documentation-standards.md#automated-checks)). A pass means only that the named files are well-formed. It does not show that a reference resolves, that a value shaped like a reference is not a pasted secret, or that the free text of a comment holds no secret.
 
 **Reference syntax.** 1Password is the named default, and its references take the form `op://<vault-name>/<item-name>[/<section-name>]/<field-name>`. Keep vault, item, section and field names to letters, digits, `.`, `_` and `-`; the check rejects anything else, spaces included. Doppler, sops and HashiCorp Vault are sanctioned alternatives: a project using one adds that tool's reference grammar, with its source, to the check's allowlist, and its prefix to `REFERENCE_PREFIXES` in the configuration example.
 
@@ -1017,6 +1018,8 @@ project-name/
 ├── .env                        # Local configuration (gitignored)
 ├── example.env                 # Configuration template (committed)
 ├── secret-refs.env             # Secret references, no values (committed)
+├── scripts/
+│   └── check_secret_refs.py    # Checks secret-refs.env (copied from this repository)
 ├── .gitignore                  # Git exclusions
 └── ...
 ```

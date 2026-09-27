@@ -337,11 +337,13 @@ U1 → U2 → U3 → U4 → U5 → U6 → U7. U2 and U4 both edit the Makefile b
 
 ## Verification Contract
 
+*Note, 2026-09-26:* #29 item 5 replaced `scripts/check-secret-refs.mjs` with `scripts/check_secret_refs.py`. Earlier mentions of the Node script in this plan record what was run at the time.
+
 | Gate | Command or evidence | Proves |
 |---|---|---|
 | Docs check | `node scripts/check-docs.mjs` | links and anchors resolve, including `#secrets` and `#secret-detection` |
 | Template kit | `node scripts/check-template-kit.mjs` | starter-kit claims still hold |
-| Secret refs | `node scripts/check-secret-refs.mjs --standard` | exactly one `# example.env` and one `# secret-refs.env` block, both valid |
+| Secret refs | `python scripts/check_secret_refs.py --standard` (the Node script until #29 item 5 replaced it) | exactly one `# example.env` and one `# secret-refs.env` block, both valid |
 | Library scratch run | U1, U2, U6 scenarios, using uv 0.8.17 and detect-secrets 1.5.0 | R1, R5–R7, R15; AE1, AE2 |
 | Tooling scratch run | U4 scenario | R10, R11; AE4 |
 | Matrix run | U5 scenario | R4; AE3 |

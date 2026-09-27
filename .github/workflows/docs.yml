@@ -101,9 +101,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The script's stated floor, so a newer-only construct fails here rather
+      # than in an adopting project on an older interpreter.
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'
 
       - name: Check secret reference examples
         run: python scripts/check_secret_refs.py --standard
+
+      # File mode is the path adopting projects use, and --standard never runs
+      # it. `if` rather than `! cmd`: bash -e ignores a failure under `!`, so a
+      # check that wrongly passed would not fail the step.
+      - name: Check file mode
+        run: |
+          d="$RUNNER_TEMP/refs"; mkdir -p "$d"
+          printf 'A=op://dev/a/b\r\n' > "$d/ok.env"
+          printf 'C=1\n' > "$d/example.env"
+          printf 'A=hunter2\n' > "$d/bad.env"
+          python scripts/check_secret_refs.py "$d/ok.env" --config "$d/example.env"
+          for f in bad.env missing.env; do
+            if python scripts/check_secret_refs.py "$d/$f" --config "$d/example.env"; then
+              echo "check_secret_refs.py passed $f, which it must reject" >&2
+              exit 1
+            fi
+          done
