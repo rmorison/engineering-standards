@@ -27,6 +27,13 @@ env:
   # The version code/python-standards.md pins. Upgrade both together, and let
   # scripts/test-leak-gate.sh prove the rules still fire on the new version.
   GITLEAKS_VERSION: '8.24.2'
+  # Every scan's flags, in one place so no step can drift from them. No -v: it
+  # prints the line around each match, and this log is public. Findings print
+  # only through the template. An inline gitleaks:allow comment suppresses
+  # nothing.
+  GITLEAKS_FLAGS: >-
+    --config .gitleaks.toml --no-banner --no-color --redact --ignore-gitleaks-allow
+    --report-format template --report-template scripts/gitleaks-report.tmpl --report-path -
 
 jobs:
   leaks:
@@ -79,13 +86,9 @@ jobs:
               echo "No commit range for a $EVENT run; the tree scan below covers it."
               exit 0 ;;
           esac
-          gitleaks git . --log-opts="$range" \
-            --config .gitleaks.toml --no-banner --no-color --redact --ignore-gitleaks-allow \
-            --report-format template --report-template scripts/gitleaks-report.tmpl --report-path -
+          gitleaks git . --log-opts="$range" $GITLEAKS_FLAGS
 
       # The whole tree, so content that predates a rule is checked against it.
       - name: Scan the tree
         run: |
-          gitleaks dir . \
-            --config .gitleaks.toml --no-banner --no-color --redact --ignore-gitleaks-allow \
-            --report-format template --report-template scripts/gitleaks-report.tmpl --report-path -
+          gitleaks dir . $GITLEAKS_FLAGS
