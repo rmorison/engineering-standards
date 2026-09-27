@@ -19,7 +19,7 @@ Governance files that are a choice rather than a baseline are out of scope here:
 | Trigger | Holds when |
 |---|---|
 | always | The repository exists |
-| public | The repository is public, or **may become public**: unless a decision to keep it private is recorded, for example in its README, treat it as one that may. A leak in history cannot be retracted after the fact, so a repository that might be opened later adopts the public items now |
+| public | The repository is public, or **may become public**: unless a decision to keep it private is recorded, for example in its README, treat it as one that may. A leak in history cannot be retracted after the fact, so a repository that might be opened later adopts the public items that guard against leaks now: the license decision and value rules. Items that depend on a GitHub feature of public repositories, private vulnerability reporting and the chooser link to it, follow actual visibility and switch on in [Going Public](#going-public) |
 | outside contributions | People outside the owning team open pull requests |
 | distributed | Others use the code: a published package, a released binary, code a client runs, or a public repository people may copy |
 
@@ -49,7 +49,7 @@ Skeletons of each file are in the [starter kit](../templates/README.md).
 
 **Public:** required, and it points reporters to GitHub's private vulnerability reporting, not an email address. When the feature is enabled, reporters see a **Report a vulnerability** button on the repository's security advisories page, and the report reaches the maintainers privately. Owners and admins enable it under Settings, Code security ([Configuring private vulnerability reporting for a repository](https://docs.github.com/en/code-security/how-tos/report-and-fix-vulnerabilities/configure-vulnerability-reporting/configure-for-a-repository), checked 2026-09-27). Enable it **before** committing a `SECURITY.md` that points at it, or the first reporter finds no button.
 
-**Private:** recommended, pointing to an internal channel. GitHub's private vulnerability reporting is available for public repositories only (checked 2026-09-27, same page), and people who can read a private repository are already inside the team.
+**Private:** recommended, pointing to an internal channel, including for a private repository that may become public. GitHub's private vulnerability reporting is available for public repositories only (checked 2026-09-27, same page), and people who can read a private repository are already inside the team.
 
 **Private and distributed:** required. Users of the code cannot see the repository, so publish the reporting channel where they can: the package page, the product's documentation, or a security page on the product's site.
 
@@ -78,7 +78,7 @@ The [Developer Certificate of Origin](https://developercertificate.org/) (DCO) i
 
 **Always:** an issue template chooser config, `.github/ISSUE_TEMPLATE/config.yml`, is recommended. `blank_issues_enabled` decides whether a blank issue is offered, and `contact_links` sends particular reports elsewhere ([Configuring issue templates](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository), checked 2026-09-27).
 
-**Public, with a `SECURITY.md`:** the chooser config is required, with a contact link to the private vulnerability report, so a reporter choosing a new issue is sent away from a public one.
+**Public, with a `SECURITY.md`:** the chooser config is required, with a contact link to the private vulnerability report, so a reporter choosing a new issue is sent away from a public one. As with `SECURITY.md`, this follows actual visibility: a private repository that may become public adds the link when it goes public.
 
 Issue templates may apply only labels defined in [Label Strategy](./issue-tracking.md#label-strategy). A template that applies any other label creates it on first use.
 
@@ -94,7 +94,7 @@ This repository's gate is [gitleaks](https://github.com/gitleaks/gitleaks), a si
 |---|---|---|---|
 | Credentials | Tokens, keys and passwords | always | CI and locally |
 | Shape rules | Values that are wrong by their form, whatever the value: today, an absolute home-directory path | always | CI and locally |
-| Value rules | Specific private values: private repository names, internal hostnames and URLs, account handles | public | Locally only |
+| Value rules | Specific private values: private repository names, internal hostnames and URLs, account handles | public (required), distributed (recommended) | Locally only |
 
 These categories come from leaks that happened. This repository once published a private repository's name, a URL into that private repository, and an absolute home-directory path out of a contributor's machine. The first two are value rules and the third is a shape rule.
 
@@ -121,7 +121,7 @@ A pull request can weaken its own CI run by editing `.gitleaks.toml`, adding an 
 
 ### Private Values
 
-The value list is a plain text file with one literal value per line. Blank lines and lines starting with `#` are ignored. Keep it outside every repository. The wrapper turns each value into a case-insensitive literal match on file contents, so a value is never read as a regular expression. It also checks what gitleaks does not read: the path of every file the scanned commits or staged changes touch, including binary, empty, renamed and non-ASCII-named files; in `range` and `history`, the author, committer and message of each commit; and the staged contents of any file `.gitattributes` hides from git's diff. Findings name the list line, never the value. It rejects, by line number only, a line it cannot quote safely: one holding `\E` or `'''`, one that is not valid UTF-8, one with a control character, or one shorter than four characters.
+The value list is a plain text file with one literal value per line. Blank lines and lines starting with `#` are ignored. Keep it outside every repository. The wrapper turns each value into a case-insensitive literal match on file contents, so a value is never read as a regular expression. It also checks what gitleaks does not read: the path of every file the scanned commits or staged changes touch, including binary, empty, renamed and non-ASCII-named files; in `range` and `history`, the author, committer and message of each commit; and the staged contents of any file git's staged diff shows as binary, whether because of `.gitattributes` or its content. Findings name the list line, never the value. It rejects, by line number only, a line it cannot quote safely: one holding `\E` or `'''`, one that is not valid UTF-8, one with a control character, one shorter than four characters, or one that starts or ends with a non-ASCII space, which usually comes from pasting and would never match. Prefer values of six characters or more: `range` and `history` scan binary content, where a short value can match by chance.
 
 Declare the list with a git config key holding its path. Declared once globally, it applies to every clone on the machine, including a fresh one:
 
@@ -171,7 +171,8 @@ It exits 0 when clean, 1 when it finds a leak, and 2 on a usage, list or gitleak
 - **Commits made without the value rules.** Commits from an outside pull request, a web edit, or a CI job that commits never ran value rules. The maintainer's pre-merge run keeps such a value off the default branch. In a public repository the value is already published once the pull request exists, so a hit at that point follows the remediation below.
 - **Commit messages, pull request bodies, and branch and tag names.** gitleaks scans file contents. The wrapper adds paths, commit identities and, before a push, commit messages; the going-public sweep below also checks ref names and tag messages. CI checks none of them, and nothing checks pull request bodies.
 - **Files on gitleaks' default path allowlist.** Lock files, images and vendored paths are not scanned by the credential or shape rules; `package-lock.json` hid a home path in a test on 2026-09-27. The value rules do scan the text among them, such as lock files, because the generated value configuration does not extend the defaults. `scripts/test-leak-gate.sh` pins both behaviours.
-- **Binary file contents.** gitleaks skips a file whose contents are binary, such as an image or a PDF, so no rule reads it. The wrapper still checks its path. A text file that `.gitattributes` marks `-diff` or `binary` is still read: CI and the wrapper pass `--text`, and the wrapper scans such a file's staged contents directly.
+- **Binary file contents, in part.** CI's commit scan and the wrapper's `range` and `history` pass `--text`, so every rule reads each changed file whatever git or `.gitattributes` calls it. CI's tree scan and the wrapper's committed rules in `staged` mode skip content that really is binary, such as an image or a PDF. In `staged` mode the value rules still match its bytes, and the wrapper always checks paths.
+- **Allowlists on staged files git shows as binary.** The wrapper scans those from a temporary copy, so a path allowlist or `.gitleaksignore` fingerprint for them does not apply. A false positive there is cleared by fixing the file or its attributes, not by allowlisting.
 - **Git LFS contents.** Only the pointer file is committed or checked out, so no rule reads what LFS stores.
 - **Names on gitleaks' default global allowlist.** Extending the default rules also inherits an allowlist of placeholder-looking and path-shaped values, so the home-directory rule misses some user directory names, such as one letter repeated. `scripts/test-leak-gate.sh` pins that case.
 - **Anything the rules do not describe.** A new kind of leak passes until a rule for it exists.

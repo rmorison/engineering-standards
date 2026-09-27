@@ -153,6 +153,13 @@ g rm -q hidden.txt && g commit -q -m unhidden
 run 3 "leak behind a -diff attribute, added then removed" "$NAME" -- \
   git "$REPO" --log-opts="--text -m $attr_base..HEAD"
 
+# --text also puts binary content in front of the rules. Pinned so a change in
+# gitleaks' handling of it is noticed: a NUL-bearing file is scanned.
+bin_base=$(g rev-parse HEAD)
+printf 'bin\000 see %s\n' "$H/$NAME/bin" > "$REPO/blob.dat"
+g add blob.dat && g commit -q -m binary
+run 3 "binary content is scanned under --text" "$NAME" -- git "$REPO" --log-opts="--text -m $bin_base..HEAD"
+
 # --- Accepted gaps, pinned so a gitleaks upgrade that changes them is noticed ---
 
 # Extending the default rules inherits gitleaks' default path allowlist, so the
@@ -407,12 +414,13 @@ declare_list "$R" "$LISTS/values"
 printf 'notes.md -diff\n' > "$R/.gitattributes"
 printf 'deploy to %s\n' "$VALUE" > "$R/notes.md"
 git -C "$R" add .gitattributes notes.md
-gate 1 "staged value behind a -diff attribute" "notes.md:1" "$R" staged
+gate 1 "staged value behind a -diff attribute" "notes.md  [private-value-3]" "$R" staged
 R=$(wrepo w-attr-staged-shape)
 printf 'notes.md binary\n' > "$R/.gitattributes"
 printf 'see %s\n' "$H/$NAME/x" > "$R/notes.md"
 git -C "$R" add .gitattributes notes.md
 gate 1 "staged home path behind the binary attribute" "notes.md:1" "$R" staged
+case $out in *hidden/*) bad "wrapper, hidden-file report: output contains the temporary path" ;; *) ok ;; esac
 R=$(wrepo w-attr-range)
 declare_list "$R" "$LISTS/values"
 printf 'notes.md -diff\n' > "$R/.gitattributes"
@@ -435,7 +443,10 @@ rc=0
 out=$(cd "$R" && GITLEAKS="$GITLEAKS" sh "$GATE" staged 2>&1) || rc=$?
 case "$rc:$out" in
   1:*"file name withheld"*)
-    case $out in *münchen*) bad "wrapper, non-ASCII value: the value appears in the output" ;; *) ok ;; esac ;;
+    case $out in
+      *münchen*|*'\303\274'*|*fixture-m*) bad "wrapper, non-ASCII value: the value appears in the output" ;;
+      *) ok ;;
+    esac ;;
   *) bad "wrapper, non-ASCII value in a directory name: exit $rc, expected 1 with the file name withheld" ;;
 esac
 
@@ -470,6 +481,80 @@ sha=$(git -C "$R" rev-parse HEAD)
 printf '%s\n' "$(printf '%s' "$sha" | cut -c1-8)" > "$LISTS/hex"
 declare_list "$R" "$LISTS/hex"
 gate 0 "hex-like value does not match a SHA" "no leaks found" "$R" history
+
+# gate_lacks <description> <text>: the last gate run's output must not contain text.
+gate_lacks() {
+  case $out in
+    *"$2"*) bad "wrapper, $1: output contains '$2'" ;;
+    *) ok ;;
+  esac
+}
+
+# Hidden-file copies are read by blob ID: a path that starts with 0: to 3:
+# must not be read as a conflict stage.
+R=$(wrepo w-stage-names)
+declare_list "$R" "$LISTS/values"
+printf '* -diff\n' > "$R/.gitattributes"
+printf 'deploy to %s\n' "$VALUE" > "$R/2:notes.md"
+printf 'deploy to %s\n' "$VALUE" > "$R/0:notes.md"
+git -C "$R" add -A
+gate 1 "staged -diff file named 2:notes.md" "2:notes.md  [private-value-3]" "$R" staged
+gate 1 "staged -diff file named 0:notes.md" "0:notes.md  [private-value-3]" "$R" staged
+gate_lacks "hidden-file report" "hidden/"
+
+# Content git itself detects as binary: value rules still match the bytes.
+R=$(wrepo w-nul)
+declare_list "$R" "$LISTS/values"
+printf 'log\000 deploy to %s\n' "$VALUE" > "$R/app.log"
+git -C "$R" add app.log
+gate 1 "staged file with a NUL byte holding a value" "app.log  [private-value-3]" "$R" staged
+
+# A staged .gitleaksignore that git hides must not suppress a hidden finding.
+R=$(wrepo w-hidden-ignore)
+printf '* -diff\n' > "$R/.gitattributes"
+printf 'notes.md:home-directory-path:1\n' > "$R/.gitleaksignore"
+printf 'see %s\n' "$H/$NAME/x" > "$R/notes.md"
+git -C "$R" add -A
+gate 1 "hidden .gitleaksignore does not suppress" "notes.md:1" "$R" staged
+
+# Deletions and mode-only changes of hidden files finish cleanly.
+R=$(wrepo w-hidden-delete)
+printf '* -diff\n' > "$R/.gitattributes"
+printf 'clean\n' > "$R/keep.sh"
+wcommit "$R" attrs
+git -C "$R" rm -q README.md
+chmod +x "$R/keep.sh"
+git -C "$R" add keep.sh
+gate 0 "staged deletion and mode change of hidden files" "no leaks found" "$R" staged
+
+# A path with a newline is refused, never skipped.
+R=$(wrepo w-newline)
+printf 'x\n' > "$R/two
+lines.md"
+git -C "$R" add -A
+gate 2 "staged path containing a newline" "contains a newline" "$R" staged
+
+# Only an exact 1 relaxes the committed rules.
+R=$(wrepo w-allow-true)
+printf 'see %s # %s\n' "$H/$NAME/x" "gitleaks"":allow" > "$R/notes.md"
+git -C "$R" add notes.md
+LEAKGATE_HONOR_ALLOW=true
+export LEAKGATE_HONOR_ALLOW
+gate 1 "LEAKGATE_HONOR_ALLOW=true stays strict" "notes.md:1" "$R" staged
+LEAKGATE_HONOR_ALLOW=$saved_allow
+
+# A Latin-1 author name must not hide a matching identity from grep.
+R=$(wrepo w-latin1)
+declare_list "$R" "$LISTS/values"
+GIT_AUTHOR_NAME="$(printf 'Jos\351')" GIT_AUTHOR_EMAIL="dev@$VALUE" \
+  git -C "$R" commit -q --allow-empty -m latin1
+gate 1 "Latin-1 author name with a value in the email" "a commit author or committer matches" "$R" range HEAD~1..HEAD
+
+# A value carrying a pasted no-break space would never match: refuse it.
+R=$(wrepo w-nbsp)
+printf '%s\302\240\n' "$VALUE" > "$LISTS/nbsp"
+declare_list "$R" "$LISTS/nbsp"
+gate 2 "value ending in a no-break space" "line 1" "$R" staged
 
 echo "Leak gate fixtures: $passed passed, $failed failed."
 [ "$failed" -eq 0 ]

@@ -137,12 +137,22 @@ else
     echo 'useDefault = false'
   } > "$WORK/values.toml"
   : > "$WORK/entries"
+  # No-break space, ideographic space, and the U+2000 to U+200A spaces, as bytes.
+  nbsp=$(printf '\302\240')
+  ideo=$(printf '\343\200\200')
+  gen_space="$(printf '\342\200')[$(printf '\200')-$(printf '\212')]"
 
   n=0
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
     value=$(printf '%s' "$line" | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
     case "$value" in ''|'#'*) continue ;; esac
+    # Non-ASCII spaces at either end usually come from pasting, and the C locale
+    # does not trim them; a value carrying one would silently never match.
+    if printf '%s\n' "$value" | LC_ALL=C grep -q -e "^$nbsp" -e "$nbsp\$" \
+         -e "^$ideo" -e "$ideo\$" -e "^$gen_space" -e "$gen_space\$"; then
+      die "value list line $n starts or ends with a non-ASCII space"
+    fi
     if ! printf '%s' "$value" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
       die "value list line $n is not valid UTF-8"
     fi
@@ -195,14 +205,46 @@ esac
 # git quotes a path holding non-ASCII or special characters unless told not to,
 # and a quoted path would not match a value. -z output is never quoted.
 tr '\0' '\n' < "$WORK/paths.z" > "$WORK/paths"
+# A newline inside a path would split it into two lines that match nothing, so
+# refuse such a path rather than skip it.
+if [ "$(tr -cd '\n' < "$WORK/paths.z" | wc -c)" -ne 0 ]; then
+  die "a scanned path contains a newline; rename it before this check can run"
+fi
+
+# Files git's staged diff shows as "Binary files differ": a -diff or binary
+# attribute, a diff driver marked binary, or content git detects as binary.
+# gitleaks --staged skips them, so their staged contents are copied out from the
+# index by blob ID and scanned directly. Copies go under $WORK/hidden/t, so the
+# scanned directory's own root never holds a copied .gitleaksignore.
+: > "$WORK/hidden.list"
+if [ "$mode" = staged ]; then
+  git -c core.quotePath=false diff --cached --numstat --no-renames -z |
+    tr '\0' '\n' | sed -n 's/^-	-	//p' > "$WORK/binary.paths"
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    # The blob ID comes from the index entry, never from a ":<path>" revision,
+    # which git reads as a stage number when the path starts with 0: to 3:.
+    entry=$(git --literal-pathspecs ls-files -s -- "$p" | head -n 1)
+    [ -n "$entry" ] || continue                   # a staged deletion
+    mode_bits=${entry%% *}
+    rest=${entry#* }
+    sha=${rest%% *}
+    case "$mode_bits" in 100644|100755) ;; *) continue ;; esac   # symlinks, submodules
+    mkdir -p "$WORK/hidden/t/$(dirname "$p")"
+    git cat-file blob "$sha" > "$WORK/hidden/t/$p" ||
+      die "could not read the staged contents of a file"
+    printf '%s\n' "$p" >> "$WORK/hidden.list"
+  done < "$WORK/binary.paths"
+fi
 
 # sha_matches <file> <value>: the SHA in column 1 of each line whose other
 # columns contain the value. Matching only those columns keeps a hex-like value
 # from matching a SHA.
 sha_matches() {
-  cut -f2- "$1" | grep -n -i -F -e "$2" | cut -d: -f1 | while IFS= read -r ln; do
-    sed -n "${ln}p" "$1" | cut -f1
-  done
+  # -a: GNU grep would otherwise drop a matching line that is not valid UTF-8,
+  # such as an old Latin-1 author name.
+  cut -f2- "$1" | grep -a -n -i -F -e "$2" | cut -d: -f1 > "$WORK/lines"
+  awk -F '\t' 'NR == FNR { want[$1]; next } FNR in want { print $1 }' "$WORK/lines" "$1"
 }
 
 leaks=0
@@ -281,7 +323,8 @@ run_gitleaks() {
   "$GITLEAKS" "$@" --gitleaks-ignore-path "$ROOT" $allow \
     --no-banner --no-color --log-level warn --redact --exit-code 3 \
     --report-format template --report-path - > "$WORK/out" || rc=$?
-  sed "s#$WORK/hidden/##" "$WORK/out"
+  # Strip the temporary prefix as a literal string: $WORK is not a safe regex.
+  awk -v p="$WORK/hidden/t/" 'index($0, p) == 1 { $0 = substr($0, length(p) + 1) } { print }' "$WORK/out"
   case $rc in
     0) ;;
     3) leaks=1 ;;
@@ -294,39 +337,36 @@ run_gitleaks() {
 committed_allow="--ignore-gitleaks-allow"
 [ "${LEAKGATE_HONOR_ALLOW:-}" = 1 ] && committed_allow=""
 
-# scan <config> <allow-flag> <template>: the chosen source, then, in staged mode,
-# the staged contents of files .gitattributes hides from git's diff.
+# scan <config> <allow-flag> <template>: the chosen source.
 scan() {
   run_gitleaks "$2" git "$ROOT" "$source_arg" --config "$1" --report-template "$3"
-  if [ -s "$WORK/hidden.list" ]; then
-    run_gitleaks "$2" dir "$WORK/hidden" --config "$1" --report-template "$3"
-  fi
 }
-
-# gitleaks --staged reads `git diff --staged`, which shows a file whose diff
-# attribute is unset (-diff, or the binary macro) as "Binary files differ" and
-# so hides its contents. Copy the staged contents of those files out and scan
-# them directly; gitleaks' dir mode still skips files that really are binary.
-: > "$WORK/hidden.list"
-if [ "$mode" = staged ]; then
-  while IFS= read -r p; do
-    [ -n "$p" ] || continue
-    case "$(git check-attr diff -- "$p")" in
-      *": diff: unset") ;;
-      *) continue ;;
-    esac
-    git cat-file -e ":$p" 2>/dev/null || continue
-    mkdir -p "$WORK/hidden/$(dirname "$p")"
-    git show ":$p" > "$WORK/hidden/$p"
-    printf '%s\n' "$p" >> "$WORK/hidden.list"
-  done < "$WORK/paths"
-fi
 
 # Once any path matches a value, no report names a file.
 template="$SCRIPTS/gitleaks-report.tmpl"
 [ "$path_hit" -eq 0 ] || template="$WORK/nofile.tmpl"
 scan "$CONFIG" "$committed_allow" "$template"
 [ "$values" -eq 0 ] || scan "$WORK/values.toml" --ignore-gitleaks-allow "$template"
+
+# The staged files git's diff hides: the committed rules through gitleaks' dir
+# mode, which still skips content that really is binary, and the value rules by
+# a byte-level literal match, which does not.
+if [ -s "$WORK/hidden.list" ]; then
+  run_gitleaks "$committed_allow" dir "$WORK/hidden" --config "$CONFIG" --report-template "$template"
+  if [ "$values" -gt 0 ]; then
+    while IFS='	' read -r n value; do
+      while IFS= read -r p; do
+        LC_ALL=C grep -a -q -i -F -e "$value" "$WORK/hidden/t/$p" || continue
+        if [ "$path_hit" -eq 0 ]; then
+          echo "$p  [private-value-$n] (staged; git's diff shows this file as binary)"
+        else
+          echo "[private-value-$n] a staged file git's diff shows as binary (file name withheld: a tracked path matches a private value)"
+        fi
+        leaks=1
+      done < "$WORK/hidden.list"
+    done < "$WORK/entries"
+  fi
+fi
 
 if [ "$leaks" -ne 0 ]; then
   echo "leak-gate: leaks found. Remediation is in process/repository-standards.md." >&2
