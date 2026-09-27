@@ -117,11 +117,35 @@ printf 'see %s\n' "$H/$NAME/x" > "$REPO/leak.md"
 g add leak.md && g commit -q -m add
 g rm -q leak.md && g commit -q -m remove
 run 3 "leak added then removed within a range" "$NAME" -- \
-  git "$REPO" --log-opts="$base..HEAD"
+  git "$REPO" --log-opts="-m $base..HEAD"
 run 0 "same tree scanned as a snapshot" "" -- dir "$(fixture snapshot "clean")"
 printf 'more\n' >> "$REPO/README.md"
 g add README.md && g commit -q -m clean
-run 0 "clean range" "" -- git "$REPO" --log-opts="HEAD~1..HEAD"
+run 0 "clean range" "" -- git "$REPO" --log-opts="-m HEAD~1..HEAD"
+
+# A merge that introduces content, as a conflict resolution does. git log shows no
+# diff for a merge commit unless -m is given, which is why CI passes it.
+merge_base=$(g rev-parse HEAD)
+g checkout -q -b side
+printf 'side\n' > "$REPO/side.md"
+g add side.md && g commit -q -m side
+g checkout -q -
+g merge -q --no-ff --no-commit side >/dev/null 2>&1
+printf 'see %s\n' "$H/$NAME/merged" > "$REPO/merged.md"
+g add merged.md && g commit -q -m merge
+run 3 "leak introduced by a merge commit" "$NAME" -- git "$REPO" --log-opts="-m $merge_base..HEAD"
+
+# --- Accepted gaps, pinned so a gitleaks upgrade that changes them is noticed ---
+
+# Extending the default rules inherits gitleaks' default path allowlist, so the
+# shape rule does not read lock files. process/repository-standards.md states it.
+mkdir -p "$WORK/lockfile"
+printf '{"resolved": "file:%s/%s/lib"}\n' "$H" "$NAME" > "$WORK/lockfile/package-lock.json"
+run 0 "known gap: shape rule skips package-lock.json" "" -- dir "$WORK/lockfile"
+# It also inherits the default global allowlist, which exempts some user
+# directory names, such as one letter repeated.
+run 0 "known gap: default allowlist exempts a repeated-letter name" "" -- \
+  dir "$(fixture repeated "see $H/aaaa/x")"
 
 # --- An error is not a leak -----------------------------------------------------
 
@@ -270,6 +294,94 @@ gate 1 "history: value in an annotated tag message" "an annotated tag message ma
 R=$(wrepo w-clean)
 declare_list "$R" "$LISTS/values"
 gate 0 "clean history" "no leaks found" "$R" history
+
+# Usage errors exit 2, never 0.
+gate 2 "no mode" "usage" "$R"
+gate 2 "unknown mode" "usage" "$R" everything
+gate 2 "range without its argument" "usage" "$R" range
+gate 0 "empty range is reported" "holds no commits" "$R" range HEAD..HEAD
+
+# The documented form of the declaration: a path under ~/.
+R=$(wrepo w-tilde)
+mkdir -p "$WORK/home/lists"
+cp "$LISTS/values" "$WORK/home/lists/values"
+git -C "$R" config leakgate.values '~/lists/values'
+printf 'deploy to %s\n' "$VALUE" > "$R/notes.md"
+git -C "$R" add notes.md
+saved_home=$HOME
+HOME="$WORK/home"
+gate 1 "declaration under ~/" "notes.md:1" "$R" staged
+HOME=$saved_home
+
+R=$(wrepo w-toml)
+printf "# a\n%s'''tail\n" "$VALUE" > "$LISTS/toml"
+declare_list "$R" "$LISTS/toml"
+gate 2 "list line containing three single quotes" "line 2" "$R" staged
+
+R=$(wrepo w-lone-cr)
+printf '# values\r%s\r' "$VALUE" > "$LISTS/lonecr"
+declare_list "$R" "$LISTS/lonecr"
+printf 'deploy to %s\n' "$VALUE" > "$R/notes.md"
+git -C "$R" add notes.md
+gate 1 "list with lone-CR line endings" "notes.md:1" "$R" staged
+
+# gitleaks reads a path only through a text diff; git lists every path.
+R=$(wrepo w-binary-name)
+declare_list "$R" "$LISTS/values"
+printf '\211PNG\000\001' > "$R/$VALUE.png"
+wcommit "$R" binary
+gate 1 "value in a binary file's name" "a tracked path matches" "$R" range HEAD~1..HEAD
+R=$(wrepo w-empty-name)
+declare_list "$R" "$LISTS/values"
+: > "$R/$VALUE.md"
+git -C "$R" add "$VALUE.md"
+gate 1 "value in an empty staged file's name" "a tracked path matches" "$R" staged
+R=$(wrepo w-rename)
+declare_list "$R" "$LISTS/values"
+git -C "$R" mv README.md "$VALUE.md"
+wcommit "$R" rename
+gate 1 "value in a renamed file's name" "a tracked path matches" "$R" range HEAD~1..HEAD
+
+# Value rules read lock files, which the committed rules' allowlist skips.
+R=$(wrepo w-lockfile)
+declare_list "$R" "$LISTS/values"
+printf '{"resolved": "https://%s/lib.tgz"}\n' "$VALUE" > "$R/package-lock.json"
+git -C "$R" add package-lock.json
+gate 1 "value in package-lock.json" "package-lock.json" "$R" staged
+
+# A merge that introduces the value, in range and in history.
+R=$(wrepo w-merge)
+declare_list "$R" "$LISTS/values"
+base=$(git -C "$R" rev-parse HEAD)
+git -C "$R" checkout -q -b side
+printf 'side\n' > "$R/side.md"
+wcommit "$R" side
+git -C "$R" checkout -q -
+git -C "$R" merge -q --no-ff --no-commit side >/dev/null 2>&1
+printf 'deploy to %s\n' "$VALUE" > "$R/merged.md"
+wcommit "$R" merge
+gate 1 "value introduced by a merge commit (range)" "[private-value-3]" "$R" range "$base..HEAD"
+gate 1 "value introduced by a merge commit (history)" "[private-value-3]" "$R" history
+
+# An ignore file in the working directory must not suppress a value finding.
+R=$(wrepo w-cwd-ignore)
+declare_list "$R" "$LISTS/values"
+mkdir -p "$R/sub"
+printf 'sub/notes.md:private-value-3:1\n' > "$R/sub/.gitleaksignore"
+printf 'deploy to %s\n' "$VALUE" > "$R/sub/notes.md"
+git -C "$R" add sub/notes.md
+gate 1 "run from a directory holding its own .gitleaksignore" "notes.md:1" "$R/sub" staged
+
+# Identities and ref names reach a public repository too.
+R=$(wrepo w-identity)
+declare_list "$R" "$LISTS/values"
+git -C "$R" -c user.name=fixture -c "user.email=dev@$VALUE" commit -q --allow-empty -m identity
+gate 1 "value in an author email (range)" "a commit author or committer matches" "$R" range HEAD~1..HEAD
+gate 1 "value in an author email (history)" "a commit author or committer matches" "$R" history
+R=$(wrepo w-branch)
+declare_list "$R" "$LISTS/values"
+git -C "$R" branch "feature/$VALUE"
+gate 1 "value in a branch name" "a branch or tag name matches" "$R" history
 
 echo "Leak gate fixtures: $passed passed, $failed failed."
 [ "$failed" -eq 0 ]

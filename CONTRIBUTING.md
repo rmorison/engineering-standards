@@ -37,8 +37,8 @@ Bugs, gaps and questions go in GitHub issues. Security problems go privately, as
 Private value rules, such as private repository names and internal hostnames, run only on a maintainer's machine, from a list declared in git config. [Private Values](process/repository-standards.md#private-values) covers the list. Before merging a pull request that did not come from a machine holding the list, run the value rules over its commits. Run from `main`'s own checkout, never the pull request's:
 
 ```bash
-git fetch origin pull/<N>/head
-sh scripts/leak-gate.sh range origin/main..FETCH_HEAD
+git fetch origin pull/<N>/head:refs/leakgate/pr-<N>
+sh scripts/leak-gate.sh range origin/main..refs/leakgate/pr-<N>
 ```
 
 Changes to `.gitleaks.toml`, `.gitleaksignore` and `.github/workflows/leaks.yml` can weaken the leak gate, so review them as security changes.

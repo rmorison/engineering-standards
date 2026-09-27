@@ -12,9 +12,14 @@
 
 title = "engineering-standards leak gate"
 
-# gitleaks' default rules scan for credentials. Extending them also inherits the
-# default path allowlist: lock files, images and vendored paths are not scanned by
-# any rule in this file. process/repository-standards.md names that gap.
+# gitleaks' default rules scan for credentials. Extending them also inherits two
+# default allowlists, and process/repository-standards.md names both gaps:
+#   - the path allowlist: lock files, images and vendored paths are not scanned by
+#     any rule in this file;
+#   - the global allowlist of placeholder-looking values, which exempts some user
+#     directory names from the home-directory rule, such as one letter repeated.
+# scripts/test-leak-gate.sh pins both, so a gitleaks upgrade that changes them
+# fails a fixture rather than changing coverage quietly.
 [extend]
 useDefault = true
 

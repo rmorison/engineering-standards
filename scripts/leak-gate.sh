@@ -27,13 +27,21 @@
 #                                                  # pre-merge run over a pull
 #                                                  # request's commits
 #   sh scripts/leak-gate.sh history                # going public: every ref, plus
-#                                                  # commit and tag messages
+#                                                  # commit and tag messages,
+#                                                  # identities and ref names
+#
+# Besides file contents, value rules check what gitleaks does not read: the path
+# of every file the source touches (binary, empty and renamed files included),
+# commit author and committer identities in range and history, and in history
+# branch and tag names and commit and tag messages. Merge commits are scanned
+# with git's -m, so content a merge introduces is not skipped.
 #
 # Run a pre-merge check from the default branch's own checkout, never from the
 # pull request's: the pull request can edit this script, .gitleaks.toml and
 # .gitleaksignore, and this machine holds the value list.
 #
-#   git fetch origin pull/<N>/head && sh scripts/leak-gate.sh range origin/main..FETCH_HEAD
+#   git fetch origin pull/<N>/head:refs/leakgate/pr-<N>
+#   sh scripts/leak-gate.sh range origin/main..refs/leakgate/pr-<N>
 #
 # Exits 0 when clean, 1 when a leak is found, 2 on a usage, list or gitleaks
 # error. Needs git and gitleaks (GITLEAKS may name its path); nothing else.
@@ -44,6 +52,9 @@ GITLEAKS=${GITLEAKS:-gitleaks}
 ROOT=$(git rev-parse --show-toplevel)
 ROOT_REAL=$(cd "$ROOT" && pwd -P)
 SCRIPTS=$(cd "$(dirname "$0")" && pwd -P)
+# gitleaks reads .gitleaksignore from its working directory. Run from the root, so
+# the only ignore file it reads is the one checked below.
+cd "$ROOT"
 CONFIG="$ROOT/.gitleaks.toml"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -110,7 +121,6 @@ else
     echo '[extend]'
     echo 'useDefault = false'
   } > "$WORK/values.toml"
-  cp "$WORK/values.toml" "$WORK/paths.toml"
   : > "$WORK/entries"
 
   n=0
@@ -131,18 +141,16 @@ else
       die "value list line $n is shorter than 4 characters and would match almost every file"
     fi
     values=$((values + 1))
-    printf '%s\n' "$value" >> "$WORK/entries"
+    printf '%s\t%s\n' "$n" "$value" >> "$WORK/entries"
     # (?i)\Q...\E makes every value a case-insensitive literal: no value is
     # ever parsed as a regular expression, so none can fail to compile and
     # print itself in the error.
     printf '[[rules]]\nid = "private-value-%s"\nregex = '"'''"'(?i)\\Q%s\\E'"'''"'\n' \
       "$n" "$value" >> "$WORK/values.toml"
-    printf '[[rules]]\nid = "private-value-%s-path"\npath = '"'''"'(?i)\\Q%s\\E'"'''"'\n' \
-      "$n" "$value" >> "$WORK/paths.toml"
   done < "$WORK/list"
 
   [ "$values" -gt 0 ] || die "the declared value list has no values: $declared"
-  chmod 600 "$WORK/values.toml" "$WORK/paths.toml" "$WORK/entries"
+  chmod 600 "$WORK/values.toml" "$WORK/entries"
 
   # A value rule has no legitimate in-tree suppression.
   if [ -f "$ROOT/.gitleaksignore" ] && grep -q 'private-value-' "$ROOT/.gitleaksignore"; then
@@ -150,31 +158,89 @@ else
   fi
 fi
 
-# --- Scanning ---------------------------------------------------------------------
+# --- What gitleaks does not read: paths, identities, ref names, messages -------------
 
-cat > "$WORK/path.tmpl" <<'EOF'
-{{- range . }}
-a tracked path matches [{{ .RuleID }}]{{ if .Commit }} in commit {{ .Commit }}{{ end }}
-{{- end }}
-EOF
+# gitleaks sees a path only through a text diff, so a value in the name of a
+# binary, empty or renamed file would pass it. git lists every path the scanned
+# source touches, whatever the file holds.
+case "$mode" in
+  staged)
+    git diff --cached --name-only --no-renames > "$WORK/paths" ;;
+  range)
+    if [ "$(git rev-list --count "$range")" -eq 0 ]; then
+      echo "leak-gate: note: the range $range holds no commits, so there is nothing to scan."
+    fi
+    git log -m --format= --name-only --no-renames "$range" > "$WORK/paths"
+    git log --format='%H%x09%an <%ae>%x09%cn <%ce>' "$range" > "$WORK/identities" ;;
+  history)
+    git log --all -m --format= --name-only --no-renames > "$WORK/paths"
+    git log --all --format='%H%x09%an <%ae>%x09%cn <%ce>' > "$WORK/identities"
+    git for-each-ref --format='%(objectname)%09%(refname)' > "$WORK/refs" ;;
+esac
+
+leaks=0
+path_hit=0
+if [ "$values" -gt 0 ]; then
+  while IFS='	' read -r n value; do
+    # Each report names the list line and a SHA, never the value or the text
+    # around it.
+    if grep -q -i -F -e "$value" "$WORK/paths"; then
+      echo "a tracked path matches private value (list line $n)"
+      leaks=1
+      path_hit=1
+    fi
+    if [ -f "$WORK/identities" ]; then
+      for sha in $(grep -i -F -e "$value" "$WORK/identities" | cut -f1); do
+        echo "a commit author or committer matches private value (list line $n): commit $sha"
+        leaks=1
+      done
+    fi
+    [ "$mode" = history ] || continue
+    for sha in $(grep -i -F -e "$value" "$WORK/refs" | cut -f1 | sort -u); do
+      echo "a branch or tag name matches private value (list line $n): object $sha"
+      leaks=1
+    done
+    for sha in $(git log --all -i -F --grep="$value" --format=%H); do
+      echo "a commit message matches private value (list line $n): commit $sha"
+      leaks=1
+    done
+    for tag in $(git for-each-ref refs/tags --format='%(objecttype):%(objectname)'); do
+      case "$tag" in tag:*) ;; *) continue ;; esac
+      sha=${tag#tag:}
+      if git cat-file tag "$sha" | grep -q -i -F -e "$value"; then
+        echo "an annotated tag message matches private value (list line $n): tag object $sha"
+        leaks=1
+      fi
+    done
+  done < "$WORK/entries"
+fi
+
+if [ "$mode" = history ] && ! grep -q '/pull/' "$WORK/refs"; then
+  echo "leak-gate: note: no pull request refs are fetched, so their commits were not scanned." \
+    "Fetch them first; see the going-public procedure in process/repository-standards.md."
+fi
+
+# --- Contents: gitleaks -------------------------------------------------------------
+
 cat > "$WORK/nofile.tmpl" <<'EOF'
 {{- range . }}
 line {{ .StartLine }}  [{{ .RuleID }}]{{ if .Commit }} commit {{ .Commit }}{{ end }} (file name withheld: a tracked path matches a private value)
 {{- end }}
 EOF
 
+# -m makes git show each merge commit's changes, so content first introduced by a
+# merge, such as a conflict resolution, is scanned too.
 case "$mode" in
-  staged) source_args="--staged" ;;
-  range) source_args="--log-opts=$range" ;;
-  history) source_args="--log-opts=--all" ;;
+  staged) source_arg="--staged" ;;
+  range) source_arg="--log-opts=-m $range" ;;
+  history) source_arg="--log-opts=--all -m" ;;
 esac
 
-leaks=0
 # gitleaks <config> <template>: one scan of the chosen source. Exit 3 is a leak;
 # any other non-zero exit is an error, never mistaken for a clean result.
 scan() {
   rc=0
-  "$GITLEAKS" git "$ROOT" $source_args --config "$1" \
+  "$GITLEAKS" git "$ROOT" "$source_arg" --config "$1" --gitleaks-ignore-path "$ROOT" \
     --no-banner --no-color --log-level warn --redact --ignore-gitleaks-allow --exit-code 3 \
     --report-format template --report-template "$2" --report-path - || rc=$?
   case $rc in
@@ -184,41 +250,11 @@ scan() {
   esac
 }
 
+# Once any path matches a value, no report names a file.
 template="$SCRIPTS/gitleaks-report.tmpl"
-if [ "$values" -gt 0 ]; then
-  scan "$WORK/paths.toml" "$WORK/path.tmpl"
-  # Once any path matches a value, no later report names a file.
-  [ "$leaks" -eq 0 ] || template="$WORK/nofile.tmpl"
-fi
+[ "$path_hit" -eq 0 ] || template="$WORK/nofile.tmpl"
 scan "$CONFIG" "$template"
 [ "$values" -eq 0 ] || scan "$WORK/values.toml" "$template"
-
-# --- Going public: messages gitleaks does not read ----------------------------------
-
-if [ "$mode" = history ]; then
-  if ! git -C "$ROOT" for-each-ref --format='%(refname)' | grep -q '/pull/'; then
-    echo "leak-gate: note: no pull request refs are fetched, so their commits were not scanned." \
-      "Fetch them first; see the going-public procedure in process/repository-standards.md."
-  fi
-  if [ "$values" -gt 0 ]; then
-    i=0
-    while IFS= read -r value; do
-      i=$((i + 1))
-      for sha in $(git -C "$ROOT" log --all -i -F --grep="$value" --format=%H); do
-        echo "a commit message matches a private value: commit $sha"
-        leaks=1
-      done
-      for tag in $(git -C "$ROOT" for-each-ref refs/tags --format='%(objecttype):%(objectname)'); do
-        case "$tag" in tag:*) ;; *) continue ;; esac
-        sha=${tag#tag:}
-        if git -C "$ROOT" cat-file tag "$sha" | grep -q -i -F -e "$value"; then
-          echo "an annotated tag message matches a private value: tag object $sha"
-          leaks=1
-        fi
-      done
-    done < "$WORK/entries"
-  fi
-fi
 
 if [ "$leaks" -ne 0 ]; then
   echo "leak-gate: leaks found. Remediation is in process/repository-standards.md." >&2

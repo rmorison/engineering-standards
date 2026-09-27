@@ -45,8 +45,8 @@ Bugs and questions go in issues. Security problems go privately, as [SECURITY.md
 Before merging a pull request that did not come from a machine holding the private value list, run the value rules over its commits from the default branch's own checkout, never the pull request's:
 
 ```bash
-git fetch origin pull/<N>/head
-sh scripts/leak-gate.sh range origin/main..FETCH_HEAD
+git fetch origin pull/<N>/head:refs/leakgate/pr-<N>
+sh scripts/leak-gate.sh range origin/main..refs/leakgate/pr-<N>
 ```
 
 The list and its declaration: https://github.com/rmorison/engineering-standards/blob/main/process/repository-standards.md#private-values

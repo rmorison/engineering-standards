@@ -210,9 +210,9 @@ The last two rows are the leak gate: gitleaks, run by
 changes, with the rules in `.gitleaks.toml`. That file extends gitleaks' default
 credential rules with the home-directory rule that was check 6 of
 `scripts/check-docs.mjs` until #31, so the rule now covers every tracked file
-rather than Markdown only. The job scans every commit the change adds, so a leak
-added in one commit and removed in the next still fails, and then the whole
-tree. It prints findings only through `scripts/gitleaks-report.tmpl`, as file,
+rather than Markdown only. The job scans every commit the change adds, merge
+commits included, so a leak added in one commit and removed in the next still
+fails, and then the whole tree. It prints findings only through `scripts/gitleaks-report.tmpl`, as file,
 line and rule, because gitleaks' verbose output prints the line around a match
 and this log is public. Before scanning, `scripts/test-leak-gate.sh` plants each
 kind of leak in a temporary directory and fails unless every rule fires, so a

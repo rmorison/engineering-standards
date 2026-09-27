@@ -86,7 +86,9 @@ jobs:
               echo "No commit range for a $EVENT run; the tree scan below covers it."
               exit 0 ;;
           esac
-          gitleaks git . --log-opts="$range" $GITLEAKS_FLAGS
+          # -m shows each merge commit's changes, so content first introduced by
+          # a merge, such as a conflict resolution, is scanned too.
+          gitleaks git . --log-opts="-m $range" $GITLEAKS_FLAGS
 
       # The whole tree, so content that predates a rule is checked against it.
       - name: Scan the tree
