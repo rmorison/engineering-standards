@@ -14,12 +14,12 @@ Governance files that are a choice rather than a baseline are out of scope here:
 
 ## Triggers
 
-**Reading the Trigger column.** A repository matches every trigger whose condition holds, and each item applies under each trigger that names it. Most items depend on who contributes to the repository or who uses its code, not on whether it is public.
+**Reading the Trigger column.** A repository matches every trigger whose condition holds, and each item applies under each trigger that names it. When two cells apply to one item, the stricter one wins: a public repository's `SECURITY.md` is required and points to private vulnerability reporting. Most items depend on who contributes to the repository or who uses its code, not on whether it is public.
 
 | Trigger | Holds when |
 |---|---|
 | always | The repository exists |
-| public | The repository is public, or **may become public**. A leak in history cannot be retracted after the fact, so a repository that might be opened later adopts the public items now |
+| public | The repository is public, or **may become public**: unless a decision to keep it private is recorded, for example in its README, treat it as one that may. A leak in history cannot be retracted after the fact, so a repository that might be opened later adopts the public items now |
 | outside contributions | People outside the owning team open pull requests |
 | distributed | Others use the code: a published package, a released binary, code a client runs, or a public repository people may copy |
 
@@ -33,7 +33,7 @@ Governance files that are a choice rather than a baseline are out of scope here:
 | [PR template, issue chooser config](#issue-and-pull-request-templates) | recommended | contact link required with `SECURITY.md` | | |
 | [Credential scanning](#rule-categories) | required | | | |
 | [Leak gate shape rules](#rule-categories) | required | | | |
-| [Leak gate value rules](#rule-categories) | | required | | |
+| [Leak gate value rules](#rule-categories) | | required | | recommended (shipped code can carry internal names to its users) |
 
 Skeletons of each file are in the [starter kit](../templates/README.md).
 
@@ -106,22 +106,22 @@ These categories come from leaks that happened. This repository once published a
 
 ### Adopting the Gate
 
-Copy four files from this repository:
+Copy these files from this repository:
 
 - `.gitleaks.toml`: the committed rules. It extends gitleaks' default rules with the home-directory path rule and its allowlist of non-identifying directories such as `runner` and `linuxbrew`.
 - `scripts/gitleaks-report.tmpl`: the report template. Findings print as file, line and rule, never the matched text.
-- `scripts/leak-gate.sh`: the local wrapper that adds value rules. It needs only `sh`, git and gitleaks.
+- `scripts/leak-gate.sh`: the local wrapper that adds value rules. It needs `sh`, git, gitleaks and standard POSIX utilities, and `iconv` when a value list is declared.
 - `.github/workflows/leaks.yml`, with `scripts/test-leak-gate.sh`: the CI job, and the fixtures that prove every rule fires before any scan is trusted.
 
 Install gitleaks at a pinned version with its release checksum verified, as [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead) shows, never piped from `curl` into a shell. The CI job pins 8.24.2.
 
-The job scans every commit the change adds, merge commits included (with git's `-m`, since a plain `git log` shows no changes for a merge), so a leak added in one commit and removed in the next still fails. It then scans the whole tree, so existing content is checked against a newly added rule. Every gitleaks call runs without `-v` and prints only through the template. With `-v`, gitleaks prints the line around each match, which can hold a second secret, and prints file paths, which can hold a private value; `--redact` masks only the match itself (gitleaks 8.24.2, run 2026-09-27). Every call also passes `--ignore-gitleaks-allow`, so an inline `gitleaks:allow` comment suppresses nothing. A Python project whose standard permits reviewed `gitleaks:allow` comments under `tests/` drops that flag from `leaks.yml` and keeps the `make security` pragma check, which confines them there ([Secret Detection](../code/python-standards.md#secret-detection)).
+The job scans every commit the change adds, merge commits included (with git's `-m`, since a plain `git log` shows no changes for a merge), and with git's `--text`, so a `.gitattributes` entry cannot hide a text file's changes as binary. A leak added in one commit and removed in the next still fails. It then scans the whole tree, so existing content is checked against a newly added rule. Every gitleaks call runs without `-v` and prints only through the template. With `-v`, gitleaks prints the line around each match, which can hold a second secret, and prints file paths, which can hold a private value; `--redact` masks only the match itself (gitleaks 8.24.2, run 2026-09-27). Every call also passes `--ignore-gitleaks-allow`, so an inline allow comment suppresses nothing. A Python project whose standard permits reviewed allow comments under `tests/` ([Secret Detection](../code/python-standards.md#secret-detection)) drops that flag from `leaks.yml`, sets `LEAKGATE_HONOR_ALLOW=1` for `scripts/leak-gate.sh` so local runs agree with CI, and keeps the `make security` pragma check, which confines the comments to `tests/`. The opt-in applies to the committed rules only; value rules ignore allow comments always. None of the copied files contains the literal marker, so copying them does not trip that pragma check.
 
-A pull request can weaken its own CI run by editing `.gitleaks.toml`, adding an entry to `.gitleaksignore`, or editing the workflow. Give those three files required review, for example through `CODEOWNERS`.
+A pull request can weaken its own CI run by editing `.gitleaks.toml`, adding an entry to `.gitleaksignore`, marking files with `.gitattributes`, or editing the workflow. Give those four files required review, for example through `CODEOWNERS`.
 
 ### Private Values
 
-The value list is a plain text file with one literal value per line. Blank lines and lines starting with `#` are ignored. Keep it outside every repository. The wrapper turns each value into a case-insensitive literal match on file contents, so a value is never read as a regular expression. It also checks what gitleaks does not read: the path of every file the scanned commits or staged changes touch, including binary, empty and renamed files, and, in `range` and `history`, the author and committer of each commit. Findings name the list line, never the value. It rejects, by line number only, a line it cannot quote safely: one holding `\E` or `'''`, one that is not valid UTF-8, one with a control character, or one shorter than four characters.
+The value list is a plain text file with one literal value per line. Blank lines and lines starting with `#` are ignored. Keep it outside every repository. The wrapper turns each value into a case-insensitive literal match on file contents, so a value is never read as a regular expression. It also checks what gitleaks does not read: the path of every file the scanned commits or staged changes touch, including binary, empty, renamed and non-ASCII-named files; in `range` and `history`, the author, committer and message of each commit; and the staged contents of any file `.gitattributes` hides from git's diff. Findings name the list line, never the value. It rejects, by line number only, a line it cannot quote safely: one holding `\E` or `'''`, one that is not valid UTF-8, one with a control character, or one shorter than four characters.
 
 Declare the list with a git config key holding its path. Declared once globally, it applies to every clone on the machine, including a fresh one:
 
@@ -169,10 +169,11 @@ It exits 0 when clean, 1 when it finds a leak, and 2 on a usage, list or gitleak
 ### What the Gate Cannot See
 
 - **Commits made without the value rules.** Commits from an outside pull request, a web edit, or a CI job that commits never ran value rules. The maintainer's pre-merge run keeps such a value off the default branch. In a public repository the value is already published once the pull request exists, so a hit at that point follows the remediation below.
-- **Commit messages, pull request bodies, and branch and tag names.** gitleaks scans file contents, and the wrapper adds paths and commit identities. The going-public sweep below checks messages and ref names once; nothing checks them on each change.
+- **Commit messages, pull request bodies, and branch and tag names.** gitleaks scans file contents. The wrapper adds paths, commit identities and, before a push, commit messages; the going-public sweep below also checks ref names and tag messages. CI checks none of them, and nothing checks pull request bodies.
 - **Files on gitleaks' default path allowlist.** Lock files, images and vendored paths are not scanned by the credential or shape rules; `package-lock.json` hid a home path in a test on 2026-09-27. The value rules do scan the text among them, such as lock files, because the generated value configuration does not extend the defaults. `scripts/test-leak-gate.sh` pins both behaviours.
-- **Binary file contents.** gitleaks skips any file git treats as binary, such as an image or a PDF, in every mode, so no rule reads its contents. The wrapper still checks its path.
-- **Names on gitleaks' default global allowlist.** Extending the default rules also inherits an allowlist of placeholder-looking values, so the home-directory rule misses some user directory names, such as one letter repeated.
+- **Binary file contents.** gitleaks skips a file whose contents are binary, such as an image or a PDF, so no rule reads it. The wrapper still checks its path. A text file that `.gitattributes` marks `-diff` or `binary` is still read: CI and the wrapper pass `--text`, and the wrapper scans such a file's staged contents directly.
+- **Git LFS contents.** Only the pointer file is committed or checked out, so no rule reads what LFS stores.
+- **Names on gitleaks' default global allowlist.** Extending the default rules also inherits an allowlist of placeholder-looking and path-shaped values, so the home-directory rule misses some user directory names, such as one letter repeated. `scripts/test-leak-gate.sh` pins that case.
 - **Anything the rules do not describe.** A new kind of leak passes until a rule for it exists.
 
 ### When a Leak Is Found

@@ -41,4 +41,4 @@ git fetch origin pull/<N>/head:refs/leakgate/pr-<N>
 sh scripts/leak-gate.sh range origin/main..refs/leakgate/pr-<N>
 ```
 
-Changes to `.gitleaks.toml`, `.gitleaksignore` and `.github/workflows/leaks.yml` can weaken the leak gate, so review them as security changes.
+Changes to `.gitleaks.toml`, `.gitleaksignore`, `.gitattributes` and `.github/workflows/leaks.yml` can weaken the leak gate, so review them as security changes.

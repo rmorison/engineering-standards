@@ -360,8 +360,8 @@ The leak gate is not a skeleton; it is working configuration. Copy
 `scripts/test-leak-gate.sh` and `.github/workflows/leaks.yml` from the root of
 this repository, as
 [Adopting the Gate](../process/repository-standards.md#adopting-the-gate)
-describes. They need `sh`, git and gitleaks, and nothing from your project's
-language ecosystem.
+describes. They need `sh`, git, gitleaks and standard POSIX utilities, and
+nothing from your project's language ecosystem.
 
 ## Adding more templates
 

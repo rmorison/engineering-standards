@@ -108,8 +108,10 @@ run 3 "credential and home path on one line" "$NAME" -- \
   dir "$(fixture both "GITHUB_TOKEN=$TOKEN in $H/$NAME/.env")"
 run 3 "credential and home path on one line (token text)" "$TOKEN" -- \
   dir "$WORK/both"
-run 3 "inline gitleaks:allow does not suppress" "$NAME" -- \
-  dir "$(fixture allow-comment "see $H/$NAME/x # gitleaks:allow")"
+# The allow marker is assembled so no copied file carries it: the Python
+# standard's pragma check rejects the literal outside tests/.
+run 3 "inline allow comment does not suppress" "$NAME" -- \
+  dir "$(fixture allow-comment "see $H/$NAME/x # gitleaks"":allow")"
 
 # --- Commit range ---------------------------------------------------------------
 
@@ -123,11 +125,11 @@ printf 'see %s\n' "$H/$NAME/x" > "$REPO/leak.md"
 g add leak.md && g commit -q -m add
 g rm -q leak.md && g commit -q -m remove
 run 3 "leak added then removed within a range" "$NAME" -- \
-  git "$REPO" --log-opts="-m $base..HEAD"
+  git "$REPO" --log-opts="--text -m $base..HEAD"
 run 0 "same tree scanned as a snapshot" "" -- dir "$(fixture snapshot "clean")"
 printf 'more\n' >> "$REPO/README.md"
 g add README.md && g commit -q -m clean
-run 0 "clean range" "" -- git "$REPO" --log-opts="-m HEAD~1..HEAD"
+run 0 "clean range" "" -- git "$REPO" --log-opts="--text -m HEAD~1..HEAD"
 
 # A merge that introduces content, as a conflict resolution does. git log shows no
 # diff for a merge commit unless -m is given, which is why CI passes it.
@@ -139,7 +141,17 @@ g checkout -q -
 g merge -q --no-ff --no-commit side >/dev/null 2>&1 || { echo "fixture setup: merge failed" >&2; exit 2; }
 printf 'see %s\n' "$H/$NAME/merged" > "$REPO/merged.md"
 g add merged.md && g commit -q -m merge
-run 3 "leak introduced by a merge commit" "$NAME" -- git "$REPO" --log-opts="-m $merge_base..HEAD"
+run 3 "leak introduced by a merge commit" "$NAME" -- git "$REPO" --log-opts="--text -m $merge_base..HEAD"
+
+# A .gitattributes entry that unsets the diff attribute makes git print "Binary
+# files differ" for a text file, which gitleaks skips. CI passes --text.
+printf 'hidden.txt -diff\n' > "$REPO/.gitattributes"
+printf 'see %s\n' "$H/$NAME/hidden" > "$REPO/hidden.txt"
+attr_base=$(g rev-parse HEAD)
+g add .gitattributes hidden.txt && g commit -q -m hidden
+g rm -q hidden.txt && g commit -q -m unhidden
+run 3 "leak behind a -diff attribute, added then removed" "$NAME" -- \
+  git "$REPO" --log-opts="--text -m $attr_base..HEAD"
 
 # --- Accepted gaps, pinned so a gitleaks upgrade that changes them is noticed ---
 
@@ -388,6 +400,76 @@ R=$(wrepo w-branch)
 declare_list "$R" "$LISTS/values"
 git -C "$R" branch "feature/$VALUE"
 gate 1 "value in a branch name" "a branch or tag name matches" "$R" history
+
+# .gitattributes can hide a text file's contents from git's diff.
+R=$(wrepo w-attr-staged)
+declare_list "$R" "$LISTS/values"
+printf 'notes.md -diff\n' > "$R/.gitattributes"
+printf 'deploy to %s\n' "$VALUE" > "$R/notes.md"
+git -C "$R" add .gitattributes notes.md
+gate 1 "staged value behind a -diff attribute" "notes.md:1" "$R" staged
+R=$(wrepo w-attr-staged-shape)
+printf 'notes.md binary\n' > "$R/.gitattributes"
+printf 'see %s\n' "$H/$NAME/x" > "$R/notes.md"
+git -C "$R" add .gitattributes notes.md
+gate 1 "staged home path behind the binary attribute" "notes.md:1" "$R" staged
+R=$(wrepo w-attr-range)
+declare_list "$R" "$LISTS/values"
+printf 'notes.md -diff\n' > "$R/.gitattributes"
+printf 'deploy to %s\n' "$VALUE" > "$R/notes.md"
+wcommit "$R" hidden
+git -C "$R" rm -q notes.md
+wcommit "$R" unhidden
+gate 1 "value behind a -diff attribute, added then removed" "[private-value-3]" "$R" range HEAD~2..HEAD
+
+# git quotes a non-ASCII path unless told not to; the value must still match,
+# and the output must withhold the file name.
+R=$(wrepo w-nonascii)
+UVALUE=fixture-münchen.example
+printf '%s\n' "$UVALUE" > "$LISTS/unicode"
+declare_list "$R" "$LISTS/unicode"
+mkdir -p "$R/docs-$UVALUE"
+printf 'see %s\n' "$UVALUE" > "$R/docs-$UVALUE/notes.md"
+git -C "$R" add -A
+rc=0
+out=$(cd "$R" && GITLEAKS="$GITLEAKS" sh "$GATE" staged 2>&1) || rc=$?
+case "$rc:$out" in
+  1:*"file name withheld"*)
+    case $out in *münchen*) bad "wrapper, non-ASCII value: the value appears in the output" ;; *) ok ;; esac ;;
+  *) bad "wrapper, non-ASCII value in a directory name: exit $rc, expected 1 with the file name withheld" ;;
+esac
+
+# A commit message is checked before a push, not only when going public.
+R=$(wrepo w-range-message)
+declare_list "$R" "$LISTS/values"
+git -C "$R" commit -q --allow-empty -m "deploy to $VALUE"
+gate 1 "value in a commit message (range)" "a commit message matches" "$R" range HEAD~1..HEAD
+
+# An inline allow comment suppresses nothing unless the project opts in, and
+# then only for the committed rules. The marker is assembled here so no copied
+# file carries it, since the Python standard's pragma check rejects it.
+ALLOW="gitleaks"":allow"
+R=$(wrepo w-allow)
+printf 'see %s # %s\n' "$H/$NAME/x" "$ALLOW" > "$R/notes.md"
+git -C "$R" add notes.md
+gate 1 "allow comment ignored by default" "notes.md:1" "$R" staged
+saved_allow=${LEAKGATE_HONOR_ALLOW:-}
+LEAKGATE_HONOR_ALLOW=1
+export LEAKGATE_HONOR_ALLOW
+gate 0 "allow comment honoured for committed rules when opted in" "no leaks found" "$R" staged
+R=$(wrepo w-allow-value)
+declare_list "$R" "$LISTS/values"
+printf 'deploy to %s # %s\n' "$VALUE" "$ALLOW" > "$R/notes.md"
+git -C "$R" add notes.md
+gate 1 "allow comment never suppresses a value rule" "notes.md:1" "$R" staged
+LEAKGATE_HONOR_ALLOW=$saved_allow
+
+# A hex-like value must not match a commit or object SHA.
+R=$(wrepo w-hex)
+sha=$(git -C "$R" rev-parse HEAD)
+printf '%s\n' "$(printf '%s' "$sha" | cut -c1-8)" > "$LISTS/hex"
+declare_list "$R" "$LISTS/hex"
+gate 0 "hex-like value does not match a SHA" "no leaks found" "$R" history
 
 echo "Leak gate fixtures: $passed passed, $failed failed."
 [ "$failed" -eq 0 ]

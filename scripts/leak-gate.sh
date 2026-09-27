@@ -44,7 +44,13 @@
 #   sh scripts/leak-gate.sh range origin/main..refs/leakgate/pr-<N>
 #
 # Exits 0 when clean, 1 when a leak is found, 2 on a usage, list or gitleaks
-# error. Needs git and gitleaks (GITLEAKS may name its path); nothing else.
+# error. Needs git, gitleaks (GITLEAKS may name its path) and standard POSIX
+# utilities, plus iconv when a value list is declared.
+#
+# LEAKGATE_HONOR_ALLOW=1 lets inline gitleaks allow comments suppress findings
+# from the committed rules only, for a project whose language standard permits
+# reviewed ones (see process/repository-standards.md). Value rules ignore them
+# always.
 
 set -eu
 
@@ -58,6 +64,9 @@ cd "$ROOT"
 CONFIG="$ROOT/.gitleaks.toml"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
+# dash runs no EXIT trap when a signal kills the shell, which would leave the
+# generated value rules behind. Route signals through it.
+trap 'exit 130' INT TERM HUP
 chmod 700 "$WORK"
 
 die() { echo "leak-gate: $*" >&2; exit 2; }
@@ -84,7 +93,7 @@ real_path() {
     real_path "$link"
     return 0
   fi
-  echo "$target"
+  printf '%s\n' "$target"
 }
 
 declared=$(git -C "$ROOT" config --get leakgate.values 2>/dev/null || true)
@@ -114,7 +123,13 @@ else
   # CRLF and lone CR both end a line; a byte-order mark is dropped.
   bom=$(printf '\357\273\277')
   cr=$(printf '\r')
-  sed "1s/^$bom//; s/$cr\$//" "$list" | tr '\r' '\n' > "$WORK/list"
+  # The C locale keeps sed and tr from stopping at an invalid byte, which on
+  # BSD systems would silently truncate the list. Each step's status is checked.
+  LC_ALL=C sed "1s/^$bom//; s/$cr\$//" "$list" > "$WORK/list.raw" ||
+    die "the declared value list could not be read: $declared"
+  LC_ALL=C tr '\r' '\n' < "$WORK/list.raw" > "$WORK/list" ||
+    die "the declared value list could not be read: $declared"
+  command -v iconv >/dev/null 2>&1 || die "iconv is needed to check the value list and was not found"
 
   {
     echo 'title = "private values"'
@@ -126,7 +141,7 @@ else
   n=0
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1))
-    value=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    value=$(printf '%s' "$line" | LC_ALL=C sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
     case "$value" in ''|'#'*) continue ;; esac
     if ! printf '%s' "$value" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; then
       die "value list line $n is not valid UTF-8"
@@ -165,18 +180,30 @@ fi
 # source touches, whatever the file holds.
 case "$mode" in
   staged)
-    git diff --cached --name-only --no-renames > "$WORK/paths" ;;
+    git -c core.quotePath=false diff --cached --name-only --no-renames -z > "$WORK/paths.z" ;;
   range)
     if [ "$(git rev-list --count "$range")" -eq 0 ]; then
       echo "leak-gate: note: the range $range holds no commits, so there is nothing to scan."
     fi
-    git log -m --format= --name-only --no-renames "$range" > "$WORK/paths"
+    git -c core.quotePath=false log -m --format= --name-only --no-renames -z "$range" > "$WORK/paths.z"
     git log --format='%H%x09%an <%ae>%x09%cn <%ce>' "$range" > "$WORK/identities" ;;
   history)
-    git log --all -m --format= --name-only --no-renames > "$WORK/paths"
+    git -c core.quotePath=false log --all -m --format= --name-only --no-renames -z > "$WORK/paths.z"
     git log --all --format='%H%x09%an <%ae>%x09%cn <%ce>' > "$WORK/identities"
     git for-each-ref --format='%(objectname)%09%(refname)' > "$WORK/refs" ;;
 esac
+# git quotes a path holding non-ASCII or special characters unless told not to,
+# and a quoted path would not match a value. -z output is never quoted.
+tr '\0' '\n' < "$WORK/paths.z" > "$WORK/paths"
+
+# sha_matches <file> <value>: the SHA in column 1 of each line whose other
+# columns contain the value. Matching only those columns keeps a hex-like value
+# from matching a SHA.
+sha_matches() {
+  cut -f2- "$1" | grep -n -i -F -e "$2" | cut -d: -f1 | while IFS= read -r ln; do
+    sed -n "${ln}p" "$1" | cut -f1
+  done
+}
 
 leaks=0
 path_hit=0
@@ -190,13 +217,19 @@ if [ "$values" -gt 0 ]; then
       path_hit=1
     fi
     if [ -f "$WORK/identities" ]; then
-      for sha in $(grep -i -F -e "$value" "$WORK/identities" | cut -f1); do
+      for sha in $(sha_matches "$WORK/identities" "$value"); do
         echo "a commit author or committer matches private value (list line $n): commit $sha"
         leaks=1
       done
     fi
+    if [ "$mode" = range ]; then
+      for sha in $(git log -i -F --grep="$value" --format=%H "$range"); do
+        echo "a commit message matches private value (list line $n): commit $sha"
+        leaks=1
+      done
+    fi
     [ "$mode" = history ] || continue
-    for sha in $(grep -i -F -e "$value" "$WORK/refs" | cut -f1 | sort -u); do
+    for sha in $(sha_matches "$WORK/refs" "$value" | sort -u); do
       echo "a branch or tag name matches private value (list line $n): object $sha"
       leaks=1
     done
@@ -229,20 +262,26 @@ line {{ .StartLine }}  [{{ .RuleID }}]{{ if .Commit }} commit {{ .Commit }}{{ en
 EOF
 
 # -m makes git show each merge commit's changes, so content first introduced by a
-# merge, such as a conflict resolution, is scanned too.
+# merge, such as a conflict resolution, is scanned too. --text stops a
+# .gitattributes entry such as "-diff" from turning a text file's changes into
+# "Binary files differ", which gitleaks would skip.
 case "$mode" in
   staged) source_arg="--staged" ;;
-  range) source_arg="--log-opts=-m $range" ;;
-  history) source_arg="--log-opts=--all -m" ;;
+  range) source_arg="--log-opts=--text -m $range" ;;
+  history) source_arg="--log-opts=--all --text -m" ;;
 esac
 
-# gitleaks <config> <template>: one scan of the chosen source. Exit 3 is a leak;
-# any other non-zero exit is an error, never mistaken for a clean result.
-scan() {
+# run_gitleaks <allow-flag> <args...>: one gitleaks run. Exit 3 is a leak; any
+# other non-zero exit is an error, never mistaken for a clean result. Output goes
+# only through the given template, with any temporary-directory prefix removed.
+run_gitleaks() {
+  allow=$1
+  shift
   rc=0
-  "$GITLEAKS" git "$ROOT" "$source_arg" --config "$1" --gitleaks-ignore-path "$ROOT" \
-    --no-banner --no-color --log-level warn --redact --ignore-gitleaks-allow --exit-code 3 \
-    --report-format template --report-template "$2" --report-path - || rc=$?
+  "$GITLEAKS" "$@" --gitleaks-ignore-path "$ROOT" $allow \
+    --no-banner --no-color --log-level warn --redact --exit-code 3 \
+    --report-format template --report-path - > "$WORK/out" || rc=$?
+  sed "s#$WORK/hidden/##" "$WORK/out"
   case $rc in
     0) ;;
     3) leaks=1 ;;
@@ -250,11 +289,44 @@ scan() {
   esac
 }
 
+# Inline allow comments suppress nothing unless the project opted in, and then
+# only for the committed rules.
+committed_allow="--ignore-gitleaks-allow"
+[ "${LEAKGATE_HONOR_ALLOW:-}" = 1 ] && committed_allow=""
+
+# scan <config> <allow-flag> <template>: the chosen source, then, in staged mode,
+# the staged contents of files .gitattributes hides from git's diff.
+scan() {
+  run_gitleaks "$2" git "$ROOT" "$source_arg" --config "$1" --report-template "$3"
+  if [ -s "$WORK/hidden.list" ]; then
+    run_gitleaks "$2" dir "$WORK/hidden" --config "$1" --report-template "$3"
+  fi
+}
+
+# gitleaks --staged reads `git diff --staged`, which shows a file whose diff
+# attribute is unset (-diff, or the binary macro) as "Binary files differ" and
+# so hides its contents. Copy the staged contents of those files out and scan
+# them directly; gitleaks' dir mode still skips files that really are binary.
+: > "$WORK/hidden.list"
+if [ "$mode" = staged ]; then
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    case "$(git check-attr diff -- "$p")" in
+      *": diff: unset") ;;
+      *) continue ;;
+    esac
+    git cat-file -e ":$p" 2>/dev/null || continue
+    mkdir -p "$WORK/hidden/$(dirname "$p")"
+    git show ":$p" > "$WORK/hidden/$p"
+    printf '%s\n' "$p" >> "$WORK/hidden.list"
+  done < "$WORK/paths"
+fi
+
 # Once any path matches a value, no report names a file.
 template="$SCRIPTS/gitleaks-report.tmpl"
 [ "$path_hit" -eq 0 ] || template="$WORK/nofile.tmpl"
-scan "$CONFIG" "$template"
-[ "$values" -eq 0 ] || scan "$WORK/values.toml" "$template"
+scan "$CONFIG" "$committed_allow" "$template"
+[ "$values" -eq 0 ] || scan "$WORK/values.toml" --ignore-gitleaks-allow "$template"
 
 if [ "$leaks" -ne 0 ]; then
   echo "leak-gate: leaks found. Remediation is in process/repository-standards.md." >&2

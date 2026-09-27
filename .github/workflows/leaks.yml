@@ -18,8 +18,8 @@ on:
 # NEVER move this workflow to pull_request_target, give it secrets, or grant it a
 # write token: it runs scripts the pull request can edit, which is safe only
 # because a pull_request run has nothing worth taking. A pull request can also
-# weaken its own run by editing this file, .gitleaks.toml or .gitleaksignore, so
-# those three get required review.
+# weaken its own run by editing this file, .gitleaks.toml, .gitleaksignore or
+# .gitattributes, so those four get required review.
 permissions:
   contents: read
 
@@ -29,8 +29,7 @@ env:
   GITLEAKS_VERSION: '8.24.2'
   # Every scan's flags, in one place so no step can drift from them. No -v: it
   # prints the line around each match, and this log is public. Findings print
-  # only through the template. An inline gitleaks:allow comment suppresses
-  # nothing.
+  # only through the template. An inline allow comment suppresses nothing.
   GITLEAKS_FLAGS: >-
     --config .gitleaks.toml --no-banner --no-color --redact --ignore-gitleaks-allow
     --report-format template --report-template scripts/gitleaks-report.tmpl --report-path -
@@ -87,8 +86,10 @@ jobs:
               exit 0 ;;
           esac
           # -m shows each merge commit's changes, so content first introduced by
-          # a merge, such as a conflict resolution, is scanned too.
-          gitleaks git . --log-opts="-m $range" $GITLEAKS_FLAGS
+          # a merge, such as a conflict resolution, is scanned too. --text stops
+          # a .gitattributes entry such as -diff from hiding a text file's changes
+          # as "Binary files differ", which gitleaks would skip.
+          gitleaks git . --log-opts="--text -m $range" $GITLEAKS_FLAGS
 
       # The whole tree, so content that predates a rule is checked against it.
       - name: Scan the tree
