@@ -6,6 +6,7 @@ module: documentation-checks
 problem_type: best_practice
 component: tooling
 severity: high
+last_updated: 2026-09-27
 applies_when:
   - Adding a CI check meant to block a class of defect
   - Reading a command's exit code as a yes/no answer
@@ -203,6 +204,48 @@ picked that day.
 The pin is real now: `scripts/package-lock.json` is committed behind an explicit exception
 at `.gitignore:60-63`, and the workflow installs with `npm ci`
 (`.github/workflows/docs.yml:32-39`).
+
+### `! cmd` in a CI step cannot fail the step
+
+PR #55 added a CI step that runs `scripts/check_secret_refs.py` on files it must reject, so a
+regression that lets a pasted secret through would turn CI red. A review suggested this:
+
+```bash
+python scripts/check_secret_refs.py "$d/ok.env" --config "$d/example.env"
+! python scripts/check_secret_refs.py "$d/bad.env" --config "$d/example.env"
+! python scripts/check_secret_refs.py "$d/missing.env" --config "$d/example.env"
+```
+
+The `bad.env` line, the one that guards against a passed secret, could never fail the step.
+
+A `run:` step with no `shell:` runs under `bash -e`, and `set -e` does not act on a command
+negated with `!`. When the check wrongly passes, `!` turns its exit 0 into 1, and bash keeps
+going:
+
+```
+$ bash -e -c '! true; echo "still running"'; echo "exit=$?"
+still running
+exit=0
+```
+
+`!` is safe only where something reads its status: as the last command of the step, whose
+status becomes the step's, or on the left of `||`, as in the `security` recipe's pragma check
+(`code/python-standards.md:257`). So the suggestion's `missing.env` line, being last, would
+have worked, and its `bad.env` line, in the middle, would not. Whether a check can fail
+depended on its position in the step. The step uses `if` instead, which fails wherever it is
+(`.github/workflows/docs.yml:113-128`):
+
+```bash
+for f in bad.env missing.env; do
+  if python scripts/check_secret_refs.py "$d/$f" --config "$d/example.env"; then
+    echo "check_secret_refs.py passed $f, which it must reject" >&2
+    exit 1
+  fi
+done
+```
+
+Habit 1 is what proves the replacement: with a planted bug in the script that accepts a
+secret, the `if` version goes red.
 
 ## Related
 
