@@ -23,6 +23,12 @@ set -eu
 GIT_CONFIG_NOSYSTEM=1
 GIT_CONFIG_GLOBAL=$(mktemp)
 export GIT_CONFIG_NOSYSTEM GIT_CONFIG_GLOBAL
+# A CI runner has no git identity, and git cannot guess one there. Refuse to guess
+# here too, so a fixture that needs an identity fails locally the way it would in CI.
+git config --global user.useConfigOnly true
+GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
+GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
+export GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 
 ROOT=$(git rev-parse --show-toplevel)
 GITLEAKS=${GITLEAKS:-gitleaks}
@@ -130,7 +136,7 @@ g checkout -q -b side
 printf 'side\n' > "$REPO/side.md"
 g add side.md && g commit -q -m side
 g checkout -q -
-g merge -q --no-ff --no-commit side >/dev/null 2>&1
+g merge -q --no-ff --no-commit side >/dev/null 2>&1 || { echo "fixture setup: merge failed" >&2; exit 2; }
 printf 'see %s\n' "$H/$NAME/merged" > "$REPO/merged.md"
 g add merged.md && g commit -q -m merge
 run 3 "leak introduced by a merge commit" "$NAME" -- git "$REPO" --log-opts="-m $merge_base..HEAD"
@@ -357,7 +363,7 @@ git -C "$R" checkout -q -b side
 printf 'side\n' > "$R/side.md"
 wcommit "$R" side
 git -C "$R" checkout -q -
-git -C "$R" merge -q --no-ff --no-commit side >/dev/null 2>&1
+git -C "$R" merge -q --no-ff --no-commit side >/dev/null 2>&1 || { echo "fixture setup: merge failed" >&2; exit 2; }
 printf 'deploy to %s\n' "$VALUE" > "$R/merged.md"
 wcommit "$R" merge
 gate 1 "value introduced by a merge commit (range)" "[private-value-3]" "$R" range "$base..HEAD"
@@ -375,7 +381,7 @@ gate 1 "run from a directory holding its own .gitleaksignore" "notes.md:1" "$R/s
 # Identities and ref names reach a public repository too.
 R=$(wrepo w-identity)
 declare_list "$R" "$LISTS/values"
-git -C "$R" -c user.name=fixture -c "user.email=dev@$VALUE" commit -q --allow-empty -m identity
+GIT_AUTHOR_EMAIL="dev@$VALUE" git -C "$R" commit -q --allow-empty -m identity
 gate 1 "value in an author email (range)" "a commit author or committer matches" "$R" range HEAD~1..HEAD
 gate 1 "value in an author email (history)" "a commit author or committer matches" "$R" history
 R=$(wrepo w-branch)
