@@ -10,12 +10,13 @@ This directory contains standards for code quality, formatting, linting, testing
 
 ### [Python Project Standards](./python-standards.md)
 
-Modern tooling and practices for Python command-line and library projects:
-- **Tool stack** - uv, pyenv, make, ruff, mypy, pytest, pre-commit
+Modern tooling and practices for Python libraries, command-line tools, services and tooling repositories:
+- **Tool stack** - uv (packages and Python versions), make, ruff, mypy, pytest, pre-commit
 - **Project structure** - src-layout, test organization, documentation
 - **Code quality** - Linting, formatting, type checking, Google-style docstrings
 - **Testing** - pytest with coverage (80%+ target), unit and integration tests
-- **Security** - detect-secrets, pip-audit vulnerability scanning
+- **Security** - Secret scanning in pre-commit and CI (detect-secrets by default), pip-audit vulnerability scanning
+- **One ecosystem** - every check a Python project runs is Python or a standalone binary, so no Node is needed
 - **Docker** - Multi-stage builds with python-slim, non-root user
 - **CI/CD** - GitHub Actions with matrix testing across Python versions
 

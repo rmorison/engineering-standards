@@ -16,7 +16,7 @@ on:
       # break in .claude/settings.json ran neither job.
       - '.claude/**'
       - 'scripts/check-template-kit.mjs'
-      - 'scripts/check-secret-refs.mjs'
+      - 'scripts/check_secret_refs.py'
       - '.github/workflows/docs.yml'
   push:
     branches: [main]
@@ -31,7 +31,7 @@ on:
       # break in .claude/settings.json ran neither job.
       - '.claude/**'
       - 'scripts/check-template-kit.mjs'
-      - 'scripts/check-secret-refs.mjs'
+      - 'scripts/check_secret_refs.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -93,15 +93,36 @@ jobs:
   # Holds the Secrets rule in code/python-standards.md: its secret-refs.env
   # example must contain references and nothing else, and share no key with its
   # example.env example. Preventive rather than prompted by a shipped defect.
-  # A separate job for the same reasons as check-template-kit. No dependencies.
+  # A separate job for the same reasons as check-template-kit. Python's standard
+  # library only: adopting projects run this same script, and a Python project
+  # should not need Node to run it.
   check-secret-refs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      # The script's stated floor, so a newer-only construct fails here rather
+      # than in an adopting project on an older interpreter.
+      - uses: actions/setup-python@v5
         with:
-          node-version: '22'
+          python-version: '3.10'
 
       - name: Check secret reference examples
-        run: node scripts/check-secret-refs.mjs --standard
+        run: python scripts/check_secret_refs.py --standard
+
+      # File mode is the path adopting projects use, and --standard never runs
+      # it. `if` rather than `! cmd`: bash -e ignores a failure under `!`, so a
+      # check that wrongly passed would not fail the step.
+      - name: Check file mode
+        run: |
+          d="$RUNNER_TEMP/refs"; mkdir -p "$d"
+          printf 'A=op://dev/a/b\r\n' > "$d/ok.env"
+          printf 'C=1\n' > "$d/example.env"
+          printf 'A=hunter2\n' > "$d/bad.env"
+          python scripts/check_secret_refs.py "$d/ok.env" --config "$d/example.env"
+          for f in bad.env missing.env; do
+            if python scripts/check_secret_refs.py "$d/$f" --config "$d/example.env"; then
+              echo "check_secret_refs.py passed $f, which it must reject" >&2
+              exit 1
+            fi
+          done
