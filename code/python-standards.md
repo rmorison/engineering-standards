@@ -831,8 +831,10 @@ CI step:
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${V}/gitleaks_${V}_checksums.txt" | grep " ${F}\$" | sha256sum -c -
           tar xzf "$F" gitleaks
           cd "$GITHUB_WORKSPACE"
-          "$RUNNER_TEMP/gitleaks" dir .
+          "$RUNNER_TEMP/gitleaks" dir . --redact
 ```
+
+`--redact` keeps a finding's value out of the log if someone later adds `-v` to see which file failed, but `-v` still prints the line around each match, which can hold a second secret. To see findings in a public CI log, print them through a report template as the [leak gate](../process/repository-standards.md#adopting-the-gate) does. That gate adds the home-directory and private-value rules to these credential rules.
 
 gitleaks 8.24.2 was run on 2026-09-25 for these claims: the hook, the committed-secret gap, `gitleaks dir` failing on a committed secret and scanning a gitignored `.venv/`, the release URL, and a `.gitleaksignore` fingerprint clearing a finding. The CI step above was run on 2026-09-26: it read `8.24.2` from the hook's `rev`, verified the checksum, failed on a tampered tarball, and exited 1 on a committed secret. The `GITLEAKS_LICENSE` requirement comes from the gitleaks README (fetched 2026-09-24) and was not run.
 

@@ -13,7 +13,8 @@ This repository defines engineering standards for building software. The standar
 - **[ai/](./ai/)** - AI assistant configuration and Claude Code integration ([details](./ai/claude-code/README.md))
 - **[templates/](./templates/)** - Project starter kit with Claude Code configuration (`.claude/` directory template)
 - **[agent-transcripts/](./agent-transcripts/)** - Historical development logs
-- **[scripts/](./scripts/)** - Documentation checks run in CI ([how to run them locally](./process/documentation-standards.md#automated-checks))
+- **[scripts/](./scripts/)** - Documentation checks and the leak gate, run in CI ([how to run them locally](./process/documentation-standards.md#automated-checks))
+- **[SECURITY.md](./SECURITY.md)** and **[CONTRIBUTING.md](./CONTRIBUTING.md)** - How to report a vulnerability privately, and how to contribute
 
 ## Process Standards
 
@@ -81,6 +82,16 @@ How to organize issues, track epics, and manage multi-issue initiatives in GitHu
 - **Cross-epic dependencies** - Documenting and handling blocking relationships
 
 **Key principle**: Use GitHub's native features (sub-issues, labels, milestones) for lightweight, scalable issue organization without external tools.
+
+### [Repository Baseline Standards](./process/repository-standards.md)
+
+What every repository needs besides its code, public or private:
+- **Triggers** - Each item applies when the repository is public, takes outside contributions, or ships code others use, and is required or recommended under that trigger
+- **License, SECURITY.md, CONTRIBUTING.md, templates** - What each must contain, including private vulnerability reporting and DCO as an option
+- **Leak gate** - gitleaks with committed credential and shape rules in CI, and private value rules that run only on a maintainer's machine
+- **Going public** - Sweeping history before a private repository changes visibility
+
+**Key principle**: Start from the smallest required set, and say plainly what each check cannot see.
 
 ### [Compound Engineering Integration](./process/compound-engineering-integration.md)
 

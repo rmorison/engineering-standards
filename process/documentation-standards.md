@@ -228,16 +228,17 @@ allowlist in `.gitleaks.toml`. The allowlist exists because those paths have no
 substitute spelling: a Homebrew prefix quoted as `~/` is wrong, and a log excerpt
 is evidence only verbatim. A rule with no answer for the legitimate case gets
 suppressed by deleting the check. Run the gate with the pinned gitleaks on your
-`PATH`:
+`PATH`; `scripts/leak-gate.sh` also runs private value rules when a value list
+is declared, as [Leak Gate](./repository-standards.md#leak-gate) describes:
 
 ```bash
 sh scripts/test-leak-gate.sh
-gitleaks dir . --config .gitleaks.toml --redact
+sh scripts/leak-gate.sh range origin/main..HEAD
 ```
 
-`gitleaks dir .` also reads untracked files, and in a git worktree the `.git`
-file that points at the main checkout, so a finding in either is local noise
-rather than a leak in the repository.
+Run `gitleaks dir .` by hand with care: it also reads untracked files, and in a
+git worktree the `.git` file that points at the main checkout, so a finding in
+either is local noise rather than a leak in the repository.
 
 The Mermaid check calls mermaid's `parse()` rather than rendering, because the two disagree — the render path accepts diagrams GitHub's parser rejects. Dependencies are pinned and installed from a committed lockfile so the check reproduces one specific parser.
 
