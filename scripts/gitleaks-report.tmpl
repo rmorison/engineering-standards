@@ -1,0 +1,3 @@
+{{- range . }}
+{{ .File }}:{{ .StartLine }}  [{{ .RuleID }}]{{ if .Commit }} commit {{ .Commit }}{{ end }}
+{{- end }}

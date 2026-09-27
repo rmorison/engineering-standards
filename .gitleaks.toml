@@ -1,0 +1,68 @@
+# Committed leak-gate rules for this repository. The rule categories, where each
+# runs and what a pass means are owned by process/repository-standards.md; this
+# file is the configuration that standard points adopters to.
+#
+# CI runs these rules on every pull request and push (.github/workflows/leaks.yml).
+# scripts/leak-gate.sh runs them locally, plus private value rules generated from a
+# list that never enters any repository.
+#
+# A pull request can weaken its own CI run by editing this file, so changes to it
+# get required review. Every example below is written with a <name> metavariable,
+# because this file is scanned like any other and must match none of its rules.
+
+title = "engineering-standards leak gate"
+
+# gitleaks' default rules scan for credentials. Extending them also inherits two
+# default allowlists, and process/repository-standards.md names both gaps:
+#   - the path allowlist: lock files, images and vendored paths are not scanned by
+#     any rule in this file;
+#   - the global allowlist of placeholder-looking values, which exempts some user
+#     directory names from the home-directory rule, such as one letter repeated.
+# scripts/test-leak-gate.sh pins both, so a gitleaks upgrade that changes them
+# fails a fixture rather than changing coverage quietly.
+[extend]
+useDefault = true
+
+# An absolute home-directory path: a /home/ or /Users/ root followed by a user
+# directory, whose name is the finding. The name is the part that discloses a
+# person, so /home/<name> matches with or without a further segment.
+#
+# The leading separator may not follow a path character, so a relative link into
+# a home/ subdirectory, a ~/home/<x> path and an https://<host>/home/<x> URL are
+# all non-matches. gitleaks' regex engine has no lookbehind, so a start-of-line or
+# non-path-character prefix stands in for one.
+#
+# The pattern is a shape, never a list of values. A denylist of the strings that
+# must not appear would have to contain them, which makes the guard the leak it
+# guards against. Values belong in the private list scripts/leak-gate.sh reads.
+#
+# Scope, so each omission is a recorded decision rather than an oversight:
+#
+#   - The Windows C:\Users\<name>\ form is out. This corpus documents POSIX
+#     tooling and has never carried a Windows drive path.
+#   - /root is out. It names no person, and it is the ordinary way to write a
+#     container path in a documented command.
+#   - A user name with non-ASCII letters is matched only up to its first
+#     non-ASCII character, and a name that starts with one is missed. Widening
+#     the class to all letters would also match ordinary prose after a /home/
+#     root. Recorded as a known gap, not as coverage.
+[[rules]]
+id = "home-directory-path"
+description = "Absolute home-directory path: discloses a local username and directory layout. Write ~/, $HOME/ or a <username> metavariable instead, or a repository-relative path."
+regex = '''(?:^|[^A-Za-z0-9._~-])/(?:home|Users)/([A-Za-z0-9._-]+)'''
+secretGroup = 1
+
+# User directories that name a service, a tool or a placeholder rather than a
+# person, and so disclose nothing when written out in full. Some of these paths
+# have no substitute: a reader setting up Homebrew on Linux needs the literal
+# prefix, and a pasted GitHub Actions log excerpt is evidence only if verbatim.
+#
+# The risk an allowlist carries is that it becomes the hole. It is held shut by
+# keeping every entry a fixed, well-known, non-personal name. Trailing dots are
+# allowed so a sentence-ending period does not defeat the match.
+[[rules.allowlists]]
+description = "Non-identifying user directories"
+regexTarget = "secret"
+regexes = [
+  '''^(?:runner|linuxbrew|vscode|node|user|you|username)\.*$''',
+]

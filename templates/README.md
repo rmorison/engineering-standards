@@ -2,12 +2,15 @@
 
 The starter kit for adopting these standards in a new project with Claude Code.
 
-Two things live here and both are meant to be copied, not read:
+Everything here is meant to be copied, not read:
 
 - `.claude/` - the Claude Code configuration directory, copied into your
   project root as `.claude/`.
 - `CLAUDE.md` - the project instruction file, copied to your project root and
   filled in.
+- `SECURITY.md`, `CONTRIBUTING.md` and `.github/` - optional skeletons of the
+  repository baseline files, described in
+  [Repository baseline files](#repository-baseline-files) below.
 
 [`../README.md`](../README.md#project-templates) gives the copy-and-customise
 steps and how the kit maps onto the six-layer AI architecture. This file
@@ -333,6 +336,32 @@ of the `uv` forms named above as reaching a human. `ALLOW_ACCEPTED_RISK` holds
 the `make --eval`, `git grep -O` and `--upload-pack` forms in the other
 direction: the check fails if no allow entry approves one of them any more, so
 the statements of those risks cannot outlive the entries they describe.
+
+## Repository baseline files
+
+These skeletons are optional. Which ones a project needs, and whether each is
+required or recommended, depends on whether the repository is public, takes
+outside contributions, or ships code others use.
+[`../process/repository-standards.md`](../process/repository-standards.md)
+decides that; read its trigger table before copying.
+
+| Path | Copy to | What it is |
+|------|---------|------------|
+| `SECURITY.md` | project root | Security policy with a public and a private variant; keep one |
+| `CONTRIBUTING.md` | project root | Contributing guide, with the DCO choice to make |
+| `.github/pull_request_template.md` | `.github/` | PR description fields, and a maintainer checkbox for the pre-merge leak gate run |
+| `.github/ISSUE_TEMPLATE/config.yml` | `.github/ISSUE_TEMPLATE/` | Issue chooser whose contact link sends security reports away from public issues |
+
+Each skeleton links to the standard by absolute URL, for the same reason
+`CLAUDE.md` does: a relative link would resolve inside your project.
+
+The leak gate is not a skeleton; it is working configuration. Copy
+`.gitleaks.toml`, `scripts/gitleaks-report.tmpl`, `scripts/leak-gate.sh`,
+`scripts/test-leak-gate.sh` and `.github/workflows/leaks.yml` from the root of
+this repository, as
+[Adopting the Gate](../process/repository-standards.md#adopting-the-gate)
+describes. They need `sh`, git, gitleaks and standard POSIX utilities, and
+nothing from your project's language ecosystem.
 
 ## Adding more templates
 

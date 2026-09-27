@@ -1,0 +1,97 @@
+name: Leak gate
+
+# Runs the committed leak-gate rules in .gitleaks.toml: gitleaks' default
+# credential rules plus the home-directory path rule. The rule categories and
+# what a pass means are owned by process/repository-standards.md.
+#
+# No path filter. A leak can sit in any file type, and a workflow that runs only
+# when Markdown changes cannot see a credential in a shell script.
+#
+# Private value rules never run here. Their list lives outside every repository,
+# and this job's log is public. scripts/leak-gate.sh runs them locally.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# NEVER move this workflow to pull_request_target, give it secrets, or grant it a
+# write token: it runs scripts the pull request can edit, which is safe only
+# because a pull_request run has nothing worth taking. A pull request can also
+# weaken its own run by editing this file, .gitleaks.toml, .gitleaksignore or
+# .gitattributes, so those four get required review.
+permissions:
+  contents: read
+
+env:
+  # The version code/python-standards.md pins. Upgrade both together, and let
+  # scripts/test-leak-gate.sh prove the rules still fire on the new version.
+  GITLEAKS_VERSION: '8.24.2'
+  # Every scan's flags, in one place so no step can drift from them. No -v: it
+  # prints the line around each match, and this log is public. Findings print
+  # only through the template. An inline allow comment suppresses nothing.
+  GITLEAKS_FLAGS: >-
+    --config .gitleaks.toml --no-banner --no-color --redact --ignore-gitleaks-allow
+    --report-format template --report-template scripts/gitleaks-report.tmpl --report-path -
+
+jobs:
+  leaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit-range scan reads every commit the change adds.
+          fetch-depth: 0
+
+      # Pinned and checksum-verified, as in code/python-standards.md, never piped
+      # from curl into a shell.
+      - name: Install gitleaks
+        run: |
+          F="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          U="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "$U/$F"
+          curl -sSfL "$U/gitleaks_${GITLEAKS_VERSION}_checksums.txt" | grep " ${F}\$" | sha256sum -c -
+          tar xzf "$F" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Before any real scan is trusted: each rule fails on a planted leak and
+      # passes its allowlisted cases, and nothing planted reaches this log. The
+      # same script proves scripts/leak-gate.sh, the local wrapper, against
+      # invented values in temporary repositories; no real value list is read.
+      - name: Prove the rules and the wrapper fire
+        run: sh scripts/test-leak-gate.sh
+
+      # Every commit the change adds, so a leak added in one commit and removed
+      # in the next still fails. Never all of history: it holds a path removed
+      # by #26, which is already published and would fail every run.
+      - name: Scan added commits
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          case "$EVENT" in
+            pull_request) range="$PR_BASE..$PR_HEAD" ;;
+            push)
+              if [ -z "$PUSH_BEFORE" ] || [ "$PUSH_BEFORE" = 0000000000000000000000000000000000000000 ]; then
+                echo "No previous commit for this push; the tree scan below covers it."
+                exit 0
+              fi
+              range="$PUSH_BEFORE..$PUSH_AFTER" ;;
+            *)
+              echo "No commit range for a $EVENT run; the tree scan below covers it."
+              exit 0 ;;
+          esac
+          # -m shows each merge commit's changes, so content first introduced by
+          # a merge, such as a conflict resolution, is scanned too. --text stops
+          # a .gitattributes entry such as -diff from hiding a text file's changes
+          # as "Binary files differ", which gitleaks would skip.
+          gitleaks git . --log-opts="--text -m $range" $GITLEAKS_FLAGS
+
+      # The whole tree, so content that predates a rule is checked against it.
+      - name: Scan the tree
+        run: |
+          gitleaks dir . $GITLEAKS_FLAGS

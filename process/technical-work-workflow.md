@@ -354,7 +354,7 @@ Engineering leads prioritize tech debt based on:
 ### Security Fix Documentation
 
 **For vulnerabilities:**
-- Document in private channel until fixed and deployed
+- Document in private channel until fixed and deployed. How a reporter reaches that channel is set by the repository's `SECURITY.md`; see [Security Policy](./repository-standards.md#security-policy)
 - After deployment, document in `docs/engineering/security/YYYY-MM-vulnerability-name.md`
 - Include: vulnerability description, impact, fix, remediation steps
 

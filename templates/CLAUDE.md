@@ -39,6 +39,7 @@ standards along with it.
 - Feature workflow: process/feature-development-workflow.md
 - Documentation: process/documentation-standards.md
 - Git conventions: process/git-branching-strategy.md
+- Repository baseline (license, SECURITY, CONTRIBUTING, leak gate): process/repository-standards.md
 - Compound-engineering integration (when CE is installed): process/compound-engineering-integration.md
 
 ### AI Architecture

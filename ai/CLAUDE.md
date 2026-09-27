@@ -192,6 +192,7 @@ Full operational details: [`process/compound-engineering-integration.md`](../pro
 - [Technical Work Workflow](../process/technical-work-workflow.md)
 - [Git Branching Strategy](../process/git-branching-strategy.md)
 - [Issue Tracking and Epic Organization](../process/issue-tracking.md)
+- [Repository Baseline Standards](../process/repository-standards.md)
 
 ---
 
