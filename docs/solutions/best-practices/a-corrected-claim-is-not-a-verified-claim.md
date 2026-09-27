@@ -1,6 +1,7 @@
 ---
 title: A corrected claim is not a verified claim
 date: 2026-09-20
+last_updated: 2026-09-27
 category: best-practices
 module: process-standards
 problem_type: best_practice
@@ -12,10 +13,11 @@ applies_when:
   - Citing a convention by name rather than by source
   - Reviewing your own correction to someone else's error
   - Trusting a replacement because the research that exposed the error was thorough
+  - Putting text a research subagent reported into quotation marks or a blockquote
 resolution_type: documentation_update
 related_components:
   - development_workflow
-tags: [documentation, claims, justification, review, standards, verification]
+tags: [documentation, claims, justification, review, standards, verification, quotation, subagents]
 ---
 
 # A corrected claim is not a verified claim
@@ -39,11 +41,13 @@ having been through it. The Examples below show all three.
 
 The failure mode is specific and worth naming: having just read the sources, you feel sourced. A correction written in that state carries the confidence of the research without having been through it. The more thorough the debunking, the stronger the feeling, and the less likely you are to pause on the sentence you wrote to replace it.
 
-Two habits follow.
+Three habits follow.
 
 **Quote or drop.** If you cannot quote the source for a clause, do not write the clause. "Git's 50 is for a bare summary with no prefix" is a quotable claim or it is not one; it was not. Owning a departure is always available and always honest: "git suggests 50; this standard relaxes that to 72 to leave room for the prefix" needs no source beyond the one it cites, because it claims nothing about what git meant.
 
 **Count the clauses.** A justification with four clauses needs four checks, not one. Partial sourcing is what makes an invented qualifier invisible, because the verified clauses around it supply the credibility.
+
+**A quote you did not read at the source is a paraphrase.** When research is delegated, the words that come back have passed through a summariser, even when the delegate was told to quote verbatim. Its report is evidence about what the source says, not the source. Before text goes between quotation marks or into a blockquote, open the page and copy it from there, anchor included. If you cannot open it, drop the quotation marks and attribute the text as the delegate's summary. A delegate's report carries the authority of its research the way a correction carries the authority of the debunking, and the same scepticism applies. A delegated summary drops qualifiers and merges sentences, and the dropped part is often the one that constrains you.
 
 ## Why This Matters
 
@@ -112,6 +116,21 @@ item opening a blockquote. Check 2 had the same fence-blindness. Both were
 tracking now lives in one place and the checks that need to tell prose from an example read
 it. The `REFUTED:` markers above survive because they read better than arrows, not because
 the checker still requires them.
+
+A quote that came back through a delegate, in [PR #56](https://github.com/rmorison/engineering-standards/pull/56). A research subagent was asked to quote Claude Code's permissions page verbatim. Its summary went into a draft of `templates/README.md` as a blockquote. The README promises its block quotes are verbatim, so the text was checked against the page before it was committed, and the drafted wording below never reached the repository:
+
+```
+as drafted:  > Development environment runners such as `devbox run`, `mise exec`,
+             > `npx`, and `docker exec` are not in the list. ... so to allow work
+             > inside the environment, write rules for the inner command itself.
+             (anchor #bash)
+   REFUTED:  the page lists `direnv exec` as well, and its advice is "write a
+             specific rule that includes both the runner and the inner command,
+             such as `Bash(devbox run npm test)`. Add one rule per inner command
+             you want to allow." (anchor #process-wrappers)
+```
+
+The paraphrase dropped a runner, merged three sentences into one, and pointed at the wrong anchor. It also softened the one clause that constrained the change. The page recommends an exact rule per inner command, and the kit's `Bash(uv run pytest:*)` keeps a wildcard for arguments. With the real text in hand, the README states that as a departure. Under the paraphrase there was no departure to state.
 
 ## Related
 
