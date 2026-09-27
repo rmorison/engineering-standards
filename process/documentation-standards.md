@@ -208,18 +208,19 @@ node scripts/check-template-kit.mjs
 ```
 
 The secret reference row is not a Markdown check either, and no shipped defect
-prompted it: it is preventive. `scripts/check-secret-refs.mjs` holds the rule in
+prompted it: it is preventive. `scripts/check_secret_refs.py` holds the rule in
 [Secrets](../code/python-standards.md#secrets), that a committed `secret-refs.env`
 contains references into a secret manager and never a secret. It runs as a third
-job with no dependencies, proves its line classifier against built-in fixtures
+job on Python's standard library alone, proves its line classifier against built-in fixtures
 before it reads any file, and with `--standard` checks the standard's own
 example blocks, so the standard cannot show an example its rule rejects. A
-project that adopts the rule runs the same script on its own files. A pass does
+project that adopts the rule copies the same script and runs it on its own
+files, through `make security`, without installing Node. A pass does
 not mean a reference resolves or that no secret sits elsewhere in the tree:
 
 ```bash
-node scripts/check-secret-refs.mjs --standard
-node scripts/check-secret-refs.mjs secret-refs.env --config example.env
+python scripts/check_secret_refs.py --standard
+python scripts/check_secret_refs.py secret-refs.env --config example.env
 ```
 
 The Mermaid check calls mermaid's `parse()` rather than rendering, because the two disagree — the render path accepts diagrams GitHub's parser rejects. Dependencies are pinned and installed from a committed lockfile so the check reproduces one specific parser.

@@ -47,6 +47,8 @@ These standards focus on project structure and development workflow, not applica
 
 ### Core Tools
 
+Every check this standard asks a project to run is Python or a standalone binary, so a Python project needs no second runtime, Node included.
+
 | Tool | Purpose | Rationale |
 |------|---------|-----------|
 | **uv** | Package and Python version manager | Installs and pins interpreters, resolves dependencies and manages the environment in one tool |
@@ -252,6 +254,7 @@ security:  ## Scan tracked files for secrets, check the allowlist is reviewed, a
 	git ls-files -z | xargs -0 uv run detect-secrets-hook --baseline .secrets.baseline
 	@uv run python -c "import json, sys; bad = [(f, s['line_number']) for f, ss in json.load(open('.secrets.baseline'))['results'].items() for s in ss if s.get('is_secret') is not False]; [print(f'{f}:{n}: baseline entry not audited as a false positive', file=sys.stderr) for f, n in bad]; sys.exit(bool(bad))"
 	@! git grep -noE 'pragma: ?(allow|white)list([ -]nextline)?[ -]secret|gitleaks:allow' -- ':!tests/' ':!Makefile' || { echo 'allowlist pragma outside tests/: move the finding to the reviewed allowlist' >&2; exit 1; }
+	@if [ -f secret-refs.env ]; then uv run python scripts/check_secret_refs.py secret-refs.env --config example.env; fi
 	uv run pip-audit
 
 .PHONY: pre-commit
@@ -289,7 +292,7 @@ help:  ## Show this help message
 
 **`SRC_DIR`** names the one directory or package that coverage, lint, format and type checking read. `--cov` takes one path, and a path to a single file collects nothing, so `SRC_DIR` is always a directory. Each profile gives its value (see [Project Profiles](#project-profiles)), and CI reaches these commands through `make`, so the Makefile is the only place it is set.
 
-**`security`** runs the secret scanner over every tracked file, then fails if any entry in `.secrets.baseline` has not been audited as a false positive, then fails if an allowlist pragma appears outside `tests/`, then audits dependencies. [Secret Detection](#secret-detection) explains each step and its exit codes.
+**`security`** runs the secret scanner over every tracked file, then fails if any entry in `.secrets.baseline` has not been audited as a false positive, then fails if an allowlist pragma appears outside `tests/`, then checks `secret-refs.env` when the project has one (see [Secrets](#secrets)), then audits dependencies. [Secret Detection](#secret-detection) explains each step and its exit codes.
 
 ---
 
@@ -793,7 +796,7 @@ make security
 ```
 
 - The audit shows each flagged line on screen, so a person runs it, not an agent, which would copy the value into its transcript. For the same reason `detect-secrets audit --report`, which prints flagged values, never runs in CI or behind a `make` target.
-- A finding in `secret-refs.env` or `example.env` goes into the baseline. Never put a pragma comment in a `*.env` file: `check-secret-refs.mjs` rejects inline comments, and a `pragma: allowlist nextline secret` comment hides the next line from the scanner.
+- A finding in `secret-refs.env` or `example.env` goes into the baseline. Never put a pragma comment in a `*.env` file: `check_secret_refs.py` rejects inline comments, and a `pragma: allowlist nextline secret` comment hides the next line from the scanner.
 - An inline `# pragma: allowlist secret` is acceptable only under `tests/`, on a line that holds an obvious fake. `make security` enforces the location. A tracked document that quotes the pragma, such as a contributing guide, fails the check too: add it to the recipe's exclusions (`':!CONTRIBUTING.md'`) in the same commit.
 
 #### Using gitleaks Instead
@@ -903,7 +906,7 @@ The full example is under [example.env Template](#exampleenv-template). A refere
 - It needs required review, for example through CODEOWNERS, because repointing a key can send one service's secret to another.
 - `.gitattributes` holds `secret-refs.env text eol=lf`.
 
-`scripts/check-secret-refs.mjs` checks these rules (see [Automated Checks](../process/documentation-standards.md#automated-checks)). A pass means only that the named files are well-formed. It does not show that a reference resolves, that a value shaped like a reference is not a pasted secret, or that the free text of a comment holds no secret.
+`scripts/check_secret_refs.py` checks these rules. It needs only Python's standard library: copy it from this repository into the project's `scripts/` directory, and `make security` runs it whenever `secret-refs.env` exists (see [Automated Checks](../process/documentation-standards.md#automated-checks)). A pass means only that the named files are well-formed. It does not show that a reference resolves, that a value shaped like a reference is not a pasted secret, or that the free text of a comment holds no secret.
 
 **Reference syntax.** 1Password is the named default, and its references take the form `op://<vault-name>/<item-name>[/<section-name>]/<field-name>`. Keep vault, item, section and field names to letters, digits, `.`, `_` and `-`; the check rejects anything else, spaces included. Doppler, sops and HashiCorp Vault are sanctioned alternatives: a project using one adds that tool's reference grammar, with its source, to the check's allowlist, and its prefix to `REFERENCE_PREFIXES` in the configuration example.
 
@@ -1054,7 +1057,7 @@ ANTHROPIC_API_KEY=op://dev/anthropic/credential
 STRIPE_API_KEY=op://dev/stripe/credential
 ```
 
-`node scripts/check-secret-refs.mjs --standard` holds these two blocks to the reference-file rules.
+In this repository, `python scripts/check_secret_refs.py --standard` holds these two blocks to the reference-file rules.
 
 ### Makefile Integration
 

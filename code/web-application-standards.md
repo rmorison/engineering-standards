@@ -951,7 +951,7 @@ BACKEND_URL=http://localhost:8000
 
 Every credential-shaped value above is local-only configuration: it grants access to the local stack and nothing else. Secrets that grant access outside the developer's machine, such as a third-party API key, follow [Secrets](./python-standards.md#secrets).
 
-**Note**: `NEXT_PUBLIC_*` variables are exposed to the browser. All other variables are server-only. Never put secrets in `NEXT_PUBLIC_*` variables. A browser-exposed variable is public by construction, so it never appears in `secret-refs.env`, and `scripts/check-secret-refs.mjs` rejects one that does.
+**Note**: `NEXT_PUBLIC_*` variables are exposed to the browser. All other variables are server-only. Never put secrets in `NEXT_PUBLIC_*` variables. A browser-exposed variable is public by construction, so it never appears in `secret-refs.env`, and `scripts/check_secret_refs.py` rejects one that does.
 
 ### CORS Configuration
 

@@ -75,7 +75,9 @@ Before the fix, `linesOf` was `text.replace(/^\uFEFF/, '').split(/\r?\n/)`. It i
 return text.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
 ```
 
-(`linesOf` in `scripts/check-secret-refs.mjs`). The CRLF alternative comes first, so a CRLF pair still ends one line, not two. The `CRLF endings` fixture holds the check to that.
+(`linesOf` in the original `scripts/check-secret-refs.mjs`). The CRLF alternative comes first, so a CRLF pair still ends one line, not two. The `CRLF endings` fixture holds the check to that.
+
+Since #29 the check is `scripts/check_secret_refs.py`, so a Python project can run it without Node, and the same split is `lines_of`. The port applied this lesson to the language change: Python's `\s`, `.`, `\w` and `str.strip()` cover different characters from JavaScript's, so the port spells out JavaScript's sets instead of using Python's. A differential run against the Node version over the fixtures and a fuzzed corpus found no difference in output.
 
 ### A commented-out entry after a migration
 
