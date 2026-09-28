@@ -507,13 +507,15 @@ const ALLOW_NEGATIVE = [
  * Make targets are per-project, so a kit cannot name them; the entry stays and
  * the README says what it costs.
  *
- * `Bash(git log:*)` approves `--output=<file>`, which writes text chosen with
- * `--format` to any path, `.git/config` included. On git 2.34.1 that planted a
- * `remote.origin.uploadpack` command, which a later approved `git fetch origin`
- * runs; `core.fsmonitor` does the same for `git status`. `git diff` and
- * `git show` take `--output` too. The kit keeps these read entries because a
- * session uses them constantly, and a prefix rule cannot exclude a flag that
- * may appear anywhere after the prefix, so the route is stated, not fenced.
+ * `Bash(git log:*)`, `Bash(git diff:*)` and `Bash(git show:*)` approve
+ * `--output=<file>`, which writes the command's output to any path,
+ * `.git/config` included, and `--format` lets `git log` and `git show` choose
+ * that text. On git 2.34.1 a `git log` write planted a `remote.origin.uploadpack`
+ * command, which a later approved `git fetch origin` ran; a planted
+ * `core.fsmonitor` ran on `git status`. The kit keeps these read entries
+ * because a session uses them constantly, and a prefix rule cannot exclude a
+ * flag that may appear anywhere after the prefix, so the route is stated, not
+ * fenced.
  *
  * Each row is checked as "some allow entry still approves this command", not
  * as an exact entry string, so an equivalent rewrite such as `Bash(make *)`
@@ -522,7 +524,9 @@ const ALLOW_NEGATIVE = [
  */
 const ALLOW_ACCEPTED_RISK = [
   ['Bash(make:*)', "make --eval='x: ; @cat .env' x"],
-  ['Bash(git log:*)', 'git log -1 --format=x --output=.git/config'],
+  ['Bash(git log:*)', 'git log -1 --format=%s --output=.git/config'],
+  ['Bash(git diff:*)', 'git diff --output=.git/config'],
+  ['Bash(git show:*)', 'git show -s --format=%s --output=.git/config'],
 ];
 
 /** Commands each deny entry is meant to cover. */

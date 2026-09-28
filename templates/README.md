@@ -255,7 +255,8 @@ value as a separate argument.
 
 **The other entries have not been audited flag by flag, and one reaches a
 command in two steps.** `git log`, `git diff` and `git show` take
-`--output=<file>`, which writes text chosen with `--format` to any path.
+`--output=<file>`, which writes their output to any path, and `--format` lets
+`git log` and `git show` choose that text.
 Verified against git 2.34.1: `git log -1 --format=... --output=.git/config`
 rewrote the repository's config with a `remote.origin.uploadpack` command, and
 a plain `git fetch origin` - approved above - then ran it. A `core.fsmonitor`
@@ -364,8 +365,9 @@ the fixtures below.
 entry must match the command it exists for, and no entry may match `git push`,
 `git push -f`, `git push --force origin main`, `git push origin +main`, the
 `git grep -O` and `--upload-pack` forms, or any of the `uv` forms named above
-as reaching a human. `ALLOW_ACCEPTED_RISK` holds the `make --eval` and
-`git log --output` forms in the other direction: the check fails if no allow
+as reaching a human. `ALLOW_ACCEPTED_RISK` holds the `make --eval` form and the
+`--output` forms of `git log`, `git diff` and `git show` in the other
+direction: the check fails if no allow
 entry approves one of them any more, so the statements of those risks cannot
 outlive the entries they describe.
 
