@@ -602,6 +602,17 @@ function checkKitPermissions(file, source, settings) {
     }
   }
 
+  // The ALLOW_NEGATIVE git rows only catch a wildcard under a prefix someone
+  // listed; `Bash(git pull --rebase:*)` passed them. Any wildcard on these three
+  // subcommands readmits -O or --upload-pack after it, so none may carry one.
+  for (const entry of allow) {
+    if (/^Bash\(git (grep|fetch|pull)\b/.test(entry) && entry.includes('*')) {
+      fail(file, lineOf(source, entry), 'permissions',
+        `allow entry ${entry} has a wildcard, which readmits \`git grep -O<cmd>\` or ` +
+        '`--upload-pack=<cmd>` after it; write the exact command instead');
+    }
+  }
+
   for (const [entry, command] of DENY_POSITIVE) {
     if (!deny.includes(entry)) {
       fail(file, lineOf(source, 'deny'), 'permissions',
