@@ -209,8 +209,9 @@ wcommit() { git -C "$1" add -A && git -C "$1" -c user.name=fixture -c user.email
 # The value must never appear in the output, whatever the exit. Two optional
 # settings apply to the next call only, and are cleared by it:
 #   hook_git_dir  exported as GIT_DIR for the wrapper alone, as git does for a
-#                 hook run in a worktree. Never exported here: while it is set, every git command
-#                 in this script would act on that repository.
+#                 hook run in a worktree. Never exported here: while it is
+#                 set, every git command in this script would act on that
+#                 repository.
 #   absent        text the output must not contain.
 hook_git_dir=
 absent=
@@ -598,14 +599,17 @@ export LC_ALL
 # The fixture proves -a only where grep without it drops the line. Elsewhere,
 # such as BSD grep or a system with no C.UTF-8 locale, it still runs but proves
 # less: a note locally, a failure in CI, where the platform is known to drop it.
+# Only a numbered line counts as kept: grep before 3.5 reports a dropped binary
+# line on standard output too.
 probe=$(printf 'Jos\351 <dev@%s>\n' "$VALUE" | grep -n -i -F -e "$VALUE" 2>/dev/null) || true
-if [ -n "$probe" ]; then
-  if [ "${GITHUB_ACTIONS:-}" = true ]; then
-    bad "wrapper, Latin-1 fixture: grep keeps a line that is not UTF-8 under C.UTF-8, so the fixture cannot fail without -a"
-  else
-    echo "note: grep here keeps a line that is not UTF-8, so the Latin-1 fixture does not exercise -a"
-  fi
-fi
+case $probe in
+  1:*)
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then
+      bad "wrapper, Latin-1 fixture: grep keeps a line that is not UTF-8 under C.UTF-8, so the fixture cannot fail without -a"
+    else
+      echo "note: grep here keeps a line that is not UTF-8, so the Latin-1 fixture does not exercise -a"
+    fi ;;
+esac
 gate 1 "Latin-1 author name with a value in the email" "a commit author or committer matches" "$R" range HEAD~1..HEAD
 if [ -n "$had_lc_all" ]; then LC_ALL=$saved_lc_all; else unset LC_ALL; fi
 

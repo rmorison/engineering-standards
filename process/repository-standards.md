@@ -129,12 +129,14 @@ F=gitleaks_${V}_linux_x64.tar.gz
 
 A `~/.local/bin` created by this command reaches `PATH` only in a new login shell, and only where the shell profile adds it, as Debian's and Ubuntu's default profile does. The last line says when the `gitleaks` on `PATH` is not the one just installed.
 
-On macOS the command differs in the tarball, its hash, and `shasum -a 256 -c` in place of `sha256sum -c`. macOS does not add `~/.local/bin` to `PATH`, so add it in the shell profile.
+On macOS the command differs in the tarball, its hash, and `shasum -a 256 -c` in place of `sha256sum -c`. It picks the Apple silicon (`arm64`) or Intel (`x64`) tarball from `uname -m`, and carries no comments, because zsh, the default macOS shell, reads `#` as a command when pasted. macOS does not add `~/.local/bin` to `PATH`, so add it in the shell profile.
 
 ```bash
 V=8.24.2
-F=gitleaks_${V}_darwin_arm64.tar.gz SHA=90d13686937ac7429b97a3acbf1e1d0ce90d92ae2d0cf46a690bd8ae5230bea0  # Apple silicon
-# F=gitleaks_${V}_darwin_x64.tar.gz SHA=bc3c46f8039ba716ba8461fa6745c9d1cfb90ca2f5f881d8d0cf66b7ba7b742c  # Intel
+case $(uname -m) in
+  arm64) F=gitleaks_${V}_darwin_arm64.tar.gz SHA=90d13686937ac7429b97a3acbf1e1d0ce90d92ae2d0cf46a690bd8ae5230bea0 ;;
+  *) F=gitleaks_${V}_darwin_x64.tar.gz SHA=bc3c46f8039ba716ba8461fa6745c9d1cfb90ca2f5f881d8d0cf66b7ba7b742c ;;
+esac
 ( cd "$(mktemp -d)" && curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v$V/$F" &&
   echo "$SHA  $F" | shasum -a 256 -c - && tar xzf "$F" gitleaks &&
   mkdir -p ~/.local/bin && install -m 755 gitleaks ~/.local/bin/gitleaks &&
