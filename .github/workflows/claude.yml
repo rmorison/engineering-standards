@@ -28,11 +28,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          fetch-depth: 1
+          fetch-depth: 0 # Full history, so a review can diff earlier commits of a PR
 
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          allowed_users: "rmorison"
+          # Read-only GitHub MCP tools, so a review can read the issues, PRs
+          # and comments a PR cites. Naming any mcp__github__ tool makes the
+          # action start the GitHub MCP server and, on PRs, its inline-comment
+          # server; tools not listed, including both servers' write tools, are
+          # denied. That holds only while no settings file allows mcp__github__
+          # tools. Keep the list to exact read tools. Not gh commands: a Bash
+          # prefix rule approves any flag after it, and gh's --jq can print any
+          # environment variable, secrets included. See PR #65.
+          #
+          # The listed tools take any owner/repo, and what they return (issue
+          # bodies, comments, diffs) is untrusted input anyone may have written.
+          #
+          # The list narrows what a review runs, not what its token can do.
+          # The server uses the Claude GitHub App's token, which can write
+          # code, issues and PRs in this repo. The real boundaries are the
+          # action's own:
+          #   - only a user with write access to this repo can start a run;
+          #   - the token can write only to this repo (the action's
+          #     docs/security.md). It may still read public repos elsewhere.
+          claude_args: |
+            --allowedTools "mcp__github__get_issue,mcp__github__get_issue_comments,mcp__github__get_pull_request,mcp__github__get_pull_request_diff,mcp__github__get_pull_request_files,mcp__github__get_pull_request_reviews,mcp__github__get_pull_request_review_comments"
