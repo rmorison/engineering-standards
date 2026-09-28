@@ -113,7 +113,38 @@ Copy these files from this repository:
 - `scripts/leak-gate.sh`: the local wrapper that adds value rules. It needs `sh`, git, gitleaks and standard POSIX utilities, and `iconv` when a value list is declared.
 - `.github/workflows/leaks.yml`, with `scripts/test-leak-gate.sh`: the CI job, and the fixtures that prove every rule fires before any scan is trusted.
 
-Install gitleaks at a pinned version with its release checksum verified, as [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead) shows, never piped from `curl` into a shell. The CI job pins 8.24.2.
+Install gitleaks in CI and on every developer machine that runs the hook. Without it on `PATH`, the wrapper reports `gitleaks exited 127` and every commit is refused. Each install pins the version and the tarball's SHA-256, and none pipes `curl` into a shell. CI uses the Install gitleaks step in `leaks.yml`, and a Python project can use the step in [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead). The CI job pins 8.24.2.
+
+On a Linux developer machine, this installs gitleaks into `~/.local/bin`. Every step is chained with `&&`, so a hash mismatch stops it in an interactive shell too, and the download happens in a temporary directory, not the working tree:
+
+```bash
+V=8.24.2 SHA=fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e
+F=gitleaks_${V}_linux_x64.tar.gz
+( cd "$(mktemp -d)" && curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v$V/$F" &&
+  echo "$SHA  $F" | sha256sum -c - && tar xzf "$F" gitleaks &&
+  mkdir -p ~/.local/bin && install -m 755 gitleaks ~/.local/bin/gitleaks &&
+  { [ "$(command -v gitleaks)" = "$HOME/.local/bin/gitleaks" ] ||
+    echo "gitleaks is installed in ~/.local/bin, which is not first on PATH: add it to PATH, or set GITLEAKS to its path"; } )
+```
+
+A `~/.local/bin` created by this command reaches `PATH` only in a new login shell, and only where the shell profile adds it, as Debian's and Ubuntu's default profile does. The last line says when the `gitleaks` on `PATH` is not the one just installed.
+
+On macOS the command differs in the tarball, its hash, and `shasum -a 256 -c` in place of `sha256sum -c`. macOS does not add `~/.local/bin` to `PATH`, so add it in the shell profile.
+
+```bash
+V=8.24.2
+F=gitleaks_${V}_darwin_arm64.tar.gz SHA=90d13686937ac7429b97a3acbf1e1d0ce90d92ae2d0cf46a690bd8ae5230bea0  # Apple silicon
+# F=gitleaks_${V}_darwin_x64.tar.gz SHA=bc3c46f8039ba716ba8461fa6745c9d1cfb90ca2f5f881d8d0cf66b7ba7b742c  # Intel
+( cd "$(mktemp -d)" && curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v$V/$F" &&
+  echo "$SHA  $F" | shasum -a 256 -c - && tar xzf "$F" gitleaks &&
+  mkdir -p ~/.local/bin && install -m 755 gitleaks ~/.local/bin/gitleaks &&
+  { [ "$(command -v gitleaks)" = "$HOME/.local/bin/gitleaks" ] ||
+    echo "gitleaks is installed in ~/.local/bin, which is not first on PATH: add it to PATH, or set GITLEAKS to its path"; } )
+```
+
+The Linux command was run on 2026-09-27, including against a tarball with one changed byte, which it refused before installing. The macOS variant was not run on macOS. Its two hashes were computed from the downloaded tarballs and match the release's checksums file.
+
+To upgrade, change the version and every hash together: here, in `.github/workflows/leaks.yml`, and in the Python standard's CI step. Take each new hash from the downloaded tarball and compare it with the release's `gitleaks_<V>_checksums.txt` before writing it in. That file comes from the same release, so the release is trusted once, at the upgrade, and the pinned hash catches any later replacement of the tarball.
 
 The job scans every commit the change adds, merge commits included (with git's `-m`, since a plain `git log` shows no changes for a merge), and with git's `--text`, so a `.gitattributes` entry cannot hide a text file's changes as binary. A leak added in one commit and removed in the next still fails. It then scans the whole tree, so existing content is checked against a newly added rule. Every gitleaks call runs without `-v` and prints only through the template. With `-v`, gitleaks prints the line around each match, which can hold a second secret, and prints file paths, which can hold a private value; `--redact` masks only the match itself (gitleaks 8.24.2, run 2026-09-27). Every call also passes `--ignore-gitleaks-allow`, so an inline allow comment suppresses nothing. A Python project whose standard permits reviewed allow comments under `tests/` ([Secret Detection](../code/python-standards.md#secret-detection)) drops that flag from `leaks.yml`, sets `LEAKGATE_HONOR_ALLOW=1` for `scripts/leak-gate.sh` so local runs agree with CI, and keeps the `make security` pragma check, which confines the comments to `tests/`. The opt-in applies to the committed rules only; value rules ignore allow comments always. None of the copied files contains the literal marker, so copying them does not trip that pragma check.
 
@@ -150,11 +181,16 @@ sh scripts/leak-gate.sh range <base>..<head>   # a commit range: before pushing
 sh scripts/leak-gate.sh history                # every ref, and commit and tag messages
 ```
 
-To run it on every commit, make it the clone's pre-commit hook. `git rev-parse --git-path` finds the hooks directory in a worktree too, where `.git` is a file:
+To run it on every commit, make it the clone's pre-commit hook. The main checkout and every worktree of a clone share one hooks directory, so the hook also runs on branches that predate the gate, where `scripts/leak-gate.sh` does not exist. There it skips the check with a message instead of refusing the commit. `git rev-parse --git-path` finds the hooks directory in a worktree too, where `.git` is a file:
 
 ```bash
 hook="$(git rev-parse --git-path hooks)/pre-commit"
-printf '#!/bin/sh\nexec sh scripts/leak-gate.sh staged\n' > "$hook" && chmod +x "$hook"
+cat > "$hook" <<'EOF'
+#!/bin/sh
+[ -f scripts/leak-gate.sh ] && exec sh scripts/leak-gate.sh staged
+echo "leak-gate: this branch has no scripts/leak-gate.sh; check skipped" >&2
+EOF
+chmod +x "$hook"
 ```
 
 **Before merging a pull request**, a maintainer who holds the list runs the value rules over its commits. Run from the default branch's own checkout, never from the pull request's: the pull request can edit the wrapper, `.gitleaks.toml` and `.gitleaksignore`, and this machine holds the list.
