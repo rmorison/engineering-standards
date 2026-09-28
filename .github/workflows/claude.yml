@@ -35,18 +35,19 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Read-only gh commands, so a review can check the comments, issues
-          # and CI runs a PR cites. Keep this list read-only: no `gh api`, and
-          # no command that writes or runs another command. See issue #64 for
-          # how each entry was checked.
+          # Read-only GitHub MCP tools, so a review can read the issues, PRs
+          # and comments a PR cites. Naming any mcp__github__ tool makes the
+          # action start the GitHub MCP server; tools not listed are denied.
+          # Keep the list to exact read tools. Not gh commands: a Bash prefix
+          # rule approves any flag after it, and gh's --jq can print
+          # environment variables, secrets included. See PR #65.
           #
           # The list narrows what a review runs, not what its token can do.
-          # gh runs with the Claude GitHub App's token (the action sets
-          # GH_TOKEN), which can write code, issues and PRs in this repo. The
-          # real boundaries are the action's own:
+          # The server uses the Claude GitHub App's token, which can write
+          # code, issues and PRs in this repo. The real boundaries are the
+          # action's own:
           #   - only a user with write access to this repo can start a run;
-          #   - the app token is scoped to this repo (the action's
-          #     docs/security.md), and the app is installed only on public
-          #     repos (checked 2026-09-27).
+          #   - the token can write only to this repo (the action's
+          #     docs/security.md). It may still read public repos elsewhere.
           claude_args: |
-            --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh issue view:*),Bash(gh run view:*)"
+            --allowedTools "mcp__github__get_issue,mcp__github__get_issue_comments,mcp__github__get_pull_request,mcp__github__get_pull_request_diff,mcp__github__get_pull_request_files,mcp__github__get_pull_request_reviews,mcp__github__get_pull_request_review_comments"
