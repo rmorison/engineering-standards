@@ -114,9 +114,15 @@ else
 
   # A list kept in another repository, such as a dotfiles repository, is one
   # commit from being published. Warn rather than fail: it may be ignored there.
+  # Git exports GIT_DIR to hooks, and with it set, git -C answers for the
+  # repository being committed to, so the probes run with git's
+  # repository-local variables cleared.
   list_dir=$(dirname "$list")
-  if git -C "$list_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
-     ! git -C "$list_dir" check-ignore -q "$list" 2>/dev/null; then
+  if (
+    unset $(git rev-parse --local-env-vars)
+    git -C "$list_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+      ! git -C "$list_dir" check-ignore -q "$list" 2>/dev/null
+  ); then
     echo "leak-gate: warning: the value list is inside a git work tree and not ignored there: $declared" >&2
   fi
 

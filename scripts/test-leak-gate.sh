@@ -206,12 +206,23 @@ wrepo() {
 wcommit() { git -C "$1" add -A && git -C "$1" -c user.name=fixture -c user.email=fixture@example.invalid commit -q -m "$2"; }
 
 # gate <expected-exit> <description> <must-print or ""> <repo> <mode args...>
-# The value must never appear in the output, whatever the exit.
+# The value must never appear in the output, whatever the exit. Two optional
+# settings apply to the next call only, and are cleared by it:
+#   hook_git_dir  exported as GIT_DIR for the wrapper alone, as git does for a
+#                 hook. Never exported here: while it is set, every git command
+#                 in this script would act on that repository.
+#   absent        text the output must not contain.
+hook_git_dir=
+absent=
 gate() {
   want=$1 desc=$2 expect=$3 repo=$4
   shift 4
+  git_dir=$hook_git_dir must_lack=$absent
+  hook_git_dir= absent=
   rc=0
-  out=$(cd "$repo" && GITLEAKS="$GITLEAKS" sh "$GATE" "$@" 2>&1) || rc=$?
+  out=$(cd "$repo" &&
+    if [ -n "$git_dir" ]; then GIT_DIR=$git_dir; export GIT_DIR; fi &&
+    GITLEAKS="$GITLEAKS" sh "$GATE" "$@" 2>&1) || rc=$?
   if [ "$rc" -ne "$want" ]; then
     bad "wrapper, $desc: exit $rc, expected $want"
     printf '%s\n' "$out" | sed 's/^/    /' >&2
@@ -224,6 +235,14 @@ gate() {
     case $out in
       *"$expect"*) ;;
       *) bad "wrapper, $desc: output lacks '$expect'"; return ;;
+    esac
+  fi
+  if [ -n "$must_lack" ]; then
+    case $out in
+      *"$must_lack"*)
+        bad "wrapper, $desc: output has '$must_lack'"
+        printf '%s\n' "$out" | sed 's/^/    /' >&2
+        return ;;
     esac
   fi
   ok
@@ -292,6 +311,25 @@ git config --global leakgate.values "$LISTS/missing"
 git -C "$R" config leakgate.values "$LISTS/values"
 gate 0 "local path overrides a global path" "no leaks found" "$R" staged
 git config --global --unset leakgate.values
+
+# The dotfiles warning answers for the list's directory, also under a hook. Git
+# exports GIT_DIR to hooks, and with it set, git -C <list dir> answers for the
+# repository being committed to. Every repository is built before GIT_DIR is set.
+DOT="$WORK/w-dotfiles"
+git init -q "$DOT"
+cp "$LISTS/values" "$DOT/values"
+R=$(wrepo w-hook-env)
+declare_list "$R" "$LISTS/values"
+hook_git_dir="$R/.git" absent="inside a git work tree"
+gate 0 "hook environment, list in no repository: no warning" "no leaks found" "$R" staged
+declare_list "$R" "$DOT/values"
+gate 0 "list in another repository that does not ignore it: warning" "inside a git work tree" "$R" staged
+hook_git_dir="$R/.git"
+gate 0 "hook environment, list in another repository that does not ignore it: warning" \
+  "inside a git work tree" "$R" staged
+printf 'values\n' > "$DOT/.gitignore"
+hook_git_dir="$R/.git" absent="inside a git work tree"
+gate 0 "hook environment, list ignored by its repository: no warning" "no leaks found" "$R" staged
 
 R=$(wrepo w-ignore)
 declare_list "$R" "$LISTS/values"
