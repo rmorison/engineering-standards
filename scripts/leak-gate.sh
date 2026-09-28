@@ -114,9 +114,10 @@ else
 
   # A list kept in another repository, such as a dotfiles repository, is one
   # commit from being published. Warn rather than fail: it may be ignored there.
-  # Git exports GIT_DIR to hooks, and with it set, git -C answers for the
-  # repository being committed to, so the probes run with git's
-  # repository-local variables cleared.
+  # A hook run in a worktree gets an absolute GIT_DIR from git (2.34; from the
+  # main checkout it gets none), and with it set, git -C answers for the
+  # repository being committed to. The probes run with git's repository-local
+  # variables cleared.
   list_dir=$(dirname "$list")
   if (
     unset $(git rev-parse --local-env-vars)

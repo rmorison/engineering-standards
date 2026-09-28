@@ -209,7 +209,7 @@ wcommit() { git -C "$1" add -A && git -C "$1" -c user.name=fixture -c user.email
 # The value must never appear in the output, whatever the exit. Two optional
 # settings apply to the next call only, and are cleared by it:
 #   hook_git_dir  exported as GIT_DIR for the wrapper alone, as git does for a
-#                 hook. Never exported here: while it is set, every git command
+#                 hook run in a worktree. Never exported here: while it is set, every git command
 #                 in this script would act on that repository.
 #   absent        text the output must not contain.
 hook_git_dir=
@@ -312,9 +312,10 @@ git -C "$R" config leakgate.values "$LISTS/values"
 gate 0 "local path overrides a global path" "no leaks found" "$R" staged
 git config --global --unset leakgate.values
 
-# The dotfiles warning answers for the list's directory, also under a hook. Git
-# exports GIT_DIR to hooks, and with it set, git -C <list dir> answers for the
-# repository being committed to. Every repository is built before GIT_DIR is set.
+# The dotfiles warning answers for the list's directory, also under a hook. A
+# hook run in a worktree gets an absolute GIT_DIR from git, and with it set,
+# git -C <list dir> answers for the repository being committed to. Every
+# repository is built before GIT_DIR is set.
 DOT="$WORK/w-dotfiles"
 git init -q "$DOT"
 cp "$LISTS/values" "$DOT/values"
