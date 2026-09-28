@@ -378,7 +378,6 @@ const ALLOW_POSITIVE = [
   'git ls-files',
   'git blame README.md',
   'git describe --tags',
-  'git grep -n TODO',
   'git worktree list',
   'git remote',
   'git remote -v',
@@ -388,8 +387,12 @@ const ALLOW_POSITIVE = [
   'git switch -c feature',
   'git checkout -- README.md',
   'git stash pop',
+  'git fetch',
   'git fetch origin',
+  'git fetch origin main',
+  'git pull',
   'git pull --ff-only',
+  'git pull origin main',
   'git restore --staged README.md',
   'ruff check .',
   'mypy src',
@@ -425,6 +428,28 @@ const ALLOW_NEGATIVE = [
   'git remote -v set-url origin git@github.com:o/r.git',
   'git remote -v remove upstream',
   'git remote -v update --prune',
+  // `git grep -O<cmd>` and `--open-files-in-pager=<cmd>` run <cmd>, and
+  // `--upload-pack=<cmd>` on `git fetch` or `git pull` runs <cmd> through the
+  // shell for a local-path remote. `Bash(git grep:*)`, `Bash(git fetch:*)` and
+  // `Bash(git pull:*)` approved all of these; the kit now has no grep entry and
+  // names exact fetch and pull forms instead. A prefix rule cannot exclude a
+  // flag that may appear anywhere after it, so the rows after the first of each
+  // group put the flag after a positional, after another flag, or with its
+  // value as a separate argument, each starting with the text of an exact entry
+  // someone might be tempted to widen. On git 2.34.1, `--upload-pack` ran its
+  // command after the remote, after the branch and after `--ff-only`.
+  "git grep -O'sh -c id' needle",
+  "git grep -n -O'sh -c id' needle",
+  "git grep needle -O'sh -c id'",
+  "git grep --open-files-in-pager='sh -c id' needle",
+  "git fetch --upload-pack='id; git-upload-pack' .",
+  "git fetch origin --upload-pack='id; git-upload-pack'",
+  "git fetch origin main --upload-pack='id; git-upload-pack'",
+  "git fetch --prune --upload-pack='id; git-upload-pack' origin",
+  "git fetch origin --upload-pack 'id; git-upload-pack'",
+  "git pull --upload-pack='id; git-upload-pack' .",
+  "git pull --ff-only --upload-pack='id; git-upload-pack'",
+  "git pull origin main --upload-pack='id; git-upload-pack'",
   // `uv run` is a general command launcher, not a tool, so `Bash(uv:*)`
   // pre-approved anything written after it: the first five rows below all
   // matched it. Claude Code does not strip `uv run` before matching — its
@@ -482,11 +507,13 @@ const ALLOW_NEGATIVE = [
  * Make targets are per-project, so a kit cannot name them; the entry stays and
  * the README says what it costs.
  *
- * The git rows are the same kind of fact. `git grep -O<cmd>` runs <cmd>, and
- * `git fetch` / `git pull` with `--upload-pack=<cmd>` run <cmd> through the
- * shell for a local-path remote (verified against git 2.34.1: the command ran
- * and the fetch succeeded). A prefix rule cannot exclude a flag that may appear
- * anywhere after the prefix, so these stay stated rather than fenced.
+ * `Bash(git log:*)` approves `--output=<file>`, which writes text chosen with
+ * `--format` to any path, `.git/config` included. On git 2.34.1 that planted a
+ * `remote.origin.uploadpack` command, which a later approved `git fetch origin`
+ * runs; `core.fsmonitor` does the same for `git status`. `git diff` and
+ * `git show` take `--output` too. The kit keeps these read entries because a
+ * session uses them constantly, and a prefix rule cannot exclude a flag that
+ * may appear anywhere after the prefix, so the route is stated, not fenced.
  *
  * Each row is checked as "some allow entry still approves this command", not
  * as an exact entry string, so an equivalent rewrite such as `Bash(make *)`
@@ -495,9 +522,7 @@ const ALLOW_NEGATIVE = [
  */
 const ALLOW_ACCEPTED_RISK = [
   ['Bash(make:*)', "make --eval='x: ; @cat .env' x"],
-  ['Bash(git grep:*)', "git grep -O'sh -c id' needle"],
-  ['Bash(git fetch:*)', "git fetch --upload-pack='id; git-upload-pack' ."],
-  ['Bash(git pull:*)', "git pull --upload-pack='id; git-upload-pack' ."],
+  ['Bash(git log:*)', 'git log -1 --format=x --output=.git/config'],
 ];
 
 /** Commands each deny entry is meant to cover. */
