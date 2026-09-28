@@ -28,11 +28,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          fetch-depth: 1
+          fetch-depth: 0 # Full history, so a review can diff earlier commits of a PR
 
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          allowed_users: "rmorison"
+          # Read-only gh commands, so a review can check the comments, issues
+          # and CI runs a PR cites. Keep this list read-only: no `gh api`, and
+          # no command that writes or runs another command. See issue #64 for
+          # how each entry was checked.
+          #
+          # The list narrows what a review runs, not what its token can do.
+          # gh runs with the Claude GitHub App's token (the action sets
+          # GH_TOKEN), which can write code, issues and PRs in this repo. The
+          # real boundaries are the action's own:
+          #   - only a user with write access to this repo can start a run;
+          #   - the app token is scoped to this repo (the action's
+          #     docs/security.md), and the app is installed only on public
+          #     repos (checked 2026-09-27).
+          claude_args: |
+            --allowedTools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh issue view:*),Bash(gh run view:*)"
