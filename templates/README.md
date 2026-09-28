@@ -203,7 +203,8 @@ incomplete, it was contradicted by the allow list three lines above it.
 `rm` typed as `rm` is the only form that holds for. Any command reaches the
 shell through `make`, which the allow list approves whatever follows it - see
 [Why `Bash(make:*)` stays](#why-bashmake-stays) - and, in two steps, through
-the `git log --output` route described below. Until the uv entries were
+the `--output` route of `git log`, `git diff` and `git show` described below.
+Until the uv entries were
 narrowed, `uv run rm -rf build` was approved the same way; see the next
 section.
 
@@ -239,8 +240,9 @@ exact entry, or none:
   When one of those prompts often enough to matter, add another exact entry,
   such as `Bash(git fetch --prune)`, never a trailing wildcard: any
   `Bash(git fetch ...:*)` or `Bash(git pull ...:*)` readmits `--upload-pack`
-  after it. If your default branch is not `main`, change the two `main` entries
-  and their `ALLOW_POSITIVE` rows.
+  after it. If your default branch is not `main`, change the two `main` entries,
+  and, if you run this repository's `scripts/check-template-kit.mjs` against
+  your copy, their `ALLOW_POSITIVE` rows.
 - No `git grep` entry at all. A search pattern changes with every call, so an
   exact entry would never match, and any wildcard admits `-O`. Search through
   Claude Code's Grep tool, which the permissions page (retrieved 2026-09-27)
@@ -251,7 +253,9 @@ exact entry, or none:
 
 `scripts/check-template-kit.mjs` holds these in `ALLOW_NEGATIVE`, with the flag
 before and after the positional arguments, after another flag, and with its
-value as a separate argument.
+value as a separate argument. Those rows only catch a wildcard under a prefix
+they list, so the check also fails on any `git grep`, `git fetch` or `git pull`
+allow entry that contains `*`.
 
 **The other entries have not been audited flag by flag, and one reaches a
 command in two steps.** `git log`, `git diff` and `git show` take
@@ -260,13 +264,16 @@ command in two steps.** `git log`, `git diff` and `git show` take
 Verified against git 2.34.1: `git log -1 --format=... --output=.git/config`
 rewrote the repository's config with a `remote.origin.uploadpack` command, and
 a plain `git fetch origin` - approved above - then ran it. A `core.fsmonitor`
-command planted the same way ran on the next `git status`. These read entries stay because a session uses
-them constantly, so the route is stated rather than fenced, and
-`ALLOW_ACCEPTED_RISK` holds it. What closes it is a `PreToolUse` hook reading
-`tool_input.command`, or sandboxing - the two things named above as
-boundaries. Weigh that when you copy these entries; do not read the narrowing
-of `remote`, `worktree`, `fetch` and `pull` as meaning every other entry on the
-list has been audited flag by flag.
+command planted the same way ran on the next `git status`. These read entries
+stay because a session uses them constantly, so the route is stated rather
+than fenced, and `ALLOW_ACCEPTED_RISK` holds it. Nor do the named test and lint
+entries limit what code runs: `git fetch origin`, then
+`git checkout origin/<branch> -- conftest.py`, then `uv run pytest`, each
+approved, runs code from any branch on the remote without a prompt. What closes
+these is a `PreToolUse` hook reading `tool_input.command`, or sandboxing - the
+two things named above as boundaries. Weigh that when you copy these entries;
+do not read the narrowing of `remote`, `worktree`, `fetch` and `pull` as
+meaning every other entry on the list has been audited flag by flag.
 
 **Two entries are scoped because the subcommand splits read from write.** These
 are prefix patterns, so `Bash(git worktree:*)` would admit `worktree remove`
