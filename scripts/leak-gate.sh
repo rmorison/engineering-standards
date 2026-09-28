@@ -247,8 +247,9 @@ fi
 # columns contain the value. Matching only those columns keeps a hex-like value
 # from matching a SHA.
 sha_matches() {
-  # -a: GNU grep would otherwise drop a matching line that is not valid UTF-8,
-  # such as an old Latin-1 author name.
+  # -a: under a UTF-8 locale GNU grep drops a matching line that is not valid
+  # UTF-8, such as a Latin-1 author name written by fast-import or an old tool.
+  # (git commit itself rewrites Latin-1 as UTF-8.)
   cut -f2- "$1" | grep -a -n -i -F -e "$2" | cut -d: -f1 > "$WORK/lines"
   awk -F '\t' 'NR == FNR { want[$1]; next } FNR in want { print $1 }' "$WORK/lines" "$1"
 }

@@ -581,12 +581,32 @@ export LEAKGATE_HONOR_ALLOW
 gate 1 "LEAKGATE_HONOR_ALLOW=true stays strict" "notes.md:1" "$R" staged
 LEAKGATE_HONOR_ALLOW=$saved_allow
 
-# A Latin-1 author name must not hide a matching identity from grep.
+# A Latin-1 author name must not hide a matching identity from grep. git commit
+# rewrites a Latin-1 name as UTF-8, so the commit is written byte for byte, as
+# fast-import or another tool can. Under a UTF-8 locale GNU grep without -a
+# drops the line; under C it keeps it, so this fixture forces UTF-8.
 R=$(wrepo w-latin1)
 declare_list "$R" "$LISTS/values"
-GIT_AUTHOR_NAME="$(printf 'Jos\351')" GIT_AUTHOR_EMAIL="dev@$VALUE" \
-  git -C "$R" commit -q --allow-empty -m latin1
+latin1=$(printf 'tree %s\nparent %s\nauthor Jos\351 <dev@%s> 1700000000 +0000\ncommitter fixture <fixture@example.invalid> 1700000000 +0000\n\nlatin1\n' \
+  "$(git -C "$R" rev-parse 'HEAD^{tree}')" "$(git -C "$R" rev-parse HEAD)" "$VALUE" |
+  git -C "$R" hash-object -t commit -w --stdin)
+git -C "$R" update-ref HEAD "$latin1"
+had_lc_all=${LC_ALL+set} saved_lc_all=${LC_ALL-}
+LC_ALL=C.UTF-8
+export LC_ALL
+# The fixture proves -a only where grep without it drops the line. Elsewhere,
+# such as BSD grep or a system with no C.UTF-8 locale, it still runs but proves
+# less: a note locally, a failure in CI, where the platform is known to drop it.
+probe=$(printf 'Jos\351 <dev@%s>\n' "$VALUE" | grep -n -i -F -e "$VALUE" 2>/dev/null) || true
+if [ -n "$probe" ]; then
+  if [ "${GITHUB_ACTIONS:-}" = true ]; then
+    bad "wrapper, Latin-1 fixture: grep keeps a line that is not UTF-8 under C.UTF-8, so the fixture cannot fail without -a"
+  else
+    echo "note: grep here keeps a line that is not UTF-8, so the Latin-1 fixture does not exercise -a"
+  fi
+fi
 gate 1 "Latin-1 author name with a value in the email" "a commit author or committer matches" "$R" range HEAD~1..HEAD
+if [ -n "$had_lc_all" ]; then LC_ALL=$saved_lc_all; else unset LC_ALL; fi
 
 # A value carrying a pasted no-break space would never match: refuse it.
 R=$(wrepo w-nbsp)
