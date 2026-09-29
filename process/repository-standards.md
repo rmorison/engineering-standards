@@ -115,12 +115,12 @@ Copy these files from this repository:
 
 Install gitleaks in CI and on every developer machine that runs the hook. Without it on `PATH`, the wrapper reports `gitleaks exited 127` and every commit is refused. Each install pins the version and the tarball's SHA-256, and none pipes `curl` into a shell. CI uses the Install gitleaks step in `leaks.yml`, and a Python project can use the step in [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead). The CI job pins 8.24.2.
 
-On a Linux developer machine, this installs gitleaks into `~/.local/bin`. Every step is chained with `&&`, so a hash mismatch stops it in an interactive shell too, and the download happens in a temporary directory, not the working tree:
+On an x86_64 Linux developer machine, this installs gitleaks into `~/.local/bin`. It pins no hash for other architectures. Every step is chained with `&&`, so a hash mismatch stops it in an interactive shell too. The download happens in a temporary directory, not the working tree, and the subshell keeps its variables out of your shell:
 
 ```bash
-V=8.24.2 SHA=fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e
-F=gitleaks_${V}_linux_x64.tar.gz
-( cd "$(mktemp -d)" && curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v$V/$F" &&
+( V=8.24.2 SHA=fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e
+  F=gitleaks_${V}_linux_x64.tar.gz
+  d=$(mktemp -d) && cd "$d" && curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v$V/$F" &&
   echo "$SHA  $F" | sha256sum -c - && tar xzf "$F" gitleaks &&
   mkdir -p ~/.local/bin && install -m 755 gitleaks ~/.local/bin/gitleaks &&
   { [ "$(command -v gitleaks)" = "$HOME/.local/bin/gitleaks" ] ||
@@ -132,19 +132,19 @@ A `~/.local/bin` created by this command reaches `PATH` only in a new login shel
 On macOS the command differs in the tarball, its hash, and `shasum -a 256 -c` in place of `sha256sum -c`. It picks the Apple silicon (`arm64`) or Intel (`x64`) tarball from `uname -m`, and carries no comments, because zsh, the default macOS shell, reads `#` as a command when pasted. macOS does not add `~/.local/bin` to `PATH`, so add it in the shell profile.
 
 ```bash
-V=8.24.2
-case $(uname -m) in
-  arm64) F=gitleaks_${V}_darwin_arm64.tar.gz SHA=90d13686937ac7429b97a3acbf1e1d0ce90d92ae2d0cf46a690bd8ae5230bea0 ;;
-  *) F=gitleaks_${V}_darwin_x64.tar.gz SHA=bc3c46f8039ba716ba8461fa6745c9d1cfb90ca2f5f881d8d0cf66b7ba7b742c ;;
-esac
-( cd "$(mktemp -d)" && curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v$V/$F" &&
+( V=8.24.2
+  case $(uname -m) in
+    arm64) F=gitleaks_${V}_darwin_arm64.tar.gz SHA=90d13686937ac7429b97a3acbf1e1d0ce90d92ae2d0cf46a690bd8ae5230bea0 ;;
+    *) F=gitleaks_${V}_darwin_x64.tar.gz SHA=bc3c46f8039ba716ba8461fa6745c9d1cfb90ca2f5f881d8d0cf66b7ba7b742c ;;
+  esac
+  d=$(mktemp -d) && cd "$d" && curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v$V/$F" &&
   echo "$SHA  $F" | shasum -a 256 -c - && tar xzf "$F" gitleaks &&
   mkdir -p ~/.local/bin && install -m 755 gitleaks ~/.local/bin/gitleaks &&
   { [ "$(command -v gitleaks)" = "$HOME/.local/bin/gitleaks" ] ||
     echo "gitleaks is installed in ~/.local/bin, which is not first on PATH: add it to PATH, or set GITLEAKS to its path"; } )
 ```
 
-The Linux command was run on 2026-09-27, including against a tarball with one changed byte, which it refused before installing. The macOS variant was not run on macOS. Its two hashes were computed from the downloaded tarballs and match the release's checksums file.
+The Linux command was run on 2026-09-28, including against a tarball with one changed byte, which it refused before installing. The macOS variant was not run on macOS. Its two hashes were computed from the downloaded tarballs and match the release's checksums file.
 
 To upgrade, change the version and every hash together: here, in `.github/workflows/leaks.yml`, and in the Python standard's CI step. Take each new hash from the downloaded tarball and compare it with the release's `gitleaks_<V>_checksums.txt` before writing it in. That file comes from the same release, so the release is trusted once, at the upgrade, and the pinned hash catches any later replacement of the tarball.
 
@@ -171,7 +171,7 @@ git config --local leakgate.values none
 
 With no declaration, or an opt-out, the wrapper runs the committed rules only and prints a line saying value rules were skipped. That is what an outside contributor gets, so nobody is blocked by a file they cannot have. With a declaration, a list that is missing, empty, unreadable or inside the repository fails. A value rule cannot be suppressed by `.gitleaksignore`: the wrapper fails if that file names one.
 
-Keep the list out of a dotfiles repository. A config directory tracked in git puts the list one commit away from being published, and the wrapper warns when the list sits in a git work tree that does not ignore it.
+Keep the list out of a dotfiles repository. A config directory tracked in git puts the list one commit away from being published, and the wrapper warns when the list sits in a git work tree that does not ignore it. It cannot see a bare dotfiles repository used through `git --git-dir=~/.dotfiles --work-tree=~`, since nothing in the list's directory leads git to that repository.
 
 ### Running It Locally
 
@@ -183,17 +183,23 @@ sh scripts/leak-gate.sh range <base>..<head>   # a commit range: before pushing
 sh scripts/leak-gate.sh history                # every ref, and commit and tag messages
 ```
 
-To run it on every commit, make it the clone's pre-commit hook. The main checkout and every worktree of a clone share one hooks directory, so the hook also runs on branches that predate the gate, where `scripts/leak-gate.sh` does not exist. There it skips the check with a message instead of refusing the commit. `git rev-parse --git-path` finds the hooks directory in a worktree too, where `.git` is a file:
+To run it on every commit, make it the clone's pre-commit hook. The main checkout and every worktree of a clone share one hooks directory, so the hook also runs on branches that predate the gate. Where the commit's parent has no `scripts/leak-gate.sh`, the hook skips the check with a message instead of refusing the commit. Where the parent has the script but the working tree does not, because the commit deletes or renames it or a sparse checkout leaves `scripts/` out, the hook refuses the commit; removing the gate on purpose takes `git commit --no-verify`. `git rev-parse --git-path` finds the hooks directory in a worktree too, where `.git` is a file:
 
 ```bash
 hook="$(git rev-parse --git-path hooks)/pre-commit"
 cat > "$hook" <<'EOF'
 #!/bin/sh
 [ -f scripts/leak-gate.sh ] && exec sh scripts/leak-gate.sh staged
+if git cat-file -e HEAD:scripts/leak-gate.sh 2>/dev/null; then
+  echo "leak-gate: HEAD has scripts/leak-gate.sh but the working tree does not; commit refused" >&2
+  exit 1
+fi
 echo "leak-gate: this branch has no scripts/leak-gate.sh; check skipped" >&2
 EOF
 chmod +x "$hook"
 ```
+
+The hook runs whichever `scripts/leak-gate.sh` the checked-out branch holds, on the machine that holds the list. On a branch you did not write, such as a contributor's pull request checked out to push a fixup, commit with `--no-verify` and run the pre-merge check below from the default branch's checkout instead.
 
 **Before merging a pull request**, a maintainer who holds the list runs the value rules over its commits. Run from the default branch's own checkout, never from the pull request's: the pull request can edit the wrapper, `.gitleaks.toml` and `.gitleaksignore`, and this machine holds the list.
 
@@ -207,6 +213,7 @@ It exits 0 when clean, 1 when it finds a leak, and 2 on a usage, list or gitleak
 ### What the Gate Cannot See
 
 - **Commits made without the value rules.** Commits from an outside pull request, a web edit, or a CI job that commits never ran value rules. The maintainer's pre-merge run keeps such a value off the default branch. In a public repository the value is already published once the pull request exists, so a hit at that point follows the remediation below.
+- **Commits the hook skipped.** The hook skips on a branch whose parent commit has no `scripts/leak-gate.sh`, and `--no-verify` skips it anywhere. CI's commit scan still reports credential and shape findings in such a commit, but only after the push, when a public repository has already published it, and CI never runs value rules. For a pull request, the maintainer's pre-merge run covers value rules; a direct push has no second check.
 - **Commit messages, pull request bodies, and branch and tag names.** gitleaks scans file contents. The wrapper adds paths, commit identities and, before a push, commit messages; the going-public sweep below also checks ref names and tag messages. CI checks none of them, and nothing checks pull request bodies.
 - **Files on gitleaks' default path allowlist.** Lock files, images and vendored paths are not scanned by the credential or shape rules; `package-lock.json` hid a home path in a test on 2026-09-27. The value rules do scan the text among them, such as lock files, because the generated value configuration does not extend the defaults. `scripts/test-leak-gate.sh` pins both behaviours.
 - **Binary file contents, in part.** CI's commit scan and the wrapper's `range` and `history` pass `--text`, so every rule reads each changed file whatever git or `.gitattributes` calls it. CI's tree scan and the wrapper's committed rules in `staged` mode skip content that really is binary, such as an image or a PDF. In `staged` mode the value rules still match its bytes, and the wrapper always checks paths.
