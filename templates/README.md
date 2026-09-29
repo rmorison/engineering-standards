@@ -202,39 +202,78 @@ incomplete, it was contradicted by the allow list three lines above it.
 
 `rm` typed as `rm` is the only form that holds for. Any command reaches the
 shell through `make`, which the allow list approves whatever follows it - see
-[Why `Bash(make:*)` stays](#why-bashmake-stays) - and through three git entries
-described below. Until the uv entries were narrowed, `uv run rm -rf build` was
-approved the same way; see the next section.
+[Why `Bash(make:*)` stays](#why-bashmake-stays) - and, in two steps, through
+the `--output` route of `git log`, `git diff` and `git show` described below.
+Until the uv entries were
+narrowed, `uv run rm -rf build` was approved the same way; see the next
+section.
 
 The listed subcommands are what a routine session needs without a human in the
 loop. `push` is deliberately absent; every push reaches a decision.
 
 **Read-only subcommands are listed generously, on purpose.** `rev-parse`,
-`ls-files`, `blame`, `describe` and `grep` are read-only in the forms a session
+`ls-files`, `blame` and `describe` are read-only in the forms a session
 actually writes, and an adopter who is prompted ten times an hour for `git
 rev-parse --show-toplevel` widens the list straight back to `Bash(git:*)` -
 which is the failure this whole section exists to prevent. Making the narrowing
 livable is what makes it survive.
 
-**Three git entries run arbitrary commands through a flag, and they are stated
-rather than fenced.** `git grep -O<cmd>` and `git grep
---open-files-in-pager=<cmd>` run `<cmd>`, so `Bash(git grep:*)` auto-approves
-arbitrary execution through a subcommand listed above as a read-only staple.
-Verified against git 2.43.0: `git grep -O'<cmd>' needle` ran `<cmd>` and exited
-0. `git fetch --upload-pack=<cmd>` and `git pull --upload-pack=<cmd>` do the
-same for a local-path remote, which runs `<cmd>` through the shell; verified
-against git 2.34.1, the command ran and the fetch succeeded. This is **not**
-fixed here, because it cannot be. These are prefix patterns; they
-match on what a command starts with, and a flag can appear anywhere after the
-prefix, so no spelling of `Bash(git grep ...)` excludes `-O` while still
-admitting `git grep -n TODO`, and the same holds for `--upload-pack` after
-`git fetch` or `git pull`. A `deny` entry would catch `git grep -O` written
-in exactly that position and miss `git grep -n -O`, which is the decorative kind
-of rule this file warns about two sections up. What closes it is a `PreToolUse`
-hook reading `tool_input.command`, or sandboxing - the two things named above as
-boundaries. Weigh that when you copy these entries; do not read the narrowing of
-`remote` and `worktree` as meaning every other entry on the list has been
-audited flag by flag.
+**`grep`, `fetch` and `pull` carry no wildcard, because a flag on each runs a
+command.** `git grep -O<cmd>` and `git grep --open-files-in-pager=<cmd>` run
+`<cmd>`; verified against git 2.43.0, `git grep -O'<cmd>' needle` ran `<cmd>`
+and exited 0. `git fetch --upload-pack=<cmd>` and `git pull --upload-pack=<cmd>`
+run `<cmd>` through the shell for a local-path remote; verified against git
+2.34.1, the command ran with the flag before the remote, after it, after the
+branch and after `--ff-only`. These are prefix patterns: they match on what a
+command starts with, and a flag can appear anywhere after the prefix, so no
+wildcard spelling of these entries excludes it. A `deny` entry would catch the
+flag in one position and miss it in the next, which is the decorative kind of
+rule this file warns about two sections up. At the allow list the fix is an
+exact entry, or none:
+
+- `Bash(git fetch)`, `Bash(git fetch origin)` and `Bash(git fetch origin main)`,
+  and `Bash(git pull)`, `Bash(git pull --ff-only)` and `Bash(git pull origin
+  main)` - no wildcard, so each matches that exact command and nothing else.
+  These are the forms
+  [the branching strategy](../process/git-branching-strategy.md) uses. Anything
+  else reaches a human: `--prune`, another branch or remote, `pull --rebase`.
+  When one of those prompts often enough to matter, add another exact entry,
+  such as `Bash(git fetch --prune)`, never a trailing wildcard: any
+  `Bash(git fetch ...:*)` or `Bash(git pull ...:*)` readmits `--upload-pack`
+  after it. If your default branch is not `main`, change the two `main` entries,
+  and, if you run this repository's `scripts/check-template-kit.mjs` against
+  your copy, their `ALLOW_POSITIVE` rows.
+- No `git grep` entry at all. A search pattern changes with every call, so an
+  exact entry would never match, and any wildcard admits `-O`. Search through
+  Claude Code's Grep tool, which the permissions page (retrieved 2026-09-27)
+  lists as needing no approval, or through `grep`, which is on its built-in
+  list of [read-only commands](https://code.claude.com/docs/en/permissions#read-only-commands).
+  The same list includes "read-only forms of `git`" without naming them, so
+  this kit makes no claim about how Claude Code treats `git grep` itself.
+
+`scripts/check-template-kit.mjs` holds these in `ALLOW_NEGATIVE`, with the flag
+before and after the positional arguments, after another flag, and with its
+value as a separate argument. Those rows only catch a wildcard under a prefix
+they list, so the check also fails on any `git grep`, `git fetch` or `git pull`
+allow entry that contains `*`.
+
+**The other entries have not been audited flag by flag, and one reaches a
+command in two steps.** `git log`, `git diff` and `git show` take
+`--output=<file>`, which writes their output to any path, and `--format` lets
+`git log` and `git show` choose that text.
+Verified against git 2.34.1: `git log -1 --format=... --output=.git/config`
+rewrote the repository's config with a `remote.origin.uploadpack` command, and
+a plain `git fetch origin` - approved above - then ran it. A `core.fsmonitor`
+command planted the same way ran on the next `git status`. These read entries
+stay because a session uses them constantly, so the route is stated rather
+than fenced, and `ALLOW_ACCEPTED_RISK` holds it. Nor do the named test and lint
+entries limit what code runs: `git fetch origin`, then
+`git checkout origin/<branch> -- conftest.py`, then `uv run pytest`, each
+approved, runs code from any branch on the remote without a prompt. What closes
+these is a `PreToolUse` hook reading `tool_input.command`, or sandboxing - the
+two things named above as boundaries. Weigh that when you copy these entries;
+do not read the narrowing of `remote`, `worktree`, `fetch` and `pull` as
+meaning every other entry on the list has been audited flag by flag.
 
 **Two entries are scoped because the subcommand splits read from write.** These
 are prefix patterns, so `Bash(git worktree:*)` would admit `worktree remove`
@@ -331,11 +370,13 @@ the fixtures below.
 
 `node scripts/check-template-kit.mjs` holds the list to both directions: every
 entry must match the command it exists for, and no entry may match `git push`,
-`git push -f`, `git push --force origin main`, `git push origin +main`, or any
-of the `uv` forms named above as reaching a human. `ALLOW_ACCEPTED_RISK` holds
-the `make --eval`, `git grep -O` and `--upload-pack` forms in the other
-direction: the check fails if no allow entry approves one of them any more, so
-the statements of those risks cannot outlive the entries they describe.
+`git push -f`, `git push --force origin main`, `git push origin +main`, the
+`git grep -O` and `--upload-pack` forms, or any of the `uv` forms named above
+as reaching a human. `ALLOW_ACCEPTED_RISK` holds the `make --eval` form and the
+`--output` forms of `git log`, `git diff` and `git show` in the other
+direction: the check fails if no allow
+entry approves one of them any more, so the statements of those risks cannot
+outlive the entries they describe.
 
 ## Repository baseline files
 
