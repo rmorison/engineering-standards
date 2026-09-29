@@ -24,9 +24,14 @@ permissions:
   contents: read
 
 env:
-  # The version code/python-standards.md pins. Upgrade both together, and let
-  # scripts/test-leak-gate.sh prove the rules still fire on the new version.
+  # The version code/python-standards.md pins, and the SHA-256 of its
+  # linux_x64 tarball. Upgrade the version, the hash, and the literals in
+  # code/python-standards.md and process/repository-standards.md together. Take
+  # the new hash from the downloaded tarball and compare it with the release's
+  # checksums file before pinning it. Let scripts/test-leak-gate.sh prove the
+  # rules still fire on the new version.
   GITLEAKS_VERSION: '8.24.2'
+  GITLEAKS_SHA256: 'fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e'
   # Every scan's flags, in one place so no step can drift from them. No -v: it
   # prints the line around each match, and this log is public. Findings print
   # only through the template. An inline allow comment suppresses nothing.
@@ -43,15 +48,18 @@ jobs:
           # The commit-range scan reads every commit the change adds.
           fetch-depth: 0
 
-      # Pinned and checksum-verified, as in code/python-standards.md, never piped
-      # from curl into a shell.
+      # Pinned, and verified against the SHA-256 above, as in
+      # code/python-standards.md, never piped from curl into a shell. The hash
+      # is not taken from the release's checksums file: a replaced release asset
+      # would ship with a checksums file that matches it. sha256sum is the last
+      # command of its pipeline, so a mismatch fails the step under bash -e.
       - name: Install gitleaks
         run: |
           F="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           U="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
           cd "$RUNNER_TEMP"
           curl -sSfLO "$U/$F"
-          curl -sSfL "$U/gitleaks_${GITLEAKS_VERSION}_checksums.txt" | grep " ${F}\$" | sha256sum -c -
+          echo "$GITLEAKS_SHA256  $F" | sha256sum -c -
           tar xzf "$F" gitleaks
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 

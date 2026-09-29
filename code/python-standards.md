@@ -806,9 +806,9 @@ gitleaks meets the same requirement with a different allowlist and no baseline f
 
 | Part | detect-secrets (default) | gitleaks |
 |------|--------------------------|----------|
-| Install | dev dependency, pinned in `uv.lock` | the hook's `rev`, which pre-commit builds from source. The CI step reads its version from that `rev`, so `make update-hooks` moves both |
+| Install | dev dependency, pinned in `uv.lock` | the hook's `rev`, which pre-commit builds from source. The CI step reads its version from that `rev` and pins the tarball's SHA-256 in the step, so after `make update-hooks` moves the `rev`, update the hash by hand |
 | Pre-commit hook | local hook, `entry: uv run detect-secrets-hook` | `repo: https://github.com/gitleaks/gitleaks`, `rev: v8.24.2`, `id: gitleaks` |
-| CI scan | `make security` | the step below: `gitleaks dir .` from a checksum-verified binary, as the first step after checkout |
+| CI scan | `make security` | the step below: `gitleaks dir .` from a binary checked against a pinned SHA-256, as the first step after checkout |
 | `make security` | as written | delete the `detect-secrets-hook` line and the baseline audit check; keep the pragma check and `pip-audit`. The tree scan stays a separate CI step, because run locally `gitleaks dir` also scans `.venv/` |
 | Allowlist | `.secrets.baseline`, audited | `.gitleaksignore`, one finding fingerprint per line, added and reviewed by a person |
 
@@ -818,6 +818,7 @@ gitleaks meets the same requirement with a different allowlist and no baseline f
 - A fingerprint for `gitleaks dir` has the form `path:rule-id:line`, so it stops matching when the line moves.
 - A `gitleaks:allow` comment follows the pragma rule above: under `tests/` only, never a `*.env` file. The `make security` pragma check enforces it.
 - `gitleaks/gitleaks-action` needs a `GITLEAKS_LICENSE` secret for repositories owned by an organization; the binary does not.
+- The CI step checks the tarball against a SHA-256 written in the step, not against the release's `gitleaks_<V>_checksums.txt`. A replaced release asset would ship with a checksums file that matches it. When the hook's `rev` moves, the step fails on the old hash until you update it: take the new hash from the downloaded tarball, compare it with the release's checksums file, and write it in. `sha256sum -c` is the last command of its pipeline, so a mismatch fails the step under the runner's `bash -e`.
 
 CI step:
 
@@ -826,9 +827,11 @@ CI step:
         run: |
           V=$(sed -n '/gitleaks\/gitleaks/{n;s/.*rev: v//p;}' .pre-commit-config.yaml)
           F="gitleaks_${V}_linux_x64.tar.gz"
+          # SHA-256 of gitleaks_8.24.2_linux_x64.tar.gz. Update it when the rev moves.
+          SHA=fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e
           cd "$RUNNER_TEMP"
           curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${V}/${F}"
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${V}/gitleaks_${V}_checksums.txt" | grep " ${F}\$" | sha256sum -c -
+          echo "$SHA  $F" | sha256sum -c -
           tar xzf "$F" gitleaks
           cd "$GITHUB_WORKSPACE"
           "$RUNNER_TEMP/gitleaks" dir . --redact
@@ -836,7 +839,7 @@ CI step:
 
 `--redact` keeps a finding's value out of the log if someone later adds `-v` to see which file failed, but `-v` still prints the line around each match, which can hold a second secret. To see findings in a public CI log, print them through a report template as the [leak gate](../process/repository-standards.md#adopting-the-gate) does. That gate adds the home-directory and private-value rules to these credential rules.
 
-gitleaks 8.24.2 was run on 2026-09-25 for these claims: the hook, the committed-secret gap, `gitleaks dir` failing on a committed secret and scanning a gitignored `.venv/`, the release URL, and a `.gitleaksignore` fingerprint clearing a finding. The CI step above was run on 2026-09-26: it read `8.24.2` from the hook's `rev`, verified the checksum, failed on a tampered tarball, and exited 1 on a committed secret. The `GITLEAKS_LICENSE` requirement comes from the gitleaks README (fetched 2026-09-24) and was not run.
+gitleaks 8.24.2 was run on 2026-09-25 for these claims: the hook, the committed-secret gap, `gitleaks dir` failing on a committed secret and scanning a gitignored `.venv/`, the release URL, and a `.gitleaksignore` fingerprint clearing a finding. The CI step above was run under `bash -e` on 2026-09-27: it read `8.24.2` from the hook's `rev` and installed from a tarball matching the pinned hash, failed at `sha256sum` on a tarball with one changed byte and on a `rev` moved to 8.24.0 with the hash left alone, and exited 1 on a planted token. The `GITLEAKS_LICENSE` requirement comes from the gitleaks README (fetched 2026-09-24) and was not run.
 
 ### Dependency Vulnerability Scanning
 

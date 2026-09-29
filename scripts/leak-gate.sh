@@ -114,9 +114,16 @@ else
 
   # A list kept in another repository, such as a dotfiles repository, is one
   # commit from being published. Warn rather than fail: it may be ignored there.
+  # A hook run in a worktree gets an absolute GIT_DIR from git (2.34; from the
+  # main checkout it gets none), and with it set, git -C answers for the
+  # repository being committed to. The probes run with git's repository-local
+  # variables cleared.
   list_dir=$(dirname "$list")
-  if git -C "$list_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
-     ! git -C "$list_dir" check-ignore -q "$list" 2>/dev/null; then
+  if (
+    unset $(git rev-parse --local-env-vars)
+    git -C "$list_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+      ! git -C "$list_dir" check-ignore -q "$list" 2>/dev/null
+  ); then
     echo "leak-gate: warning: the value list is inside a git work tree and not ignored there: $declared" >&2
   fi
 
@@ -241,8 +248,9 @@ fi
 # columns contain the value. Matching only those columns keeps a hex-like value
 # from matching a SHA.
 sha_matches() {
-  # -a: GNU grep would otherwise drop a matching line that is not valid UTF-8,
-  # such as an old Latin-1 author name.
+  # -a: under a UTF-8 locale GNU grep drops a matching line that is not valid
+  # UTF-8, such as a Latin-1 author name written by fast-import or an old tool.
+  # (git commit itself rewrites Latin-1 as UTF-8.)
   cut -f2- "$1" | grep -a -n -i -F -e "$2" | cut -d: -f1 > "$WORK/lines"
   awk -F '\t' 'NR == FNR { want[$1]; next } FNR in want { print $1 }' "$WORK/lines" "$1"
 }

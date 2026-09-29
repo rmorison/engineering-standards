@@ -206,12 +206,24 @@ wrepo() {
 wcommit() { git -C "$1" add -A && git -C "$1" -c user.name=fixture -c user.email=fixture@example.invalid commit -q -m "$2"; }
 
 # gate <expected-exit> <description> <must-print or ""> <repo> <mode args...>
-# The value must never appear in the output, whatever the exit.
+# The value must never appear in the output, whatever the exit. Two optional
+# settings apply to the next call only, and are cleared by it:
+#   hook_git_dir  exported as GIT_DIR for the wrapper alone, as git does for a
+#                 hook run in a worktree. Never exported here: while it is
+#                 set, every git command in this script would act on that
+#                 repository.
+#   absent        text the output must not contain.
+hook_git_dir=
+absent=
 gate() {
   want=$1 desc=$2 expect=$3 repo=$4
   shift 4
+  git_dir=$hook_git_dir must_lack=$absent
+  hook_git_dir= absent=
   rc=0
-  out=$(cd "$repo" && GITLEAKS="$GITLEAKS" sh "$GATE" "$@" 2>&1) || rc=$?
+  out=$(cd "$repo" &&
+    if [ -n "$git_dir" ]; then GIT_DIR=$git_dir; export GIT_DIR; fi &&
+    GITLEAKS="$GITLEAKS" sh "$GATE" "$@" 2>&1) || rc=$?
   if [ "$rc" -ne "$want" ]; then
     bad "wrapper, $desc: exit $rc, expected $want"
     printf '%s\n' "$out" | sed 's/^/    /' >&2
@@ -224,6 +236,14 @@ gate() {
     case $out in
       *"$expect"*) ;;
       *) bad "wrapper, $desc: output lacks '$expect'"; return ;;
+    esac
+  fi
+  if [ -n "$must_lack" ]; then
+    case $out in
+      *"$must_lack"*)
+        bad "wrapper, $desc: output has '$must_lack'"
+        printf '%s\n' "$out" | sed 's/^/    /' >&2
+        return ;;
     esac
   fi
   ok
@@ -292,6 +312,26 @@ git config --global leakgate.values "$LISTS/missing"
 git -C "$R" config leakgate.values "$LISTS/values"
 gate 0 "local path overrides a global path" "no leaks found" "$R" staged
 git config --global --unset leakgate.values
+
+# The dotfiles warning answers for the list's directory, also under a hook. A
+# hook run in a worktree gets an absolute GIT_DIR from git, and with it set,
+# git -C <list dir> answers for the repository being committed to. Every
+# repository is built before GIT_DIR is set.
+DOT="$WORK/w-dotfiles"
+git init -q "$DOT"
+cp "$LISTS/values" "$DOT/values"
+R=$(wrepo w-hook-env)
+declare_list "$R" "$LISTS/values"
+hook_git_dir="$R/.git" absent="inside a git work tree"
+gate 0 "hook environment, list in no repository: no warning" "no leaks found" "$R" staged
+declare_list "$R" "$DOT/values"
+gate 0 "list in another repository that does not ignore it: warning" "inside a git work tree" "$R" staged
+hook_git_dir="$R/.git"
+gate 0 "hook environment, list in another repository that does not ignore it: warning" \
+  "inside a git work tree" "$R" staged
+printf 'values\n' > "$DOT/.gitignore"
+hook_git_dir="$R/.git" absent="inside a git work tree"
+gate 0 "hook environment, list ignored by its repository: no warning" "no leaks found" "$R" staged
 
 R=$(wrepo w-ignore)
 declare_list "$R" "$LISTS/values"
@@ -543,12 +583,35 @@ export LEAKGATE_HONOR_ALLOW
 gate 1 "LEAKGATE_HONOR_ALLOW=true stays strict" "notes.md:1" "$R" staged
 LEAKGATE_HONOR_ALLOW=$saved_allow
 
-# A Latin-1 author name must not hide a matching identity from grep.
+# A Latin-1 author name must not hide a matching identity from grep. git commit
+# rewrites a Latin-1 name as UTF-8, so the commit is written byte for byte, as
+# fast-import or another tool can. Under a UTF-8 locale GNU grep without -a
+# drops the line; under C it keeps it, so this fixture forces UTF-8.
 R=$(wrepo w-latin1)
 declare_list "$R" "$LISTS/values"
-GIT_AUTHOR_NAME="$(printf 'Jos\351')" GIT_AUTHOR_EMAIL="dev@$VALUE" \
-  git -C "$R" commit -q --allow-empty -m latin1
+latin1=$(printf 'tree %s\nparent %s\nauthor Jos\351 <dev@%s> 1700000000 +0000\ncommitter fixture <fixture@example.invalid> 1700000000 +0000\n\nlatin1\n' \
+  "$(git -C "$R" rev-parse 'HEAD^{tree}')" "$(git -C "$R" rev-parse HEAD)" "$VALUE" |
+  git -C "$R" hash-object -t commit -w --stdin)
+git -C "$R" update-ref HEAD "$latin1"
+had_lc_all=${LC_ALL+set} saved_lc_all=${LC_ALL-}
+LC_ALL=C.UTF-8
+export LC_ALL
+# The fixture proves -a only where grep without it drops the line. Elsewhere,
+# such as BSD grep or a system with no C.UTF-8 locale, it still runs but proves
+# less: a note locally, a failure in CI, where the platform is known to drop it.
+# Only a numbered line counts as kept: grep before 3.5 reports a dropped binary
+# line on standard output too.
+probe=$(printf 'Jos\351 <dev@%s>\n' "$VALUE" | grep -n -i -F -e "$VALUE" 2>/dev/null) || true
+case $probe in
+  1:*)
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then
+      bad "wrapper, Latin-1 fixture: grep keeps a line that is not UTF-8 under C.UTF-8, so the fixture cannot fail without -a"
+    else
+      echo "note: grep here keeps a line that is not UTF-8, so the Latin-1 fixture does not exercise -a"
+    fi ;;
+esac
 gate 1 "Latin-1 author name with a value in the email" "a commit author or committer matches" "$R" range HEAD~1..HEAD
+if [ -n "$had_lc_all" ]; then LC_ALL=$saved_lc_all; else unset LC_ALL; fi
 
 # A value carrying a pasted no-break space would never match: refuse it.
 R=$(wrepo w-nbsp)
