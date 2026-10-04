@@ -8,7 +8,8 @@
 # it needs and nothing else. The curl shim serves a tarball built here, which
 # cannot match a pinned SHA-256, or fails the way curl -f does on an HTTP error.
 # So no fixture can install anything: each proves a refusal, and the platform
-# fixtures prove which tarball was requested.
+# fixtures prove which tarball was requested and which pinned hash it was
+# checked against.
 #
 # Usage:  sh scripts/test-install-gitleaks.sh
 # Exits non-zero if any fixture fails. Needs sh and standard POSIX utilities.
@@ -66,22 +67,31 @@ case $1 in
 esac
 EOF
 
-# The macOS form, shasum -a 256 -c, checked by the real sha256sum.
-cat > "$SHIMS/shasum" <<EOF
-#!/bin/sh
-[ "\$1 \$2 \$3" = "-a 256 -c" ] || exit 1
-shift 2
-exec "$REAL_SHA256SUM" "\$@"
-EOF
-chmod +x "$SHIMS/curl" "$SHIMS/uname" "$SHIMS/shasum"
+chmod +x "$SHIMS/curl" "$SHIMS/uname"
 
-# Two PATHs: Linux's, with sha256sum, and macOS's, with only shasum.
+# Three PATHs for the hash check: Linux's, with sha256sum; macOS's, with only
+# shasum; and one with neither. Both tools log the hash they are asked to check,
+# then hand the line to the real sha256sum (shasum -a 256 -c is the macOS form).
+[ -n "$REAL_SHA256SUM" ] || { echo "test-install-gitleaks: sha256sum not found" >&2; exit 2; }
 LINUX_BIN="$WORK/linux-bin"
 MAC_BIN="$WORK/mac-bin"
-mkdir "$LINUX_BIN" "$MAC_BIN"
-[ -n "$REAL_SHA256SUM" ] || { echo "test-install-gitleaks: sha256sum not found" >&2; exit 2; }
-ln -s "$REAL_SHA256SUM" "$LINUX_BIN/sha256sum"
-ln -s "$SHIMS/shasum" "$MAC_BIN/shasum"
+NO_HASH_BIN="$WORK/no-hash-bin"
+mkdir "$LINUX_BIN" "$MAC_BIN" "$NO_HASH_BIN"
+cat > "$LINUX_BIN/sha256sum" <<EOF
+#!/bin/sh
+[ "\$1 \$2" = "-c -" ] || exit 1
+IFS= read -r line
+echo "\${line%% *}" >> "\$HASH_LOG"
+printf '%s\n' "\$line" | "$REAL_SHA256SUM" -c -
+EOF
+cat > "$MAC_BIN/shasum" <<EOF
+#!/bin/sh
+[ "\$1 \$2 \$3 \$4" = "-a 256 -c -" ] || exit 1
+IFS= read -r line
+echo "\${line%% *}" >> "\$HASH_LOG"
+printf '%s\n' "\$line" | "$REAL_SHA256SUM" -c -
+EOF
+chmod +x "$LINUX_BIN/sha256sum" "$MAC_BIN/shasum"
 
 # A tarball shaped like a release, holding a stub gitleaks. Its hash matches no pin.
 mkdir "$WORK/tarball"
@@ -92,8 +102,9 @@ tar -czf "$FIXTURE_TARBALL" -C "$WORK/tarball" gitleaks
 export FIXTURE_TARBALL
 
 # install_run <os> <arch> <curl-mode> <hash-bin> [args...]: run the script in
-# a fresh HOME. Sets rc, out (stdout and stderr), urls (the requested URLs), and
-# dest (the default install directory under that HOME).
+# a fresh HOME. Sets rc, out (stdout and stderr), urls (the requested URLs),
+# hashes (the hashes the check was asked for), and dest (the default install
+# directory under that HOME).
 n=0
 install_run() {
   n=$((n + 1))
@@ -103,11 +114,14 @@ install_run() {
   mkdir "$home"
   dest="$home/.local/bin"
   log="$WORK/curl-$n.log"
+  hlog="$WORK/hash-$n.log"
   : > "$log"
+  : > "$hlog"
   rc=0
   out=$(HOME=$home PATH="$SHIMS:$hashbin:$TOOLS" CURL_LOG=$log CURL_MODE=$mode \
-    FAKE_UNAME_S=$os FAKE_UNAME_M=$arch "$SH" "$SCRIPT" "$@" 2>&1) || rc=$?
+    HASH_LOG=$hlog FAKE_UNAME_S=$os FAKE_UNAME_M=$arch "$SH" "$SCRIPT" "$@" 2>&1) || rc=$?
   urls=$(cat "$log")
+  hashes=$(cat "$hlog")
 }
 
 # refused <description> <dir>: the run failed and installed nothing.
@@ -122,32 +136,57 @@ refused() {
   fi
 }
 
-# requested <description> <tarball-suffix>: the one URL requested ends in it.
-requested() {
-  case $urls in
-    */gitleaks_[0-9]*_"$2") ok ;;
-    *) bad "$1: requested '$urls', expected a URL ending in _$2" ;;
+# says <description> <text>: the output contains the text.
+says() {
+  case $out in
+    *"$2"*) ok ;;
+    *) bad "$1: the output does not say '$2'" ;;
   esac
+}
+
+# The pins, as the script prints them.
+pins=$("$SH" "$SCRIPT" --pins 2>&1) || true
+
+# platform <description> <platform>: the one URL requested is that platform's
+# tarball, and the download was checked against that platform's pinned hash.
+platform() {
+  case $urls in
+    */gitleaks_[0-9]*_"$2".tar.gz) ok ;;
+    *) bad "$1: requested '$urls', expected a URL ending in _$2.tar.gz" ;;
+  esac
+  pin=$(printf '%s\n' "$pins" | sed -n "s/^$2 //p")
+  if [ -n "$pin" ] && [ "$hashes" = "$pin" ]; then
+    ok
+  else
+    bad "$1: checked against '$hashes', expected the $2 pin"
+  fi
 }
 
 # --- Hash mismatch -------------------------------------------------------------
 
 install_run Linux x86_64 serve "$LINUX_BIN" "$WORK/target"
 refused "tampered tarball, sha256sum" "$WORK/target"
+says "tampered tarball, sha256sum" "does not match the pinned SHA-256"
 
 install_run Darwin arm64 serve "$MAC_BIN" "$WORK/target-mac"
 refused "tampered tarball, shasum (macOS)" "$WORK/target-mac"
+says "tampered tarball, shasum (macOS)" "does not match the pinned SHA-256"
+
+install_run Linux x86_64 serve "$NO_HASH_BIN" "$WORK/target-none"
+refused "no sha256sum or shasum" "$WORK/target-none"
+says "no sha256sum or shasum" "needs sha256sum or shasum"
+[ -z "$urls" ] && ok || bad "no sha256sum or shasum: a download was requested"
 
 # --- Platform selection ----------------------------------------------------------
 
-install_run Linux x86_64 fail "$LINUX_BIN" "$WORK/t1"
-requested "Linux x86_64" linux_x64.tar.gz
-install_run Linux aarch64 fail "$LINUX_BIN" "$WORK/t2"
-requested "Linux aarch64" linux_arm64.tar.gz
-install_run Darwin arm64 fail "$MAC_BIN" "$WORK/t3"
-requested "Darwin arm64" darwin_arm64.tar.gz
-install_run Darwin x86_64 fail "$MAC_BIN" "$WORK/t4"
-requested "Darwin x86_64" darwin_x64.tar.gz
+install_run Linux x86_64 serve "$LINUX_BIN" "$WORK/t1"
+platform "Linux x86_64" linux_x64
+install_run Linux aarch64 serve "$LINUX_BIN" "$WORK/t2"
+platform "Linux aarch64" linux_arm64
+install_run Darwin arm64 serve "$MAC_BIN" "$WORK/t3"
+platform "Darwin arm64" darwin_arm64
+install_run Darwin x86_64 serve "$MAC_BIN" "$WORK/t4"
+platform "Darwin x86_64" darwin_x64
 
 install_run FreeBSD amd64 serve "$LINUX_BIN" "$WORK/t5"
 refused "unsupported platform" "$WORK/t5"
@@ -161,6 +200,7 @@ esac
 
 install_run Linux x86_64 fail "$LINUX_BIN" "$WORK/t6"
 refused "failed download" "$WORK/t6"
+says "failed download" "download failed"
 
 # --- Default directory ---------------------------------------------------------------
 
@@ -173,7 +213,6 @@ esac
 
 # --- Pins ----------------------------------------------------------------------------
 
-pins=$("$SH" "$SCRIPT" --pins 2>&1) || true
 versions=$(printf '%s\n' "$pins" | grep -c '^version [0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$' || true)
 platforms=$(printf '%s\n' "$pins" | grep -cE '^(linux|darwin)_(x64|arm64) [0-9a-f]{64}$' || true)
 lines=$(printf '%s\n' "$pins" | grep -c . || true)
