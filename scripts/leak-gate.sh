@@ -80,6 +80,10 @@ case "$mode" in
 esac
 [ -f "$CONFIG" ] || die "no .gitleaks.toml at the repository root"
 [ -f "$SCRIPTS/gitleaks-report.tmpl" ] || die "no gitleaks-report.tmpl beside this script"
+# Fail closed with one line that says what to do, before anything else prints.
+# It names no path: GITLEAKS is a local path, and a path can hold a home directory.
+command -v "$GITLEAKS" >/dev/null 2>&1 ||
+  die "gitleaks was not found: install the pinned version (process/repository-standards.md, Adopting the Gate) or set GITLEAKS to its path"
 
 # --- The value list ---------------------------------------------------------------
 
