@@ -30,7 +30,7 @@ bad() { echo "FAIL: $*" >&2; failed=$((failed + 1)); }
 
 TOOLS="$WORK/tools"
 mkdir "$TOOLS"
-for t in mktemp tar gzip mkdir install rm cp cat; do
+for t in mktemp tar gzip mkdir install rm cp; do
   p=$(command -v "$t") || { echo "test-install-gitleaks: $t not found" >&2; exit 2; }
   ln -s "$p" "$TOOLS/$t"
 done
@@ -91,14 +91,14 @@ FIXTURE_TARBALL="$WORK/fixture.tar.gz"
 tar -czf "$FIXTURE_TARBALL" -C "$WORK/tarball" gitleaks
 export FIXTURE_TARBALL
 
-# install <name> <os> <arch> <curl-mode> <hash-bin> [args...]: run the script in
+# install_run <os> <arch> <curl-mode> <hash-bin> [args...]: run the script in
 # a fresh HOME. Sets rc, out (stdout and stderr), urls (the requested URLs), and
 # dest (the default install directory under that HOME).
 n=0
 install_run() {
   n=$((n + 1))
-  name=$1 os=$2 arch=$3 mode=$4 hashbin=$5
-  shift 5
+  os=$1 arch=$2 mode=$3 hashbin=$4
+  shift 4
   home="$WORK/home-$n"
   mkdir "$home"
   dest="$home/.local/bin"
@@ -132,24 +132,24 @@ requested() {
 
 # --- Hash mismatch -------------------------------------------------------------
 
-install_run tamper Linux x86_64 serve "$LINUX_BIN" "$WORK/target"
+install_run Linux x86_64 serve "$LINUX_BIN" "$WORK/target"
 refused "tampered tarball, sha256sum" "$WORK/target"
 
-install_run tamper-mac Darwin arm64 serve "$MAC_BIN" "$WORK/target-mac"
+install_run Darwin arm64 serve "$MAC_BIN" "$WORK/target-mac"
 refused "tampered tarball, shasum (macOS)" "$WORK/target-mac"
 
 # --- Platform selection ----------------------------------------------------------
 
-install_run x64 Linux x86_64 fail "$LINUX_BIN" "$WORK/t1"
+install_run Linux x86_64 fail "$LINUX_BIN" "$WORK/t1"
 requested "Linux x86_64" linux_x64.tar.gz
-install_run arm Linux aarch64 fail "$LINUX_BIN" "$WORK/t2"
+install_run Linux aarch64 fail "$LINUX_BIN" "$WORK/t2"
 requested "Linux aarch64" linux_arm64.tar.gz
-install_run m1 Darwin arm64 fail "$MAC_BIN" "$WORK/t3"
+install_run Darwin arm64 fail "$MAC_BIN" "$WORK/t3"
 requested "Darwin arm64" darwin_arm64.tar.gz
-install_run intel Darwin x86_64 fail "$MAC_BIN" "$WORK/t4"
+install_run Darwin x86_64 fail "$MAC_BIN" "$WORK/t4"
 requested "Darwin x86_64" darwin_x64.tar.gz
 
-install_run bsd FreeBSD amd64 serve "$LINUX_BIN" "$WORK/t5"
+install_run FreeBSD amd64 serve "$LINUX_BIN" "$WORK/t5"
 refused "unsupported platform" "$WORK/t5"
 case $out in
   *"FreeBSD amd64"*) ok ;;
@@ -159,12 +159,12 @@ esac
 
 # --- Failed download ---------------------------------------------------------------
 
-install_run 404 Linux x86_64 fail "$LINUX_BIN" "$WORK/t6"
+install_run Linux x86_64 fail "$LINUX_BIN" "$WORK/t6"
 refused "failed download" "$WORK/t6"
 
 # --- Default directory ---------------------------------------------------------------
 
-install_run default Linux x86_64 fail "$LINUX_BIN"
+install_run Linux x86_64 fail "$LINUX_BIN"
 refused "default directory, failed download" "$dest"
 case $out in
   *"$dest"*) ok ;;
