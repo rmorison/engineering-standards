@@ -8,13 +8,14 @@ Contributions are accepted under the repository's [MIT license](LICENSE): inboun
 
 ## Before You Open a Pull Request
 
-Every pull request runs the checks below in CI. Running them first saves a round trip. They need Node 22, Python 3.10 or later, and gitleaks 8.24.2 installed as [Adopting the Gate](process/repository-standards.md#adopting-the-gate) describes.
+Every pull request runs the checks below in CI. Running them first saves a round trip. They need Node 22, Python 3.10 or later, and the pinned gitleaks, which `sh scripts/install-gitleaks.sh` installs as [Adopting the Gate](process/repository-standards.md#adopting-the-gate) describes.
 
 ```bash
 npm ci --prefix scripts && node scripts/check-docs.mjs   # links, anchors, Mermaid, fences
 node scripts/check-template-kit.mjs                       # the starter kit's settings and hooks
 python scripts/check_secret_refs.py --standard            # the Secrets rule's examples
 sh scripts/test-leak-gate.sh                              # the leak gate's rules still fire
+sh scripts/test-install-gitleaks.sh                       # the gitleaks install fails closed
 sh scripts/leak-gate.sh range origin/main..HEAD           # no leak in your commits
 ```
 

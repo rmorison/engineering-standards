@@ -398,8 +398,9 @@ Each skeleton links to the standard by absolute URL, for the same reason
 
 The leak gate is not a skeleton; it is working configuration. Copy
 `.gitleaks.toml`, `scripts/gitleaks-report.tmpl`, `scripts/leak-gate.sh`,
-`scripts/test-leak-gate.sh` and `.github/workflows/leaks.yml` from the root of
-this repository, as
+`scripts/install-gitleaks.sh`, `scripts/test-leak-gate.sh`,
+`scripts/test-install-gitleaks.sh` and `.github/workflows/leaks.yml` from the
+root of this repository, as
 [Adopting the Gate](../process/repository-standards.md#adopting-the-gate)
 describes. They need `sh`, git, gitleaks and standard POSIX utilities, and
 nothing from your project's language ecosystem.
