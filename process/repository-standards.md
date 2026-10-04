@@ -159,11 +159,12 @@ Keep the list out of a dotfiles repository. A config directory tracked in git pu
 
 ### Running It Locally
 
-The wrapper takes one of three modes:
+The wrapper takes one of four modes:
 
 ```bash
 sh scripts/leak-gate.sh staged                 # what is staged: run it as a pre-commit hook
-sh scripts/leak-gate.sh range <base>..<head>   # a commit range: before pushing
+sh scripts/leak-gate.sh pre-push               # what a push would send: run it as a pre-push hook
+sh scripts/leak-gate.sh range <base>..<head>   # a commit range: a pull request's commits before merging
 sh scripts/leak-gate.sh history                # every ref, and commit and tag messages
 ```
 
@@ -207,19 +208,59 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
+      - id: leak-gate-pre-push
+        name: leak gate (pre-push)
+        entry: sh scripts/leak-gate.sh pre-push
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
 ```
+
+```bash
+pre-commit install --hook-type pre-commit --hook-type pre-push
+```
+
+`pass_filenames: false` is there because the wrapper reads git's index itself. `always_run: true` is there because, without it, the framework skips a hook when no changed file matches, and that would skip a commit that only deletes files. The `stages` name needs pre-commit 3.2 or later. A project that sets `LEAKGATE_HONOR_ALLOW=1` (see [Adopting the Gate](#adopting-the-gate)) uses `entry: env LEAKGATE_HONOR_ALLOW=1 sh scripts/leak-gate.sh staged`, and the same prefix for `pre-push`. The framework shows a passing hook's output only with `--verbose`, so confirm once that the value rules run, with `pre-commit run leak-gate --verbose`: the line saying value rules were skipped must not appear on a machine that holds the list. The entry checks commits only. `pre-commit run --all-files` runs it against an empty index, so it reports no leaks having scanned nothing. CI's coverage comes from `leaks.yml`.
+
+**Before pushing**, the `pre-push` mode scans every commit the push would give the remote: commit messages, author and committer identities and paths with the value rules, and file contents with every rule. It is the only local check of a commit message, and of a commit made with `--no-verify`. For each ref it scans the pushed commits, less the remote's old commit for that ref, less the commits on the remote's tracking refs. So an existing branch scans what is new, a new branch scans the commits no remote branch has, a force push scans what the remote lacks, and a deletion scans nothing.
+
+The tracking refs are trusted only for a configured remote that pushes where it fetches from. A push to a URL, or to a remote with a separate `pushurl`, has no exclusion, so it scans everything the pushed commits reach, as `history` would. The same happens with a remote never fetched, or an empty new remote. Such a push refuses on any finding already in the history, not just on new ones. When the remote already has that history, `git fetch <remote>` first clears it. For an empty remote, run `sh scripts/leak-gate.sh history`, review what it finds, and push with `--no-verify`. Tracking refs that are out of date work the same way: after a remote's URL changes, run `git fetch --prune <remote>` before pushing, or old tracking refs can hide commits from the check.
+
+With the pre-commit framework, the `leak-gate-pre-push` entry above does this. The framework passes its hooks only the first ref of a push that has commits to scan (pre-commit 4.6.2), so `git push --all`, `git push --tags`, or `git push --follow-tags` with a new tag gets only one ref scanned. Push one ref at a time, or use the hand-written pre-push hook, which sees every ref.
+
+To run it as a hand-written hook, install it the same way as the pre-commit hook. It skips with a message where the checked-out branch has no `scripts/leak-gate.sh`, or one too old to have the `pre-push` mode. It refuses where `HEAD` has the script but the working tree does not. Like the pre-commit hook, it runs the checked-out branch's wrapper whatever is being pushed, so a skip covers the whole push.
+
+```bash
+hook="$(git rev-parse --git-path hooks)/pre-push"
+cat > "$hook" <<'EOF'
+#!/bin/sh
+if [ -f scripts/leak-gate.sh ]; then
+  grep -q 'pre-push)' scripts/leak-gate.sh && exec sh scripts/leak-gate.sh pre-push "$@"
+  echo "leak-gate: this branch's scripts/leak-gate.sh has no pre-push mode; push not checked" >&2
+  exit 0
+fi
+if git cat-file -e HEAD:scripts/leak-gate.sh 2>/dev/null; then
+  echo "leak-gate: HEAD has scripts/leak-gate.sh but the working tree does not; push refused" >&2
+  exit 1
+fi
+echo "leak-gate: this branch has no scripts/leak-gate.sh; push not checked" >&2
+EOF
+chmod +x "$hook"
+```
+
+To pair the framework's pre-commit entry with the hand-written pre-push hook, leave `leak-gate-pre-push` out of `.pre-commit-config.yaml` and install the framework for pre-commit only, then install the block above:
 
 ```bash
 pre-commit install --hook-type pre-commit
 ```
 
-`pass_filenames: false` is there because the wrapper reads git's index itself. `always_run: true` is there because, without it, the framework skips a hook when no changed file matches, and that would skip a commit that only deletes files. The `stages` name needs pre-commit 3.2 or later. A project that sets `LEAKGATE_HONOR_ALLOW=1` (see [Adopting the Gate](#adopting-the-gate)) uses `entry: env LEAKGATE_HONOR_ALLOW=1 sh scripts/leak-gate.sh staged`. The framework shows a passing hook's output only with `--verbose`, so confirm once that the value rules run, with `pre-commit run leak-gate --verbose`: the line saying value rules were skipped must not appear on a machine that holds the list. The entry checks commits only. `pre-commit run --all-files` runs it against an empty index, so it reports no leaks having scanned nothing. CI's coverage comes from `leaks.yml`.
-
 ### What the Gate Cannot See
 
 - **Commits made without the value rules.** Commits from an outside pull request, a web edit, or a CI job that commits never ran value rules. The maintainer's pre-merge run keeps such a value off the default branch. In a public repository the value is already published once the pull request exists, so a hit at that point follows the remediation below.
-- **Commits the hook skipped.** The hook skips on a branch whose parent commit has no `scripts/leak-gate.sh`, and `--no-verify` skips it anywhere. CI's commit scan still reports credential and shape findings in such a commit, but only after the push, when a public repository has already published it, and CI never runs value rules. For a pull request, the maintainer's pre-merge run covers value rules; a direct push has no second check.
-- **Commit messages, pull request bodies, and branch and tag names.** gitleaks scans file contents. The wrapper adds paths, commit identities and, before a push, commit messages; the going-public sweep below also checks ref names and tag messages. CI checks none of them, and nothing checks pull request bodies.
+- **Commits the hook skipped.** The pre-commit hook skips on a branch whose parent commit has no `scripts/leak-gate.sh`, and `--no-verify` skips it anywhere. The hand-written pre-push hook skips the whole push, every ref included, when the checked-out branch has no wrapper or one without the `pre-push` mode; the pre-push check otherwise covers commits made with `--no-verify`. CI's commit scan still reports credential and shape findings in such a commit, but only after the push, when a public repository has already published it, and CI never runs value rules. For a pull request, the maintainer's pre-merge run covers value rules; a direct push has no second check.
+- **Commit messages, pull request bodies, and branch and tag names.** gitleaks scans file contents. The wrapper adds paths, commit identities and, before a push, commit messages. Only the going-public sweep below checks ref names and annotated tag messages; a pushed tag is scanned only for the commits it adds, so a tag on a commit the remote already has has nothing to scan. CI checks none of them, and nothing checks pull request bodies.
+- **Later refs of a push, in the pre-commit framework's form.** The framework passes its pre-push hooks only the first ref of a push that has commits to scan. The hand-written pre-push hook sees every ref.
 - **Files on gitleaks' default path allowlist.** Lock files, images and vendored paths are not scanned by the credential or shape rules; `package-lock.json` hid a home path in a test on 2026-09-27. The value rules do scan the text among them, such as lock files, because the generated value configuration does not extend the defaults. `scripts/test-leak-gate.sh` pins both behaviours.
 - **Binary file contents, in part.** CI's commit scan and the wrapper's `range` and `history` pass `--text`, so every rule reads each changed file whatever git or `.gitattributes` calls it. CI's tree scan and the wrapper's committed rules in `staged` mode skip content that really is binary, such as an image or a PDF. In `staged` mode the value rules still match its bytes, and the wrapper always checks paths.
 - **Allowlists on staged files git shows as binary.** The wrapper scans those from a temporary copy, so a path allowlist or `.gitleaksignore` fingerprint for them does not apply. A false positive there is cleared by fixing the file or its attributes, not by allowlisting.
