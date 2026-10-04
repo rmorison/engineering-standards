@@ -321,6 +321,8 @@ def fixtures(sb):
         ("an unbalanced quote with a body file", 'gh pr comment 1 --body-file clean.md --title "x'),
         ("a heredoc plus another input file",
          "cat dirty.md - > new.md <<'EOF'\nclean\nEOF\ngh pr create --body-file new.md"),
+        ("a heredoc replaced by a later < file",
+         "cat > new.md <<'EOF' < dirty.md\nclean\nEOF\ngh pr create --body-file new.md"),
     ]
     for name, command in written:
         check(name, sb.hook(command), "deny", "cannot be")

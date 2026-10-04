@@ -541,9 +541,11 @@ def written_paths(cmd):
         targets.append(operands[-1])
     paths = [p for p in (expand(t, cmd.cwd) for t in targets) if p]
     # Only cat or tee with no input file but the heredoc, as in cat > F <<'EOF'.
-    # cat header.md - > F <<'EOF' also writes header.md, which the hook cannot see.
+    # cat header.md - > F <<'EOF' also writes header.md, and a later < file
+    # replaces the heredoc as stdin; the hook cannot see either file's text.
     inputs = operands if cmd.program == "cat" else []
-    if (any(op == "<<" for op, _ in cmd.redirects) and cmd.program in ("cat", "tee")
+    ops = [op for op, _ in cmd.redirects]
+    if ("<<" in ops and not {"<", "<>", "<&"} & set(ops) and cmd.program in ("cat", "tee")
             and all(w == "-" for w in inputs)):
         return paths, []
     return [], paths
@@ -563,9 +565,12 @@ def read_body(path):
             raise Deny("a file this command sends to GitHub is larger than 10 MiB, so it is not "
                        "checked.")
         with open(path, "rb") as f:
-            return f.read(MAX_BODY_BYTES + 1).decode("utf-8", "replace")
+            data = f.read(MAX_BODY_BYTES + 1)
     except OSError:
         raise Deny("a file this command sends to GitHub cannot be read, so it cannot be checked.")
+    if len(data) > MAX_BODY_BYTES:  # it grew after the stat
+        raise Deny("a file this command sends to GitHub is larger than 10 MiB, so it is not checked.")
+    return data.decode("utf-8", "replace")
 
 
 def decide(command, cwd):
