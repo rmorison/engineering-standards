@@ -102,16 +102,17 @@ class Sandbox:
         locked.write_text(f"{CANARY_A}\n")
         locked.chmod(0)
 
-    def git_config(self, *args):
-        subprocess.run(["git", "config", "--file", str(self.gitconfig), *args],
-                       check=True, env=self.env)
-
     def declare(self, value):
-        """Declare the global list: None unsets it; a str is written as the path."""
-        subprocess.run(["git", "config", "--file", str(self.gitconfig), "--unset-all",
-                        "leakgate.values"], env=self.env)
-        if value is not None:
-            self.git_config("leakgate.values", value)
+        """Declare the global list: None unsets it; a str is written as the path.
+
+        The file is written directly: git config's own writes lock and sync the
+        file, and took most of this script's run time.
+        """
+        if value is None:
+            self.gitconfig.write_text("")
+        else:
+            quoted = value.replace("\\", "\\\\").replace('"', '\\"')
+            self.gitconfig.write_text(f'[leakgate]\n\tvalues = "{quoted}"\n')
 
     def write_list(self, name, content):
         path = self.lists / name
@@ -148,12 +149,19 @@ def lines_named(err):
     return {int(n) for n in re.findall(r"[0-9]+", m.group(1))} if m else None
 
 
+def expect(name, good, why):
+    if good:
+        ok()
+    else:
+        bad(name, why)
+
+
 def check(name, result, want, frag=None, lines=None, extra_secrets=(), on_fail=None):
     """want is 'deny', 'allow' (no output at all) or 'note' (allowed, skipped note)."""
     rc, out, err = result
     hits = leaked(result, extra_secrets)
     if hits:
-        return bad(name, "a planted value appears in the hook's output", None)
+        return bad(name, "a planted value appears in the hook's output")
     if want == "deny":
         if rc != 2:
             return bad(name, on_fail or f"exit {rc}, expected 2 (deny)", result)
@@ -192,7 +200,7 @@ def run_leak_gate(sb, repo, list_path):
 def scratch_repo(sb, name):
     repo = sb.root / name
     repo.mkdir()
-    subprocess.run(["git", "init", "-q", str(repo)], check=True, env=sb.env)
+    subprocess.run(["git", "init", "-q", "--template=", str(repo)], check=True, env=sb.env)
     return repo
 
 
@@ -207,7 +215,7 @@ def main():
 
 
 def fixtures(sb):
-    A = CANARY_A
+    A, B = CANARY_A, CANARY_B
     standard = sb.write_list("standard", STANDARD_LIST)
     root = os.geteuid() == 0
 
@@ -327,34 +335,27 @@ def fixtures(sb):
     ]
     for name, line in invalid:
         path = sb.write_list("invalid", b"# parity\n" + line + b"\n")
-        rc, out = run_leak_gate(sb, repo, path)
-        if rc != 2 or "value list line 2" not in out:
-            bad(f"parity, {name}: leak-gate.sh", f"exit {rc}, expected 2 naming line 2: {out.strip()}")
-        else:
-            ok()
-        sb.declare(path)
+        rc, out = run_leak_gate(sb, repo, path)  # declares path as the list
+        expect(f"parity, {name}: leak-gate.sh", rc == 2 and "value list line 2" in out,
+               f"exit {rc}, expected 2 naming line 2: {out.strip()}")
         check(f"parity, {name}: hook", sb.hook(out_cmd), "deny", "value list line 2")
 
     accepted = [
         ("a 2-character, 4-byte value", "éé".encode() + b"\n",
          'gh issue comment 1 --body "xÉÉx"', {1}, ["éé"]),
-        ("CRLF line ends", b"# c\r\n" + CANARY_A.encode() + b"\r\n" + CANARY_B.encode() + b"\r\n",
-         f"gh issue comment 1 --body {CANARY_B}", {3}, []),
-        ("lone CR line ends", b"# c\r" + CANARY_A.encode() + b"\r" + CANARY_B.encode(),
-         f"gh issue comment 1 --body {CANARY_B}", {3}, []),
-        ("byte-order mark", b"\xef\xbb\xbf" + CANARY_A.encode() + b"\n",
+        ("CRLF line ends", b"# c\r\n" + A.encode() + b"\r\n" + B.encode() + b"\r\n",
+         f"gh issue comment 1 --body {B}", {3}, []),
+        ("lone CR line ends", b"# c\r" + A.encode() + b"\r" + B.encode(),
+         f"gh issue comment 1 --body {B}", {3}, []),
+        ("byte-order mark", b"\xef\xbb\xbf" + A.encode() + b"\n",
          f"gh issue comment 1 --body {A}", {1}, []),
-        ("inner tab", b"cn\t" + CANARY_B.encode() + b"\n",
-         f'gh issue comment 1 --body "cn\t{CANARY_B}"', {1}, []),
+        ("inner tab", b"cn\t" + B.encode() + b"\n",
+         f'gh issue comment 1 --body "cn\t{B}"', {1}, []),
     ]
     for name, content, command, lines, extra in accepted:
         path = sb.write_list("accepted", content)
-        rc, out = run_leak_gate(sb, repo, path)
-        if rc != 0:
-            bad(f"parity, {name}: leak-gate.sh", f"exit {rc}, expected 0: {out.strip()}")
-        else:
-            ok()
-        sb.declare(path)
+        rc, out = run_leak_gate(sb, repo, path)  # declares path as the list
+        expect(f"parity, {name}: leak-gate.sh", rc == 0, f"exit {rc}, expected 0: {out.strip()}")
         check(f"parity, {name}: hook matches the value", sb.hook(command), "deny",
               "matches private value list line", lines, extra_secrets=extra)
 
@@ -390,18 +391,19 @@ def fixtures(sb):
 
     # --- Lookalikes are allowed (AE4) -------------------------------------------
     sb.declare(None)
+    # With no list, an allowed outbound command carries the skipped note.
     lookalikes = [
-        ("flag inside a commit message", "git commit -m \"don't use --no-verify\""),
-        ("flag inside a quoted PR body", 'gh issue comment 1 --body "never run git commit --no-verify"'),
-        ("heredoc body mentions git commit -n", "cat > notes.md <<'EOF'\ngit commit -n\nEOF"),
-        ("git config --get core.hooksPath", "git config --get core.hooksPath"),
-        ("git config --unset core.hooksPath", "git config --unset core.hooksPath"),
-        ("git push -n is a dry run", "git push -n"),
-        ("git log -n 5", "git log -n 5"),
-        ("echo SKIP=1", "echo SKIP=1"),
+        ("flag inside a commit message", "git commit -m \"don't use --no-verify\"", "allow"),
+        ("flag inside a quoted PR body",
+         'gh issue comment 1 --body "never run git commit --no-verify"', "note"),
+        ("heredoc body mentions git commit -n", "cat > notes.md <<'EOF'\ngit commit -n\nEOF", "allow"),
+        ("git config --get core.hooksPath", "git config --get core.hooksPath", "allow"),
+        ("git config --unset core.hooksPath", "git config --unset core.hooksPath", "allow"),
+        ("git push -n is a dry run", "git push -n", "allow"),
+        ("git log -n 5", "git log -n 5", "allow"),
+        ("echo SKIP=1", "echo SKIP=1", "allow"),
     ]
-    for name, command in lookalikes:
-        want = "note" if command.startswith("gh ") else "allow"
+    for name, command, want in lookalikes:
         check(f"lookalike: {name}", sb.hook(command), want)
 
     # --- Residuals are still allowed (R5) ---------------------------------------

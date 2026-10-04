@@ -40,11 +40,11 @@ import json
 import os
 import re
 import shlex
-import subprocess
 import sys
 
 BYPASS = "Remove the value from the text, or fix the list; don't bypass."
 LIST_KEY = "git config --global leakgate.values"
+MAX_DEPTH = 3  # how deep sh -c and eval are followed
 
 
 class Deny(Exception):
@@ -53,6 +53,7 @@ class Deny(Exception):
 
 # --- The command: heredocs, continuations, tokens, simple commands -----------------
 
+# The lookbehind keeps a here-string (<<<) from reading as a heredoc.
 HEREDOC = re.compile(r"(?<!<)<<(-?)\s*(['\"]?)([A-Za-z0-9_.-]+)\2")
 
 
@@ -65,7 +66,6 @@ def strip_heredocs(text):
         line = lines[i]
         out.append(line)
         i += 1
-        # The lookbehind keeps a here-string (<<<) from reading as a heredoc.
         for dash, _, delim in HEREDOC.findall(line):
             end = i
             while end < len(lines):
@@ -81,6 +81,8 @@ def strip_heredocs(text):
 
 def join_continuations(text):
     """Removes backslash-newline outside single quotes, as the shell does."""
+    if "\\\n" not in text:
+        return text
     out = []
     quote = None
     i = 0
@@ -106,11 +108,14 @@ def join_continuations(text):
     return "".join(out)
 
 
+PUNCTUATION = ";&|()<>\n"
+
+
 def tokenize(text):
     # shlex's defaults would treat a newline as plain whitespace, merging a
     # command on the next line into the one before it, and would read "#"
     # inside a word as the start of a comment.
-    lex = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>\n")
+    lex = shlex.shlex(text, posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
     lex.commenters = ""
@@ -118,7 +123,6 @@ def tokenize(text):
 
 
 REDIRECTS = {"<", ">", ">>", "<<", ">&", "<&", "&>", "&>>", ">|", "<>"}
-SEPARATOR_CHARS = set(";&|()\n")
 
 
 def simple_commands(tokens):
@@ -133,7 +137,8 @@ def simple_commands(tokens):
             redirects.append((t, target))
             i += 2
             continue
-        if t and set(t) <= SEPARATOR_CHARS | set("<>"):
+        # Any other run of punctuation separates commands: ; && || | & ( ) and newlines.
+        if t and set(t) <= set(PUNCTUATION):
             if words or redirects:
                 commands.append((words, redirects))
             words, redirects = [], []
@@ -227,26 +232,36 @@ def parse(text, cwd, depth=0):
         if cmd.program == "cd":
             target = words[1] if len(words) > 1 else "~"
             cwd = expand(target, cwd) if target != "-" else None
-        if depth < 3 and cmd.program in SHELLS:
-            for j, w in enumerate(words[1:], 1):
-                if w.startswith("-") and not w.startswith("--") and "c" in w:
-                    script = next((x for x in words[j + 1:] if not x.startswith("-")), None)
-                    if script is not None:
-                        sub, sub_words = parse(script, cwd, depth + 1)
-                        commands += sub
-                        all_words += sub_words
-                    break
-        if depth < 3 and cmd.program == "eval" and len(words) > 1:
-            sub, sub_words = parse(" ".join(words[1:]), cwd, depth + 1)
+        script = nested_script(cmd)
+        if script is not None and depth < MAX_DEPTH:
+            sub, sub_words = parse(script, cwd, depth + 1)
             commands += sub
             all_words += sub_words
     return commands, all_words
 
 
+def nested_script(cmd):
+    """Returns the script that sh -c or eval runs, or None."""
+    if cmd.program == "eval" and len(cmd.words) > 1:
+        return " ".join(cmd.words[1:])
+    if cmd.program in SHELLS:
+        for j, w in enumerate(cmd.words[1:], 1):
+            if w.startswith("-") and not w.startswith("--") and "c" in w:
+                return next((x for x in cmd.words[j + 1:] if not x.startswith("-")), None)
+    return None
+
+
 # --- Gate escapes ---------------------------------------------------------------------
 
+NO_VERIFY = "--no-verify"
+COMMIT_N = "git commit -n"
+HOOKSPATH = "a core.hooksPath override"
+SKIP = "SKIP="
+HOOKSPATH_KEY = "core.hookspath"  # git compares config keys case-insensitively
+
+
 def hookspath_key(kv):
-    return kv.split("=", 1)[0].casefold() == "core.hookspath"
+    return kv.split("=", 1)[0].casefold() == HOOKSPATH_KEY
 
 
 GIT_GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace",
@@ -260,33 +275,32 @@ CONFIG_WITH_VALUE = {"--file", "-f", "--blob", "--type", "--default", "--comment
 def escape(cmd):
     """Returns what makes this command a gate escape, or None."""
     prog = cmd.program
-    if prog in ("git", "pre-commit") and any(a.startswith("SKIP=") for a in cmd.assigns):
-        return "SKIP="
-    if prog == "export" and any(w.startswith("SKIP=") for w in cmd.words[1:]):
-        return "SKIP="
+    if prog in ("git", "pre-commit") and any(a.startswith(SKIP) for a in cmd.assigns):
+        return SKIP
+    if prog == "export" and any(w.startswith(SKIP) for w in cmd.words[1:]):
+        return SKIP
     if prog != "git":
         return None
     words = cmd.words[1:]
     i = 0
     while i < len(words) and words[i].startswith("-"):
         w = words[i]
-        if w in ("-c", "--config-env") and i + 1 < len(words) and hookspath_key(words[i + 1]):
-            return "a core.hooksPath override"
-        if w.startswith("--config-env=") and hookspath_key(w[len("--config-env="):]):
-            return "a core.hooksPath override"
-        if w.startswith("-c") and len(w) > 2 and not w.startswith("--") and hookspath_key(w[2:]):
-            return "a core.hooksPath override"
+        if ((w in ("-c", "--config-env") and i + 1 < len(words) and hookspath_key(words[i + 1]))
+                or (w.startswith("--config-env=") and hookspath_key(w[len("--config-env="):]))
+                or (w.startswith("-c") and not w.startswith("--") and len(w) > 2
+                    and hookspath_key(w[2:]))):
+            return HOOKSPATH
         i += 2 if w in GIT_GLOBAL_WITH_VALUE else 1
     if i >= len(words):
         return None
     sub, rest = words[i], words[i + 1:]
-    if "--no-verify" in rest:
-        return "--no-verify"
+    if NO_VERIFY in rest:
+        return NO_VERIFY
     if sub == "commit" and "-n" in rest:
-        return "git commit -n"
-    if sub == "config" and any(r.casefold() == "core.hookspath" for r in rest):
+        return COMMIT_N
+    if sub == "config" and any(r.casefold() == HOOKSPATH_KEY for r in rest):
         if any(r in CONFIG_WRITES for r in rest):
-            return "a core.hooksPath override"
+            return HOOKSPATH
         if any(r in CONFIG_READS for r in rest):
             return None
         positional = []
@@ -298,17 +312,18 @@ def escape(cmd):
             if not rest[j].startswith("-"):
                 positional.append(rest[j])
             j += 1
-        keys = [k for k, p in enumerate(positional) if p.casefold() == "core.hookspath"]
+        keys = [k for k, p in enumerate(positional) if p.casefold() == HOOKSPATH_KEY]
         if keys and keys[0] + 1 < len(positional):
-            return "a core.hooksPath override"
+            return HOOKSPATH
     return None
 
 
+# For a command shlex cannot split: (pattern, what it is, whether it needs "git" too).
 FALLBACK_ESCAPES = [
-    (re.compile(r"--no-verify\b"), "--no-verify"),
-    (re.compile(r"\bcommit\b[^\n;&|]*\s-n\b"), "git commit -n"),
-    (re.compile(r"core\.hookspath", re.I), "a core.hooksPath override"),
-    (re.compile(r"(^|[\s;&|(])SKIP="), "SKIP="),
+    (re.compile(r"--no-verify\b"), NO_VERIFY, True),
+    (re.compile(r"\bcommit\b[^\n;&|]*\s-n\b"), COMMIT_N, True),
+    (re.compile(r"core\.hookspath", re.I), HOOKSPATH, True),
+    (re.compile(r"(^|[\s;&|(])SKIP="), SKIP, False),
 ]
 
 
@@ -335,8 +350,8 @@ def option(words, names):
                 yield w[len(n):]
 
 
-def outbound_files(cmd):
-    """Returns (outbound, files) for a gh command: the paths of files it sends."""
+def gh_outbound(cmd):
+    """Returns (outbound, files): whether this is a gh write, and the files it sends."""
     if cmd.program != "gh":
         return False, []
     args = cmd.words[1:]
@@ -370,10 +385,13 @@ def outbound_files(cmd):
 
 NONASCII_SPACE = re.compile(rb"^(\xc2\xa0|\xe3\x80\x80|\xe2\x80[\x80-\x8a])|"
                             rb"(\xc2\xa0|\xe3\x80\x80|\xe2\x80[\x80-\x8a])$")
+CONTROL_CHARS = re.compile(rb"[\x00-\x08\x0a-\x1f\x7f]")  # [[:cntrl:]] less tab
 
 
 def read_list():
     """Returns None when no list is declared, else [(line number, value)]. Raises Deny."""
+    import subprocess  # only outbound commands get here; it is slow to import
+
     try:
         proc = subprocess.run(["git", "config", "--global", "--get", "leakgate.values"],
                               capture_output=True)
@@ -417,7 +435,7 @@ def read_list():
             text = value.decode("utf-8")
         except UnicodeDecodeError:
             raise Deny(f"value list line {n} is not valid UTF-8.")
-        if re.search(rb"[\x00-\x08\x0a-\x1f\x7f]", value):
+        if CONTROL_CHARS.search(value):
             raise Deny(f"value list line {n} holds a control character.")
         if b"\\E" in value or b"'''" in value:
             raise Deny(f"value list line {n} contains \\E or ''', which cannot be quoted as a literal.")
@@ -432,6 +450,18 @@ def read_list():
 
 # --- Deciding --------------------------------------------------------------------------
 
+ESCAPE_REASON = "switches off the git hooks that run the leak gate."
+
+
+def heredoc_targets(cmd):
+    """Returns the paths a command writes from a heredoc, as in cat > F <<'EOF'."""
+    if not any(op == "<<" for op, _ in cmd.redirects):
+        return []
+    targets = [t for op, t in cmd.redirects if op in (">", ">>", ">|")]
+    if cmd.program == "tee":
+        targets += [w for w in cmd.words[1:] if not w.startswith("-")]
+    return [p for p in (expand(t, cmd.cwd) for t in targets) if p]
+
 def decide(command, cwd):
     """Returns None to allow, or a note to show. Raises Deny."""
     try:
@@ -439,30 +469,26 @@ def decide(command, cwd):
     except ValueError:
         commands, words = None, []
 
+    outbound = False
+    files = []  # resolved paths, None where the path cannot be known
+    heredoc_written = set()
     if commands is None:
-        for pattern, what in FALLBACK_ESCAPES:
-            if pattern.search(command) and ("git" in command or what == "SKIP="):
-                raise Deny(f"{what} switches off the git hooks that run the leak gate.")
+        has_git = "git" in command
+        for pattern, what, needs_git in FALLBACK_ESCAPES:
+            if pattern.search(command) and (has_git or not needs_git):
+                raise Deny(f"{what} {ESCAPE_REASON}")
         outbound = re.search(r"(^|[\s;&|(/])gh\s", command) is not None
-        files, heredoc_written = [], set()
     else:
         for cmd in commands:
             what = escape(cmd)
             if what:
-                raise Deny(f"{what} switches off the git hooks that run the leak gate.")
-        outbound = False
-        files = []
-        heredoc_written = set()
+                raise Deny(f"{what} {ESCAPE_REASON}")
         for cmd in commands:
-            if any(op == "<<" for op, _ in cmd.redirects):
-                targets = [t for op, t in cmd.redirects if op in (">", ">>", ">|")]
-                if cmd.program == "tee":
-                    targets += [w for w in cmd.words[1:] if not w.startswith("-")]
-                heredoc_written.update(p for p in (expand(t, cmd.cwd) for t in targets) if p)
-            is_out, named = outbound_files(cmd)
+            heredoc_written.update(heredoc_targets(cmd))
+            is_out, named = gh_outbound(cmd)
             if is_out:
                 outbound = True
-                files += [(f, expand(f, cmd.cwd)) for f in named]
+                files += [expand(f, cmd.cwd) for f in named]
     if not outbound:
         return None
 
@@ -472,7 +498,7 @@ def decide(command, cwd):
                 f"({LIST_KEY}), so the text this command sends to GitHub was not checked.")
 
     texts = [command, " ".join(words)]
-    for name, path in files:
+    for path in files:
         if path is None or not os.path.exists(path):
             if path in heredoc_written:
                 continue
