@@ -79,8 +79,11 @@ F="gitleaks_${GITLEAKS_VERSION}_${platform}.tar.gz"
 URL="https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/$F"
 echo "install-gitleaks: installing gitleaks $GITLEAKS_VERSION ($platform) into $DIR" >&2
 
+# NEW is the copy beside the target, set just before it is made; the trap
+# removes it too, so an interrupted install leaves nothing in DIR.
+NEW=
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"; [ -z "$NEW" ] || rm -f "$NEW"' EXIT
 trap 'exit 130' INT TERM HUP
 
 curl -sSfL -o "$WORK/$F" "$URL" || die "download failed: $URL; nothing installed"
@@ -92,10 +95,8 @@ mkdir -p "$DIR" || die "could not create $DIR"
 # Copy beside the target, then rename over it, so a failed copy never leaves a
 # truncated gitleaks or removes the one already there.
 NEW="$DIR/.gitleaks.new.$$"
-if ! install -m 755 "$WORK/gitleaks" "$NEW" || ! mv -f "$NEW" "$DIR/gitleaks"; then
-  rm -f "$NEW"
+install -m 755 "$WORK/gitleaks" "$NEW" && mv -f "$NEW" "$DIR/gitleaks" ||
   die "could not install into $DIR"
-fi
 
 echo "$DIR/gitleaks"
 if [ "$(command -v gitleaks 2>/dev/null || true)" != "$DIR/gitleaks" ]; then

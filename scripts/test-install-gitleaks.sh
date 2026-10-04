@@ -266,6 +266,28 @@ if [ -n "$REAL_SHASUM" ]; then
 else
   echo "note: no shasum here, so the real shasum's success path was not run"
 fi
+# Killed between the copy and the rename: a shim mv sends the script TERM. The
+# EXIT trap must remove the copy, and the gitleaks already there must survive.
+KILL_MV_BIN="$WORK/kill-mv-bin"
+mkdir "$KILL_MV_BIN"
+ln -s "$LINUX_BIN/sha256sum" "$KILL_MV_BIN/sha256sum"
+printf '#!/bin/sh\nkill -TERM "$PPID"\nexit 1\n' > "$KILL_MV_BIN/mv"
+chmod +x "$KILL_MV_BIN/mv"
+mkdir "$WORK/killed"
+printf '#!/bin/sh\necho old\n' > "$WORK/killed/gitleaks"
+chmod +x "$WORK/killed/gitleaks"
+RUN_SCRIPT="$WORK/patched-linux_x64.sh"
+install_run Linux x86_64 serve "$KILL_MV_BIN" "$WORK/killed"
+RUN_SCRIPT=$SCRIPT
+if [ "$rc" -eq 0 ]; then
+  bad "killed before the rename: exit 0, expected a failure"
+elif [ "$(ls -A "$WORK/killed")" != gitleaks ]; then
+  bad "killed before the rename: left '$(ls -A "$WORK/killed" | tr '\n' ' ')' in DIR"
+elif [ "$("$WORK/killed/gitleaks")" != old ]; then
+  bad "killed before the rename: the existing gitleaks was replaced"
+else
+  ok
+fi
 RUN_SCRIPT=$SCRIPT
 
 # --- Pins ----------------------------------------------------------------------------
