@@ -18,6 +18,9 @@ the two read a list the same way. They set GITLEAKS=true, so they need no
 gitleaks, and LC_ALL=C, so a value's length is counted in bytes whichever shell
 is sh.
 
+Labels such as R1, AE3 and KTD4 in section comments and fixture names refer to
+docs/plans/2026-10-04-1353-feat-claude-leak-hook-plan.md.
+
 Usage:  python3 scripts/test_claude_leak_hook.py [hook]
 The optional argument runs the fixtures against another script in place of the
 hook, which is how each fixture is shown to fail before it is trusted.
@@ -98,6 +101,8 @@ class Sandbox:
         (self.work / "dirty.md").write_text(f"Body text.\nSee {CANARY_A.upper()} for more.\n")
         (self.work / "two.md").write_text(f"{CANARY_A}\nand\n{CANARY_B}\n")
         (self.work / "sub" / "rel.md").write_text(f"rel {CANARY_A}\n")
+        (self.work / "reused.md").write_text("An old, clean body.\n")
+        (self.home / "home.md").write_text(f"{CANARY_A}\n")
         locked = self.work / "locked.md"
         locked.write_text(f"{CANARY_A}\n")
         locked.chmod(0)
@@ -119,7 +124,7 @@ class Sandbox:
         path.write_bytes(content)
         return str(path)
 
-    def hook(self, command, cwd=None, tool="Bash", stdin=None):
+    def hook(self, command, cwd=None, tool="Bash", stdin=None, env=None):
         if stdin is None:
             stdin = json.dumps({
                 "session_id": "test",
@@ -129,7 +134,8 @@ class Sandbox:
                 "tool_input": {"command": command, "description": "fixture"},
             })
         proc = subprocess.run([sys.executable, str(HOOK)], input=stdin.encode(),
-                              capture_output=True, env=self.env, cwd=str(cwd or self.work))
+                              capture_output=True, env=dict(self.env, **(env or {})),
+                              cwd=str(cwd or self.work))
         return (proc.returncode, proc.stdout.decode("utf-8", "replace"),
                 proc.stderr.decode("utf-8", "replace"))
 
@@ -252,6 +258,30 @@ def fixtures(sb):
         ("backslash-newline continuation", "gh pr create --title t \\\n  --body-file dirty.md", {3}),
         ("two values in one body", "gh issue comment 1 --body-file two.md", {3, 5}),
         ("unbalanced quote falls back to the raw text", f'gh issue comment 1 --body "{A}', {3}),
+        ("pr edit", "gh pr edit 1 --body-file dirty.md", {3}),
+        ("issue edit", "gh issue edit 1 --body-file dirty.md", {3}),
+        ("release edit", "gh release edit v1 --notes-file dirty.md", {3}),
+        ("pr new", "gh pr new --title t --body-file dirty.md", {3}),
+        ("release new", "gh release new v1 --notes-file dirty.md", {3}),
+        ("pr close --comment", f"gh pr close 1 --comment {A}", {3}),
+        ("attached -F file", "gh issue comment 1 -Fdirty.md", {3}),
+        ("body file under ~", "gh pr comment 1 --body-file ~/home.md", {3}),
+        ("/dev/stdin with a redirect", "gh pr comment 1 --body-file /dev/stdin < dirty.md", {3}),
+        ("api --input /dev/stdin", "gh api repos/o/r/issues --input /dev/stdin < dirty.md", {3}),
+        ("-R between group and verb", "gh issue -R o/r comment 1 --body-file dirty.md", {3}),
+        ("--repo= between group and verb", "gh pr --repo=o/r comment 1 --body-file dirty.md", {3}),
+        ("after if/then", f"if true; then gh pr comment 1 --body {A}; fi", {3}),
+        ("after for/do", "for f in a; do gh issue comment 1 --body-file dirty.md; done", {3}),
+        ("inside { }", f"{{ gh issue comment 1 --body {A}; }}", {3}),
+        ("after else", "if gh pr view 1; then gh pr edit 1 --body-file clean.md; "
+                       "else gh pr create --body-file dirty.md; fi", {3}),
+        ("# comment with an apostrophe after the command",
+         "gh pr comment 1 --body-file dirty.md # it's done", {3}),
+        ("# comment with an apostrophe on the line before",
+         "# don't forget\ngh pr comment 1 --body-file dirty.md", {3}),
+        ('quoted $(gh ...)', 'url="$(gh pr create --title t --body-file dirty.md)"', {3}),
+        ("backticks in double quotes", 'echo "Created `gh pr create --title t --body-file dirty.md`"', {3}),
+        ("unquoted backticks", "echo `gh pr create --title t --body-file dirty.md`", {3}),
     ]
     for name, command, lines in denied:
         check(name, sb.hook(command), "deny", "matches private value list line", lines)
@@ -264,6 +294,16 @@ def fixtures(sb):
     check("a named file that does not exist yet",
           sb.hook("cp clean.md gone.md && gh pr comment 1 --body-file gone.md"),
           "deny", "does not exist yet")
+    written = [
+        ("an existing body file overwritten by cp", "cp dirty.md reused.md && gh pr create --body-file reused.md"),
+        ("an existing body file overwritten by a redirect",
+         "cat dirty.md > reused.md && gh pr comment 1 --body-file reused.md"),
+        ("a heredoc-written file then appended to",
+         "cat > new.md <<'EOF'\nclean\nEOF\ncat dirty.md >> new.md\ngh pr create --body-file new.md"),
+        ("an unbalanced quote with a body file", 'gh pr comment 1 --body-file clean.md --title "x'),
+    ]
+    for name, command in written:
+        check(name, sb.hook(command), "deny", "cannot be")
 
     # --- Clean text is allowed, with no decision of the hook's own (R2) ---------
     allowed = [
@@ -279,9 +319,23 @@ def fixtures(sb):
         ("gh issue view is not outbound", f"echo {A} && gh issue view 1"),
         ("gh api GET is not outbound", f"gh api repos/o/r/issues?q={A}"),
         ("git log is not outbound", f"git log --grep {A}"),
+        ("api -f key=@text is text, not a file",
+         "gh api -X POST repos/o/r/issues/1/comments -f 'body=@someone please look'"),
+        ("# comment with an apostrophe, clean body", "gh pr comment 1 --body-file clean.md # it's fine"),
+        ("single-quoted backticks are literal",
+         "gh issue comment 1 --body 'never run `git commit --no-verify`'"),
     ]
     for name, command in allowed:
         check(name, sb.hook(command), "allow")
+
+    # Mixed-case values match in any case.
+    mixed = "Cn" + "Ry-Mixed" + secrets.token_hex(3)
+    sb.declare(sb.write_list("mixed", f"{mixed}\n".encode()))
+    for variant in (mixed.lower(), mixed.upper()):
+        check("a mixed-case list value matches " + ("lower" if variant.islower() else "upper") + " case",
+              sb.hook(f"gh issue comment 1 --body {variant}"), "deny",
+              "matches private value list line", {1}, extra_secrets=[mixed])
+    sb.declare(standard)
 
     # --- Global list only (R3, AE3) ---------------------------------------------
     repo = scratch_repo(sb, "local-none")
@@ -290,6 +344,22 @@ def fixtures(sb):
     check("AE3: a clone's local 'none' does not switch the hook off",
           sb.hook(f"gh issue comment 1 --body {A}", cwd=repo), "deny",
           "matches private value list line", {3})
+
+    # --- The list declared with ~/, and failures that must deny (KTD6) ---------
+    (sb.home / "lists").mkdir()
+    shutil.copy(standard, sb.home / "lists" / "standard")
+    sb.declare("~/lists/standard")
+    check("a list declared under ~/", sb.hook(f"gh issue comment 1 --body {A}"), "deny",
+          "matches private value list line", {3})
+    sb.gitconfig.write_text("[leakgate\n")
+    check("an unreadable git config denies outbound", sb.hook("gh issue comment 1 --body hi"),
+          "deny", "could not read")
+    sb.declare(standard)
+    check("git missing from PATH denies outbound", sb.hook("gh issue comment 1 --body hi",
+          env={"PATH": str(sb.root / "empty")}), "deny", "could not be run")
+    check("an unexpected hook error denies",
+          sb.hook("", stdin=json.dumps({"tool_name": "Bash", "tool_input": "gh issue comment 1"})),
+          "deny", "the hook failed")
 
     # --- List states (R6, R7, AE5) ----------------------------------------------
     out_cmd = "gh issue comment 1 --body hello"
@@ -383,6 +453,18 @@ def fixtures(sb):
         ("next line after cd", "cd d\ngit commit -n", "git commit -n"),
         ("# inside a word", "git commit -m fix#1 --no-verify", "--no-verify"),
         ("unbalanced quote falls back to the raw text", 'git commit --no-verify -m "x', "--no-verify"),
+        ("after if/then", "if true; then git commit -n; fi", "git commit -n"),
+        ("after !", "! git commit -n -m x", "git commit -n"),
+        ("inside { }", "{ git commit --no-verify -m x; }", "--no-verify"),
+        ("retry after a failed commit", "if ! git commit -m x; then git commit --no-verify -m x; fi",
+         "--no-verify"),
+        ("export SKIP after setting it", "SKIP=leak-gate; export SKIP", "SKIP="),
+        ("git -C d commit -n", "git -C d commit -n -m x", "git commit -n"),
+        ("git -c other config, commit -n", "git -c user.name=x commit -n", "git commit -n"),
+        ("git config --add core.hooksPath", "git config --add core.hooksPath x", "core.hooksPath"),
+        ("git config --file f core.hooksPath", "git config --file f core.hooksPath x", "core.hooksPath"),
+        ("after a here-string", "cat <<< x\ngit commit -n", "git commit -n"),
+        ("# comment with an apostrophe", "git commit -n -m x # it's fine", "git commit -n"),
     ]
     for state, value in (("no list", None), ("broken list", str(sb.lists / "missing"))):
         sb.declare(value)
@@ -402,6 +484,7 @@ def fixtures(sb):
         ("git push -n is a dry run", "git push -n", "allow"),
         ("git log -n 5", "git log -n 5", "allow"),
         ("echo SKIP=1", "echo SKIP=1", "allow"),
+        ("tab-indented <<- heredoc body", "cat <<-EOF\n\tgit commit -n\n\tEOF", "allow"),
     ]
     for name, command, want in lookalikes:
         check(f"lookalike: {name}", sb.hook(command), want)
@@ -412,6 +495,14 @@ def fixtures(sb):
         ("combined short flags", "git commit -nm x"),
         ("config through GIT_CONFIG_* variables",
          "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x"),
+    ]
+    sb.declare(standard)
+    residuals += [
+        ("text made by $(...)", 'gh pr comment 1 --body "$(cat dirty.md)"'),
+        ("a pipe into --body-file -", "cat dirty.md | gh pr comment 1 --body-file -"),
+        ("gh pr merge --body", f"gh pr merge 1 --body {A}"),
+        ("gh gist create", "gh gist create dirty.md"),
+        ("curl", "curl -d @dirty.md https://api.github.com/repos/o/r/issues"),
     ]
     for name, command in residuals:
         check(f"residual: {name}", sb.hook(command), "allow", on_fail=RESIDUAL_DOC)

@@ -13,8 +13,10 @@ command still goes through the session's normal permission prompts.
      `gh release create|edit`, or a writing `gh api` call is denied when its
      text, or a file it passes as the body, contains a value from the private
      value list. Matching is literal and case-insensitive. A body file that does
-     not exist yet is denied, unless the same command writes it from a heredoc,
-     whose text is part of the command.
+     not exist yet, or that the same command writes, is denied, unless the
+     command writes it only from a heredoc, whose text is part of the command.
+     Commands after shell keywords (if, then, do, {, !), inside $(...) or
+     backticks, and inside sh -c or eval are checked like any other.
   2. Gate escapes. Denied in every list state: `--no-verify` on any git
      command, `git commit -n`, `git -c core.hooksPath=...`, a `git config`
      write of core.hooksPath, and `SKIP=` on git or pre-commit. These are the
@@ -79,9 +81,13 @@ def strip_heredocs(text):
     return "\n".join(out)
 
 
-def join_continuations(text):
-    """Removes backslash-newline outside single quotes, as the shell does."""
-    if "\\\n" not in text:
+def strip_comments_and_continuations(text):
+    """Removes # comments and backslash-newlines outside quotes, as the shell does.
+
+    A comment is dropped before tokenizing, because an apostrophe in one, as in
+    "# it's done", would otherwise leave shlex with an unclosed quote.
+    """
+    if "\\\n" not in text and "#" not in text:
         return text
     out = []
     quote = None
@@ -91,6 +97,10 @@ def join_continuations(text):
         if quote == "'":
             if c == "'":
                 quote = None
+        elif quote is None and c == "#" and (i == 0 or text[i - 1] in " \t\n;&|()<>"):
+            end = text.find("\n", i)
+            i = len(text) if end == -1 else end
+            continue
         elif c == "\\" and i + 1 < len(text):
             if text[i + 1] == "\n":
                 i += 2
@@ -152,6 +162,9 @@ def simple_commands(tokens):
 
 
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# Shell reserved words that can stand before a command: if ...; then gh ...
+RESERVED = {"!", "{", "}", "if", "then", "else", "elif", "while", "until", "do",
+            "fi", "done", "esac"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 # Wrappers skipped to find the program, with their options that take a value.
 WRAPPERS = {
@@ -189,6 +202,9 @@ def unwrap(words):
             assigns.append(w)
             i += 1
             continue
+        if w in RESERVED:
+            i += 1
+            continue
         name = os.path.basename(w)
         if name not in WRAPPERS:
             break
@@ -223,8 +239,14 @@ def expand(path, cwd):
 
 def parse(text, cwd, depth=0):
     """Returns (commands, words) for a command string, descending into sh -c and eval."""
-    tokens = tokenize(join_continuations(strip_heredocs(text)))
+    text = strip_comments_and_continuations(strip_heredocs(text))
+    tokens = tokenize(text)
     commands, all_words = [], list(tokens)
+    for script in substitutions(text):
+        if depth < MAX_DEPTH:
+            sub, sub_words = parse(script, cwd, depth + 1)
+            commands += sub
+            all_words += sub_words
     for words, redirects in simple_commands(tokens):
         assigns, words = unwrap(words)
         cmd = Command(assigns, words, redirects, cwd)
@@ -238,6 +260,43 @@ def parse(text, cwd, depth=0):
             commands += sub
             all_words += sub_words
     return commands, all_words
+
+
+def substitutions(text):
+    """Returns the scripts in $(...) and backticks outside single quotes.
+
+    The shell runs them, quoted in double quotes or not, as in
+    url="$(gh pr create ...)". Inside single quotes they are literal text, as
+    in a PR body that quotes `git commit -n`.
+    """
+    bodies = []
+    quote = None
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif c == "\\":
+            i += 1
+        elif c == "'" and quote is None:
+            quote = "'"
+        elif c == '"':
+            quote = None if quote == '"' else '"'
+        elif c == "`":
+            end = text.find("`", i + 1)
+            end = len(text) if end == -1 else end
+            bodies.append(text[i + 1:end])
+            i = end
+        elif text.startswith("$(", i):
+            depth, j = 1, i + 2
+            while j < len(text) and depth:
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                j += 1
+            bodies.append(text[i + 2:j - 1] if depth == 0 else text[i + 2:])
+            i = j - 1
+        i += 1
+    return bodies
 
 
 def nested_script(cmd):
@@ -277,7 +336,7 @@ def escape(cmd):
     prog = cmd.program
     if prog in ("git", "pre-commit") and any(a.startswith(SKIP) for a in cmd.assigns):
         return SKIP
-    if prog == "export" and any(w.startswith(SKIP) for w in cmd.words[1:]):
+    if prog == "export" and any(w.startswith(SKIP) or w == SKIP[:-1] for w in cmd.words[1:]):
         return SKIP
     if prog != "git":
         return None
@@ -336,6 +395,7 @@ GH_TEXT_VERBS = {
 }
 GH_FILE_FLAGS = {"--body-file", "-F", "--notes-file"}
 GH_API_FIELDS = {"-f", "-F", "--field", "--raw-field"}
+STDIN_PATHS = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 
 
 def option(words, names):
@@ -360,6 +420,8 @@ def gh_outbound(cmd):
     if not args:
         return False, []
     group, rest = args[0], args[1:]
+    while rest and rest[0].startswith("-"):  # gh issue -R o/r comment ...
+        rest = rest[2:] if rest[0] in ("-R", "--repo") else rest[1:]
     verb = rest[0] if rest else ""
     files = []
     if group in GH_TEXT_VERBS and verb in GH_TEXT_VERBS[group]:
@@ -373,10 +435,13 @@ def gh_outbound(cmd):
         inputs = list(option(rest, {"--input"}))
         if not (fields or inputs or any(m != "GET" for m in methods)):
             return False, []
-        files = inputs + [f.split("=@", 1)[1] for f in fields if "=@" in f]
+        # Only -F/--field reads @<path>; -f/--raw-field sends the text as it is.
+        typed = list(option(rest, {"-F", "--field"}))
+        files = inputs + [f.split("=@", 1)[1] for f in typed if "=@" in f]
     else:
         return False, []
     stdin = [t for op, t in cmd.redirects if op == "<"]
+    files = ["-" if f in STDIN_PATHS else f for f in files]
     files = [stdin[-1] if f == "-" and stdin else f for f in files if f != "-" or stdin]
     return True, files
 
@@ -451,16 +516,30 @@ def read_list():
 # --- Deciding --------------------------------------------------------------------------
 
 ESCAPE_REASON = "switches off the git hooks that run the leak gate."
+FALLBACK_FILE_FLAGS = re.compile(r"--body-file|--notes-file|--input|\s-F|=@")
 
 
-def heredoc_targets(cmd):
-    """Returns the paths a command writes from a heredoc, as in cat > F <<'EOF'."""
-    if not any(op == "<<" for op, _ in cmd.redirects):
-        return []
-    targets = [t for op, t in cmd.redirects if op in (">", ">>", ">|")]
+WRITE_REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
+COPIERS = {"cp", "mv", "install", "ln"}  # the last operand is written
+
+
+def written_paths(cmd):
+    """Returns (from_heredoc, other): the paths a command writes.
+
+    A file written from a heredoc, as in cat > F <<'EOF', holds text that is
+    part of the command itself. A file written any other way holds text the
+    hook cannot see until the command runs.
+    """
+    targets = [t for op, t in cmd.redirects if op in WRITE_REDIRECTS]
+    operands = [w for w in cmd.words[1:] if not w.startswith("-")]
     if cmd.program == "tee":
-        targets += [w for w in cmd.words[1:] if not w.startswith("-")]
-    return [p for p in (expand(t, cmd.cwd) for t in targets) if p]
+        targets += operands
+    elif cmd.program in COPIERS and operands:
+        targets.append(operands[-1])
+    paths = [p for p in (expand(t, cmd.cwd) for t in targets) if p]
+    if any(op == "<<" for op, _ in cmd.redirects) and cmd.program not in COPIERS:
+        return paths, []
+    return [], paths
 
 def decide(command, cwd):
     """Returns None to allow, or a note to show. Raises Deny."""
@@ -471,20 +550,25 @@ def decide(command, cwd):
 
     outbound = False
     files = []  # resolved paths, None where the path cannot be known
-    heredoc_written = set()
+    heredoc_written, other_written = set(), set()
     if commands is None:
         has_git = "git" in command
         for pattern, what, needs_git in FALLBACK_ESCAPES:
             if pattern.search(command) and (has_git or not needs_git):
                 raise Deny(f"{what} {ESCAPE_REASON}")
-        outbound = re.search(r"(^|[\s;&|(/])gh\s", command) is not None
+        outbound = re.search(r"(^|[\s;&|(/`])gh\s", command) is not None
+        if outbound and FALLBACK_FILE_FLAGS.search(command):
+            raise Deny("this command cannot be split into words, so the files it sends to "
+                       "GitHub cannot be checked. Rewrite it with balanced quotes.")
     else:
         for cmd in commands:
             what = escape(cmd)
             if what:
                 raise Deny(f"{what} {ESCAPE_REASON}")
         for cmd in commands:
-            heredoc_written.update(heredoc_targets(cmd))
+            from_heredoc, other = written_paths(cmd)
+            heredoc_written.update(from_heredoc)
+            other_written.update(other)
             is_out, named = gh_outbound(cmd)
             if is_out:
                 outbound = True
@@ -499,11 +583,12 @@ def decide(command, cwd):
 
     texts = [command, " ".join(words)]
     for path in files:
-        if path is None or not os.path.exists(path):
-            if path in heredoc_written:
+        if path in other_written or path is None or not os.path.exists(path):
+            if path in heredoc_written and path not in other_written:
                 continue
-            raise Deny("a file this command sends to GitHub does not exist yet, so it cannot be "
-                       "checked. Write the file in one step, then post it in the next.")
+            raise Deny("a file this command sends to GitHub is written by the same command, or "
+                       "does not exist yet, so it cannot be checked. Write the file in one step, "
+                       "then post it in the next.")
         try:
             with open(path, "rb") as f:
                 texts.append(f.read().decode("utf-8", "replace"))
