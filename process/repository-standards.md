@@ -255,11 +255,63 @@ To pair the framework's pre-commit entry with the hand-written pre-push hook, le
 pre-commit install --hook-type pre-commit
 ```
 
+### Guarding Agent Sessions
+
+The gate checks what goes into git. Agent sessions also post text to GitHub directly: pull request titles and bodies, issue bodies, comments and review text. `scripts/claude_leak_hook.py` is a Claude Code `PreToolUse` hook that runs before every Bash command a session runs and applies the value list to that text. Like the rest of the gate, it guards against mistakes, an agent's included. It does not stop a session that sets out to get around it.
+
+It denies two kinds of command, with a message saying why and what to do instead:
+
+- **Outbound text holding a listed value.** This covers `gh pr|issue create|edit|comment`, `gh pr|issue close|reopen --comment`, `gh pr review`, `gh release create|edit`, and `gh api` calls that write: any method other than GET, or any field or `--input`. The hook scans the whole command, heredocs included, and every file passed as the body (`--body-file`, `-F`, `--notes-file`, `gh api -F key=@file`, `--input`). Matching is literal and case-insensitive, and the message names the list line, never the value. A body file that does not exist yet is denied unless the same command writes it from a heredoc. Write the file in one step and post it in the next.
+- **Switching the git-side gate off.** This covers `--no-verify` on any git command, `git commit -n`, `git -c core.hooksPath=…`, a `git config` write of `core.hooksPath`, and `SKIP=` on git or pre-commit, which is how the pre-commit framework skips a hook.
+
+It reads the global list only, `git config --global leakgate.values`. The text goes to GitHub, not into the clone, and `gh -R` can target any repository, so a clone's `--local` setting, `none` included, does not apply. With no global list declared, or `none`, it allows outbound commands and says value rules were skipped. With a declared list that is missing, unreadable or empty, or that holds a line the wrapper would reject, it denies outbound commands until the list is fixed. It reads the list exactly as the wrapper does, and `scripts/test_claude_leak_hook.py` runs both over the same lists.
+
+Post GitHub text with `--body-file`, from a file written in an earlier step, rather than inline. The hook then sees the whole text in one place, and so does a reviewer.
+
+The uses of `--no-verify` in [Running It Locally](#running-it-locally), such as committing on a branch you did not write, removing the gate on purpose, or pushing to an empty remote, are for a person outside an agent session. Inside one, the hook denies them.
+
+**Installing.** Claude Code's user settings belong to one OS account, so each account that runs agent sessions installs the hook and declares its own value list. The hook needs `python3` 3.10 or later, and git. Copy the script out of the default branch's checkout of this repository, never a pull request's, so that checking out another branch cannot change what guards the machine:
+
+```bash
+mkdir -p ~/.claude/hooks && install -m 755 scripts/claude_leak_hook.py ~/.claude/hooks/claude_leak_hook.py
+```
+
+Then add this entry to `~/.claude/settings.json`, merged with any `hooks` already there:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/claude_leak_hook.py\" || exit 2"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Claude Code blocks a call only when a hook exits 2, so `|| exit 2` makes a broken install deny every Bash command rather than allow them. If that happens, fix `python3` or the copied script, or remove the entry. Copy the script again whenever it changes on the default branch.
+
+**What it does not see:**
+
+- GitHub MCP write tools. They are not scanned yet.
+- Text produced when the command runs, as in `--body "$(cat f)"`, `--body "$X"`, or a pipe into `--body-file -`.
+- Commands run through `xargs` or `find -exec`, other GitHub clients such as `curl`, and `gh` subcommands outside the list above, such as `gh gist create`, `gh repo edit --description` and `gh pr merge --body`.
+- Forms that take intent: abbreviated long options such as `--no-veri`, combined short flags such as `-nm`, config set through `GIT_CONFIG_COUNT` and `GIT_CONFIG_KEY_<n>` variables, and editing or deleting the hook file or its settings entry. `scripts/test_claude_leak_hook.py` pins the first three as still allowed, so a change that starts denying one fails until this list is updated.
+- A clone whose `.claude/settings.json` or `.claude/settings.local.json` sets `"disableAllHooks": true`. Claude Code reads that setting after [settings precedence](https://code.claude.com/docs/en/hooks) applies, and project settings override user settings, so the hook does not run in that clone. Only hooks in managed settings ignore it.
+- A session on a machine or account without the hook, and text a person posts through the web UI.
+
 ### What the Gate Cannot See
 
 - **Commits made without the value rules.** Commits from an outside pull request, a web edit, or a CI job that commits never ran value rules. The maintainer's pre-merge run keeps such a value off the default branch. In a public repository the value is already published once the pull request exists, so a hit at that point follows the remediation below.
-- **Commits the hook skipped.** The pre-commit hook skips on a branch whose parent commit has no `scripts/leak-gate.sh`, and `--no-verify` skips it anywhere. The hand-written pre-push hook skips the whole push, every ref included, when the checked-out branch has no wrapper or one without the `pre-push` mode; the pre-push check otherwise covers commits made with `--no-verify`. CI's commit scan still reports credential and shape findings in such a commit, but only after the push, when a public repository has already published it, and CI never runs value rules. For a pull request, the maintainer's pre-merge run covers value rules; a direct push has no second check.
-- **Commit messages, pull request bodies, and branch and tag names.** gitleaks scans file contents. The wrapper adds paths, commit identities and, before a push, commit messages. Only the going-public sweep below checks ref names and annotated tag messages; a pushed tag is scanned only for the commits it adds, so a tag on a commit the remote already has has nothing to scan. CI checks none of them, and nothing checks pull request bodies.
+- **Commits the hook skipped.** The pre-commit hook skips on a branch whose parent commit has no `scripts/leak-gate.sh`, and `--no-verify` skips it anywhere outside an agent session that has [the agent-session hook](#guarding-agent-sessions). The hand-written pre-push hook skips the whole push, every ref included, when the checked-out branch has no wrapper or one without the `pre-push` mode; the pre-push check otherwise covers commits made with `--no-verify`. CI's commit scan still reports credential and shape findings in such a commit, but only after the push, when a public repository has already published it, and CI never runs value rules. For a pull request, the maintainer's pre-merge run covers value rules; a direct push has no second check.
+- **Commit messages, pull request bodies, and branch and tag names.** gitleaks scans file contents. The wrapper adds paths, commit identities and, before a push, commit messages. Only the going-public sweep below checks ref names and annotated tag messages; a pushed tag is scanned only for the commits it adds, so a tag on a commit the remote already has has nothing to scan. CI checks none of them. Only [the agent-session hook](#guarding-agent-sessions) checks pull request bodies, and only for the `gh` commands it covers, on a machine where it is installed.
 - **Later refs of a push, in the pre-commit framework's form.** The framework passes its pre-push hooks only one ref of a push. The hand-written pre-push hook sees every ref.
 - **Files on gitleaks' default path allowlist.** Lock files, images and vendored paths are not scanned by the credential or shape rules; `package-lock.json` hid a home path in a test on 2026-09-27. The value rules do scan the text among them, such as lock files, because the generated value configuration does not extend the defaults. `scripts/test-leak-gate.sh` pins both behaviours.
 - **Binary file contents, in part.** CI's commit scan and the wrapper's `range` and `history` pass `--text`, so every rule reads each changed file whatever git or `.gitattributes` calls it. CI's tree scan and the wrapper's committed rules in `staged` mode skip content that really is binary, such as an image or a PDF. In `staged` mode the value rules still match its bytes, and the wrapper always checks paths.
