@@ -18,9 +18,9 @@ origin: https://github.com/rmorison/engineering-standards/issues/70
 - Execution profile:
   - New files: `scripts/install-gitleaks.sh` and `scripts/test-install-gitleaks.sh`.
   - Edits: `.github/workflows/leaks.yml`, `.github/workflows/docs.yml`, `scripts/check-docs.mjs`, `code/python-standards.md` § Using gitleaks Instead, `process/repository-standards.md` § Adopting the Gate (the install blocks and the upgrade paragraph), `process/documentation-standards.md` § Automated Checks, and `CONTRIBUTING.md`.
-  - Only if Q3 is answered as recommended: the "Copy these files" list in § Adopting the Gate, the leak-gate copy list in `templates/README.md`, and the review-list comment in `leaks.yml`.
+  - Copy and review lists (Key Decision 4): the "Copy these files" list in § Adopting the Gate, the leak-gate copy list in `templates/README.md`, the review-list comment in `leaks.yml`, and one item in the CODEOWNERS paragraph's file list.
   - Branch B only: the `update-hooks` recipe in `code/python-standards.md`'s Makefile and the `pre-commit autoupdate` lines in its Setup and Usage, following Q2.
-  - No edits to `scripts/leak-gate.sh`, `scripts/test-leak-gate.sh`, § Leak Gate's opening, § Running It Locally, or the CODEOWNERS paragraph. #75 owns all of them.
+  - No edits to `scripts/leak-gate.sh`, `scripts/test-leak-gate.sh`, § Leak Gate's opening, § Running It Locally, or the rest of the CODEOWNERS paragraph. #75 owns all of them.
 - Stop conditions:
   - No unit is built until Rod signs off on #75's gitleaks answer (Q1).
   - Stop and ask on #70 if a drift-check mutation does not fail, or if the install script cannot be made to fail closed on a hash mismatch.
@@ -48,6 +48,7 @@ buzai copies the result into rmorison/buzai#19 once. It needs a place and format
 - **A committed script, not a copyable block, is the one place for the pins.** It turns three copies into one. buzai copies the file whole and keeps no copy of its own that can drift, and its `make dev` and CI run the same command. A block would leave buzai two copies that no check here can reach. Governs R1, R2, R3, R4.
 - **Add the linux_arm64 hash.** #70's third criterion asks for this decision. The script picks the tarball from `uname`, so a missing platform is a hard failure, not a silent skip. arm64 Linux includes Linux containers on Apple silicon, a likely `make dev` host. It costs one line. The hash is computed from the downloaded tarball and checked against the release's checksums file. The install is not run on arm64 hardware, and the standard says so, as it does for macOS. Governs R5.
 - **Plan both answers to #75 now.** Branch A applies if no tracked standard keeps a `repo: https://github.com/gitleaks/gitleaks` pre-commit entry. Branch B applies if any does, whether in the Python standard's hook or in #75's own framework entry. Governs R10, R11.
+- **Adopters copy both new scripts, and the install script gets required review.** `leaks.yml` will run the install script and its test, so both join the "Copy these files" list in § Adopting the Gate, beside `leaks.yml` as `scripts/test-leak-gate.sh` is, and the leak-gate list in `templates/README.md`. The install script decides which binary CI runs, so this PR adds it to the CODEOWNERS paragraph's file list and to the review-list comment in `leaks.yml`. Decided by the lead on 2026-10-04: no other work in flight touches the copy lists, and the CODEOWNERS item is a one-line addition made after rebasing over #75's rewrite of that paragraph. Governs R12.
 
 ### Requirements
 
@@ -64,6 +65,8 @@ buzai copies the result into rmorison/buzai#19 once. It needs a place and format
 - R6. A check in `scripts/check-docs.mjs` fails when a 64-hex-digit literal or a versioned tarball name (`gitleaks_<V>_…`) appears in a tracked file outside the script and the history directories. It also fails when a version copy the script cannot own differs from the script's version (R10). It never prints a literal that is not a current pin.
 - R7. The check runs on every pull request and push that touches the script, a workflow, anything under `scripts/`, or a Markdown file.
 - R8. Each mutation of a copy is seen to fail the check before the check is trusted, and the commands and output go in the PR body.
+
+- R12. A leak-gate adopter who follows either copy list gets both new scripts, and the install script is on the list of files that get required review.
 
 **Upgrade instructions**
 
@@ -92,7 +95,6 @@ buzai copies the result into rmorison/buzai#19 once. It needs a place and format
 - Q2 (Branch B only, for Rod): two parts.
   - `pre-commit autoupdate` without `--freeze` rewrites a frozen `rev` back to a tag. Should `make update-hooks` become `autoupdate --freeze` for every hook, or freeze gitleaks alone with a second line? Recommended: freeze every hook. It is one flag, the R10 CI check catches a missed freeze either way, and it gives every hook the protection #71 asks for gitleaks.
   - `autoupdate` moves the gitleaks `rev` to the newest release, ahead of the adopter's copied script, and R10 then fails their CI. Editing the copied script's pins would create the drifting copy Key Decision 1 removes, and `autoupdate` cannot leave one repository out. Recommended: the script is the source of truth and the `rev` follows it. R10's failure message says to set the `rev` back to the script's version, or to re-copy the script once this repository pins the newer one. The upgrade paragraph says the same. This cost of keeping a `rev` at all is worth weighing in Q1.
-- Q3 (for the lead): adopters must copy the script and its test file, because `leaks.yml` will run both. They join the "Copy these files" list in § Adopting the Gate, beside `leaks.yml` as `scripts/test-leak-gate.sh` is, and the leak-gate copy list in `templates/README.md`. The install script decides which binary CI runs, so it also belongs with the files that get required review. The copy lists are outside both #75's paragraphs and this ticket's, and the review list is in #75's CODEOWNERS paragraph. Recommended: this PR adds both files to both copy lists and to the review-list comment in `leaks.yml`. ES-gate, the session building #75, adds the install script to the CODEOWNERS paragraph.
 
 ---
 
@@ -142,7 +144,7 @@ flowchart TB
 
 - #75's piece 1 (documentation) merges first. In Branch A, its piece 2 (the pre-commit framework entry) must also merge before U4's hook-row change, because U4 links to it. Rebase after the lead says each has merged, and check `origin/main` yourself first.
 - ES-gate's missing-gitleaks message for #75 will name `sh scripts/install-gitleaks.sh`. If this PR changes that path, ES-gate's text breaks, so the path is fixed by this plan.
-- A pull request can edit the script and so change which binary its own CI run uses, as it can already do with `leaks.yml`. Q3 covers required review. This is the footgun threat model #75 states, not a new exposure.
+- A pull request can edit the script and so change which binary its own CI run uses, as it can already do with `leaks.yml`. The CODEOWNERS paragraph lists it (Key Decision 4, U3). This is the footgun threat model #75 states, not a new exposure.
 
 ---
 
@@ -183,7 +185,7 @@ flowchart TB
 
 **Goal:** this repository's CI installs gitleaks with the script and proves the script before trusting the scan.
 
-**Requirements:** R3
+**Requirements:** R3, R12
 
 **Dependencies:** U1
 
@@ -193,7 +195,7 @@ flowchart TB
 - Replace the Install gitleaks step's body with a run of the script into `$RUNNER_TEMP/gitleaks-bin` plus the `GITHUB_PATH` line (KTD3). Remove `GITLEAKS_VERSION` and `GITLEAKS_SHA256` from `env`.
 - Add a step running `scripts/test-install-gitleaks.sh` next to the existing proof step.
 - Rewrite the env comment's upgrade text into a pointer to the upgrade paragraph (U3).
-- If Q3 is answered as recommended, add the install script to the comment's list of files a pull request can weaken its own run with.
+- Add the install script to the comment's list of files a pull request can weaken its own run with.
 
 **Test expectation:** none in this unit. The workflow is proven by its own CI run on the PR, which must install and pass.
 
@@ -203,16 +205,17 @@ flowchart TB
 
 **Goal:** an adopter reads one install command, one stable pin format and one upgrade paragraph.
 
-**Requirements:** R1, R4, R5, R9
+**Requirements:** R1, R4, R5, R9, R12
 
-**Dependencies:** U1, Q1
+**Dependencies:** U1, Q1, and #75's piece 1 merged and this branch rebased onto it
 
 **Files:** `process/repository-standards.md`, `templates/README.md`, `CONTRIBUTING.md`
 
 **Approach:**
 - In § Adopting the Gate, replace the Linux and macOS blocks and their run notes with `sh scripts/install-gitleaks.sh`, the default directory, the `PATH` note, and which platforms were run. Remove "The CI job pins 8.24.2".
 - State that the pin block (the `GITLEAKS_VERSION=` and `SHA256_<platform>=` assignments) and the `--pins` output are a stable format adopters can rely on across upgrades.
-- If Q3 is answered as recommended, add both scripts to the copy list in § Adopting the Gate and in `templates/README.md`, with the test file beside `leaks.yml`.
+- Add both scripts to the copy list in § Adopting the Gate and in `templates/README.md`, with the test file beside `leaks.yml` (R12).
+- After rebasing over #75's rewrite of the CODEOWNERS paragraph, add the install script to its file list as one item (R12).
 - Rewrite the upgrade paragraph per R9:
   - What changes here: the script's pin block, plus the frozen `rev` entries in Branch B.
   - How to take each hash and compare it with the release's checksums file.
@@ -296,7 +299,7 @@ flowchart TB
 
 ## Verification Contract
 
-Node is not installed on the machine this will be built on. Install Node 22, the version `docs.yml` pins, before starting U3.
+Node is not installed on the machine this will be built on, and the documentation checks need Node 22, the version `docs.yml` pins. Rod decides how Node is provided. Do not install it before he does.
 
 | Gate | Command | Applies to |
 |---|---|---|
