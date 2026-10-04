@@ -214,11 +214,16 @@ case $out in
   *"$dest"*) ok ;;
   *) bad "default directory: the output does not name $dest" ;;
 esac
+install_run Linux x86_64 fail "$LINUX_BIN" ""
+case $out in
+  *"$dest"*) ok ;;
+  *) bad "an empty DIR argument: the output does not name the default $dest" ;;
+esac
 
 # --- No HOME ---------------------------------------------------------------------
 
 rc=0
-out=$(env -u HOME PATH="$SHIMS:$LINUX_BIN:$TOOLS" CURL_LOG=/dev/null CURL_MODE=serve \
+out=$(unset HOME; PATH="$SHIMS:$LINUX_BIN:$TOOLS" CURL_LOG=/dev/null CURL_MODE=serve \
   HASH_LOG=/dev/null FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 "$SH" "$SCRIPT" 2>&1) || rc=$?
 if [ "$rc" -eq 1 ]; then ok; else bad "HOME unset, no DIR: exit $rc, expected 1"; fi
 says "HOME unset, no DIR" "HOME is not set"
@@ -251,8 +256,17 @@ done
 RUN_SCRIPT="$WORK/patched-linux_x64.sh"
 install_run Linux x86_64 serve "$LINUX_BIN" "$WORK/ok1"
 installed "matching tarball, sha256sum" "$WORK/ok1"
+printf '#!/bin/sh\necho old\n' > "$WORK/ok1/gitleaks"
 install_run Linux x86_64 serve "$LINUX_BIN" "$WORK/ok1"
 installed "matching tarball over an existing gitleaks" "$WORK/ok1"
+mkdir -p "$WORK/ok-dir/gitleaks"
+install_run Linux x86_64 serve "$LINUX_BIN" "$WORK/ok-dir"
+if [ "$rc" -eq 0 ] || [ -n "$(ls -A "$WORK/ok-dir/gitleaks")" ] || [ "$(ls -A "$WORK/ok-dir")" != gitleaks ]; then
+  bad "a directory at DIR/gitleaks: exit $rc, expected a refusal that leaves DIR as it was"
+else
+  ok
+fi
+says "a directory at DIR/gitleaks" "is a directory"
 RUN_SCRIPT="$WORK/patched-darwin_arm64.sh"
 install_run Darwin arm64 serve "$MAC_BIN" "$WORK/ok2"
 installed "matching tarball, shasum (macOS)" "$WORK/ok2"

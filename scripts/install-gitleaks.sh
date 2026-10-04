@@ -13,7 +13,7 @@
 #
 # Usage:
 #   sh scripts/install-gitleaks.sh [DIR]   # install DIR/gitleaks; DIR defaults
-#                                          # to ~/.local/bin
+#                                          # to ~/.local/bin, also when empty
 #   sh scripts/install-gitleaks.sh --pins  # print the pins and exit
 #
 # --pins prints "version <V>", then one "<os>_<arch> <sha256>" line per tarball.
@@ -49,7 +49,8 @@ case ${1:-} in
   -*) usage ;;
 esac
 [ $# -le 1 ] || usage
-if [ $# -eq 1 ]; then
+# An empty DIR, as from an unset Makefile variable, means the default.
+if [ -n "${1:-}" ]; then
   DIR=$1
 elif [ -n "${HOME:-}" ]; then
   DIR=$HOME/.local/bin
@@ -92,6 +93,7 @@ echo "$sha  $WORK/$F" | check >/dev/null ||
   die "$F does not match the pinned SHA-256; nothing installed"
 tar -xzf "$WORK/$F" -C "$WORK" gitleaks || die "could not unpack gitleaks from $F; nothing installed"
 mkdir -p "$DIR" || die "could not create $DIR"
+[ ! -d "$DIR/gitleaks" ] || die "$DIR/gitleaks is a directory; nothing installed"
 # Copy beside the target, then rename over it, so a failed copy never leaves a
 # truncated gitleaks or removes the one already there.
 NEW="$DIR/.gitleaks.new.$$"

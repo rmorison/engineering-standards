@@ -411,9 +411,10 @@ function checkFencesClosed(files) {
  *
  * Three install forms pin a version with no hash at all, and they fail too: a
  * gitleaks release download URL, a `go install` of the gitleaks module at a
- * version, and a `rev:` on or within three lines after a pre-commit
- * `repo: ...gitleaks/gitleaks` line. A version in prose is not read: what is
- * left of it is dated evidence of what was run.
+ * version, and a rev on or within three lines after a pre-commit repo line
+ * naming the gitleaks repository. A version in prose is not read: what is left
+ * of it is dated evidence of what was run. (This comment avoids the literal
+ * forms, because this file is checked too.)
  *
  * Unlike checks 1 to 5, this reads every tracked file, not only Markdown, and
  * .github/workflows/docs.yml runs it when a script or workflow changes. A stale
