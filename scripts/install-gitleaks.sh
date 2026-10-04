@@ -20,7 +20,7 @@
 # On success the installed path is printed on stdout; everything else goes to
 # stderr. Exits 0 when installed, 1 when the platform has no pinned hash or the
 # download, hash check or install fails, and 2 on a usage error. Needs curl,
-# tar, mktemp, install, and sha256sum or shasum.
+# tar, mktemp, install, mv, and sha256sum or shasum.
 
 set -eu
 
@@ -49,7 +49,13 @@ case ${1:-} in
   -*) usage ;;
 esac
 [ $# -le 1 ] || usage
-DIR=${1:-$HOME/.local/bin}
+if [ $# -eq 1 ]; then
+  DIR=$1
+elif [ -n "${HOME:-}" ]; then
+  DIR=$HOME/.local/bin
+else
+  die "HOME is not set: pass the install directory; nothing installed"
+fi
 
 os=$(uname -s)
 arch=$(uname -m)
@@ -83,7 +89,13 @@ echo "$sha  $WORK/$F" | check >/dev/null ||
   die "$F does not match the pinned SHA-256; nothing installed"
 tar -xzf "$WORK/$F" -C "$WORK" gitleaks || die "could not unpack gitleaks from $F; nothing installed"
 mkdir -p "$DIR" || die "could not create $DIR"
-install -m 755 "$WORK/gitleaks" "$DIR/gitleaks" || die "could not install into $DIR"
+# Copy beside the target, then rename over it, so a failed copy never leaves a
+# truncated gitleaks or removes the one already there.
+NEW="$DIR/.gitleaks.new.$$"
+if ! install -m 755 "$WORK/gitleaks" "$NEW" || ! mv -f "$NEW" "$DIR/gitleaks"; then
+  rm -f "$NEW"
+  die "could not install into $DIR"
+fi
 
 echo "$DIR/gitleaks"
 if [ "$(command -v gitleaks 2>/dev/null || true)" != "$DIR/gitleaks" ]; then

@@ -7,9 +7,10 @@
 # shims for curl, uname, sha256sum and shasum, plus links to the real utilities
 # it needs and nothing else. The curl shim serves a tarball built here, which
 # cannot match a pinned SHA-256, or fails the way curl -f does on an HTTP error.
-# So no fixture can install anything: each proves a refusal, and the platform
-# fixtures prove which tarball was requested and which pinned hash it was
-# checked against.
+# So no fixture against the script as committed can install anything: each
+# proves a refusal, and the platform fixtures prove which tarball was requested
+# and which pinned hash it was checked against. The success path runs a copy of
+# the script with one pin replaced by the fixture tarball's hash.
 #
 # Usage:  sh scripts/test-install-gitleaks.sh
 # Exits non-zero if any fixture fails. Needs sh and standard POSIX utilities.
@@ -31,7 +32,7 @@ bad() { echo "FAIL: $*" >&2; failed=$((failed + 1)); }
 
 TOOLS="$WORK/tools"
 mkdir "$TOOLS"
-for t in mktemp tar gzip mkdir install rm cp; do
+for t in mktemp tar gzip mkdir install mv rm cp; do
   p=$(command -v "$t") || { echo "test-install-gitleaks: $t not found" >&2; exit 2; }
   ln -s "$p" "$TOOLS/$t"
 done
@@ -106,6 +107,7 @@ export FIXTURE_TARBALL
 # hashes (the hashes the check was asked for), and dest (the default install
 # directory under that HOME).
 n=0
+RUN_SCRIPT=$SCRIPT
 install_run() {
   n=$((n + 1))
   os=$1 arch=$2 mode=$3 hashbin=$4
@@ -119,7 +121,7 @@ install_run() {
   : > "$hlog"
   rc=0
   out=$(HOME=$home PATH="$SHIMS:$hashbin:$TOOLS" CURL_LOG=$log CURL_MODE=$mode \
-    HASH_LOG=$hlog FAKE_UNAME_S=$os FAKE_UNAME_M=$arch "$SH" "$SCRIPT" "$@" 2>&1) || rc=$?
+    HASH_LOG=$hlog FAKE_UNAME_S=$os FAKE_UNAME_M=$arch "$SH" "$RUN_SCRIPT" "$@" 2>&1) || rc=$?
   urls=$(cat "$log")
   hashes=$(cat "$hlog")
 }
@@ -183,6 +185,8 @@ install_run Linux x86_64 serve "$LINUX_BIN" "$WORK/t1"
 platform "Linux x86_64" linux_x64
 install_run Linux aarch64 serve "$LINUX_BIN" "$WORK/t2"
 platform "Linux aarch64" linux_arm64
+install_run Linux arm64 serve "$LINUX_BIN" "$WORK/t2b"
+platform "Linux arm64" linux_arm64
 install_run Darwin arm64 serve "$MAC_BIN" "$WORK/t3"
 platform "Darwin arm64" darwin_arm64
 install_run Darwin x86_64 serve "$MAC_BIN" "$WORK/t4"
@@ -210,6 +214,59 @@ case $out in
   *"$dest"*) ok ;;
   *) bad "default directory: the output does not name $dest" ;;
 esac
+
+# --- No HOME ---------------------------------------------------------------------
+
+rc=0
+out=$(env -u HOME PATH="$SHIMS:$LINUX_BIN:$TOOLS" CURL_LOG=/dev/null CURL_MODE=serve \
+  HASH_LOG=/dev/null FAKE_UNAME_S=Linux FAKE_UNAME_M=x86_64 "$SH" "$SCRIPT" 2>&1) || rc=$?
+if [ "$rc" -eq 1 ]; then ok; else bad "HOME unset, no DIR: exit $rc, expected 1"; fi
+says "HOME unset, no DIR" "HOME is not set"
+
+# --- Success path ------------------------------------------------------------------
+# A copy of the script whose pin for the platform under test is the fixture
+# tarball's hash: it must install exactly DIR/gitleaks, the fixture's binary,
+# and print that path.
+
+FIXTURE_SHA=$("$REAL_SHA256SUM" "$FIXTURE_TARBALL")
+FIXTURE_SHA=${FIXTURE_SHA%% *}
+# installed <description> <dir>: the run succeeded and left only gitleaks there.
+installed() {
+  if [ "$rc" -ne 0 ]; then
+    bad "$1: exit $rc, expected 0"
+    printf '%s\n' "$out" | sed 's/^/    /' >&2
+  elif [ "$(ls -A "$2")" != gitleaks ] || [ "$("$2/gitleaks")" != 8.24.2 ]; then
+    bad "$1: $2 holds '$(ls -A "$2" | tr '\n' ' ')', expected only the fixture's gitleaks"
+  else
+    ok
+  fi
+  case $out in
+    *"$2/gitleaks"*) ok ;;
+    *) bad "$1: the output does not name $2/gitleaks" ;;
+  esac
+}
+for p in linux_x64 darwin_arm64; do
+  sed "s/^SHA256_$p=.*/SHA256_$p=$FIXTURE_SHA/" "$SCRIPT" > "$WORK/patched-$p.sh"
+done
+RUN_SCRIPT="$WORK/patched-linux_x64.sh"
+install_run Linux x86_64 serve "$LINUX_BIN" "$WORK/ok1"
+installed "matching tarball, sha256sum" "$WORK/ok1"
+install_run Linux x86_64 serve "$LINUX_BIN" "$WORK/ok1"
+installed "matching tarball over an existing gitleaks" "$WORK/ok1"
+RUN_SCRIPT="$WORK/patched-darwin_arm64.sh"
+install_run Darwin arm64 serve "$MAC_BIN" "$WORK/ok2"
+installed "matching tarball, shasum (macOS)" "$WORK/ok2"
+REAL_SHASUM=$(command -v shasum || true)
+if [ -n "$REAL_SHASUM" ]; then
+  REAL_SHASUM_BIN="$WORK/real-shasum-bin"
+  mkdir "$REAL_SHASUM_BIN"
+  ln -s "$REAL_SHASUM" "$REAL_SHASUM_BIN/shasum"
+  install_run Darwin arm64 serve "$REAL_SHASUM_BIN" "$WORK/ok3"
+  installed "matching tarball, the real shasum" "$WORK/ok3"
+else
+  echo "note: no shasum here, so the real shasum's success path was not run"
+fi
+RUN_SCRIPT=$SCRIPT
 
 # --- Pins ----------------------------------------------------------------------------
 
