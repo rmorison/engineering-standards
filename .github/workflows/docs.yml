@@ -34,7 +34,8 @@ on:
   workflow_dispatch:
 
 # Least privilege, stated rather than inherited. Both jobs run code out of the
-# checkout -- check-docs installs from a PR-authored package-lock.json, and
+# checkout -- check-docs installs from a PR-authored package-lock.json and
+# runs `sh scripts/install-gitleaks.sh --pins` (check 7), and
 # check-template-kit runs the kit's own hook commands (check 9) -- so neither
 # job may ever be given something worth stealing. A fork's pull_request run is
 # already read-only and secret-free; this makes that unconditional for same-repo
