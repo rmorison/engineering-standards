@@ -84,6 +84,8 @@ Issue templates may apply only labels defined in [Label Strategy](./issue-tracki
 
 ## Leak Gate
 
+The gate protects the holder of a value list from publishing their own private values by mistake, including mistakes their agents make. It is not a control against someone who means to leak or to get around it.
+
 A leak gate fails a change that would publish something that must not be published. It checks files and commits before they reach the default branch, and it says plainly what it cannot see.
 
 This repository's gate is [gitleaks](https://github.com/gitleaks/gitleaks), a single binary, so any repository can run it whatever its language. This follows [the rule](../docs/solutions/tooling-decisions/adopter-checks-ship-in-the-adopters-ecosystem.md) that a check an adopting project runs must ship in that project's ecosystem or as one static binary.
@@ -100,7 +102,7 @@ These categories come from leaks that happened. This repository once published a
 
 **Credentials.** A repository whose language standard names a credential scanner follows it: for Python, see [Secret Detection](../code/python-standards.md#secret-detection). Any other repository uses gitleaks' default rules, which the committed configuration below includes. A Python project that keeps detect-secrets still runs gitleaks for the shape and value rules; [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead) makes gitleaks its only scanner.
 
-**Shape rules** are committed, because a shape names no value. A committed list of the values themselves would be the leak it guards against.
+**Shape rules** are committed, because a shape names no value. A committed list of the values themselves would be the leak it guards against. An adopter may add shape rules for its own domain to `.gitleaks.toml`. A project that handles personal financial data, for example, adds formatted account-number shapes.
 
 **Value rules** run only on the machine of someone who holds the private list. CI never runs them: its log is public for a public repository, and the list must never reach it.
 
@@ -150,7 +152,7 @@ To upgrade, change the version and every hash together: here, in `.github/workfl
 
 The job scans every commit the change adds, merge commits included (with git's `-m`, since a plain `git log` shows no changes for a merge), and with git's `--text`, so a `.gitattributes` entry cannot hide a text file's changes as binary. A leak added in one commit and removed in the next still fails. It then scans the whole tree, so existing content is checked against a newly added rule. Every gitleaks call runs without `-v` and prints only through the template. With `-v`, gitleaks prints the line around each match, which can hold a second secret, and prints file paths, which can hold a private value; `--redact` masks only the match itself (gitleaks 8.24.2, run 2026-09-27). Every call also passes `--ignore-gitleaks-allow`, so an inline allow comment suppresses nothing. A Python project whose standard permits reviewed allow comments under `tests/` ([Secret Detection](../code/python-standards.md#secret-detection)) drops that flag from `leaks.yml`, sets `LEAKGATE_HONOR_ALLOW=1` for `scripts/leak-gate.sh` so local runs agree with CI, and keeps the `make security` pragma check, which confines the comments to `tests/`. The opt-in applies to the committed rules only; value rules ignore allow comments always. None of the copied files contains the literal marker, so copying them does not trip that pragma check.
 
-A pull request can weaken its own CI run by editing `.gitleaks.toml`, adding an entry to `.gitleaksignore`, marking files with `.gitattributes`, or editing the workflow. Give those four files required review, for example through `CODEOWNERS`.
+A pull request can weaken its own CI run by editing `.gitleaks.toml`, adding an entry to `.gitleaksignore`, marking files with `.gitattributes`, or editing the workflow. Give those four files required review, for example through `CODEOWNERS`. That review needs more than one maintainer identity: in a one-person repository the author is the code owner, so the required review never happens.
 
 ### Private Values
 
