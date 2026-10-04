@@ -42,11 +42,13 @@ import json
 import os
 import re
 import shlex
+import stat
 import sys
 
 BYPASS = "Remove the value from the text, or fix the list; don't bypass."
 LIST_KEY = "git config --global leakgate.values"
 MAX_DEPTH = 3  # how deep sh -c and eval are followed
+MAX_BODY_BYTES = 10 * 1024 * 1024  # a body file larger than this is denied unread
 
 
 class Deny(Exception):
@@ -504,7 +506,8 @@ def read_list():
             raise Deny(f"value list line {n} holds a control character.")
         if b"\\E" in value or b"'''" in value:
             raise Deny(f"value list line {n} contains \\E or ''', which cannot be quoted as a literal.")
-        # Bytes, as dash's ${#value} counts them in leak-gate.sh.
+        # Bytes, as dash's ${#value} counts them in leak-gate.sh. Where sh is
+        # bash, as on macOS, the wrapper counts characters in a UTF-8 locale.
         if len(value) < 4:
             raise Deny(f"value list line {n} is shorter than 4 characters and would match almost every file.")
         entries.append((n, text.casefold()))
@@ -537,9 +540,33 @@ def written_paths(cmd):
     elif cmd.program in COPIERS and operands:
         targets.append(operands[-1])
     paths = [p for p in (expand(t, cmd.cwd) for t in targets) if p]
-    if any(op == "<<" for op, _ in cmd.redirects) and cmd.program not in COPIERS:
+    # Only cat or tee with no input file but the heredoc, as in cat > F <<'EOF'.
+    # cat header.md - > F <<'EOF' also writes header.md, which the hook cannot see.
+    inputs = operands if cmd.program == "cat" else []
+    if (any(op == "<<" for op, _ in cmd.redirects) and cmd.program in ("cat", "tee")
+            and all(w == "-" for w in inputs)):
         return paths, []
     return [], paths
+
+def read_body(path):
+    """Returns a body file's text. Raises Deny for anything but a readable regular file.
+
+    A FIFO, a device such as /dev/zero, or a huge file could otherwise hang the
+    hook or exhaust its memory, and a hook that times out does not block.
+    """
+    try:
+        info = os.stat(path)
+        if not stat.S_ISREG(info.st_mode):
+            raise Deny("a file this command sends to GitHub is not a regular file, so it cannot "
+                       "be checked.")
+        if info.st_size > MAX_BODY_BYTES:
+            raise Deny("a file this command sends to GitHub is larger than 10 MiB, so it is not "
+                       "checked.")
+        with open(path, "rb") as f:
+            return f.read(MAX_BODY_BYTES + 1).decode("utf-8", "replace")
+    except OSError:
+        raise Deny("a file this command sends to GitHub cannot be read, so it cannot be checked.")
+
 
 def decide(command, cwd):
     """Returns None to allow, or a note to show. Raises Deny."""
@@ -589,11 +616,7 @@ def decide(command, cwd):
             raise Deny("a file this command sends to GitHub is written by the same command, or "
                        "does not exist yet, so it cannot be checked. Write the file in one step, "
                        "then post it in the next.")
-        try:
-            with open(path, "rb") as f:
-                texts.append(f.read().decode("utf-8", "replace"))
-        except OSError:
-            raise Deny("a file this command sends to GitHub cannot be read, so it cannot be checked.")
+        texts.append(read_body(path))
 
     haystack = "\n".join(texts).casefold()
     hits = [n for n, value in entries if value in haystack]
@@ -611,9 +634,10 @@ def main():
             raise Deny("the hook input is not valid JSON, so the command cannot be checked.")
         if not isinstance(data, dict) or data.get("tool_name") != "Bash":
             return 0
-        command = (data.get("tool_input") or {}).get("command")
+        tool_input = data.get("tool_input")
+        command = tool_input.get("command") if isinstance(tool_input, dict) else None
         if not isinstance(command, str):
-            return 0
+            raise Deny("the hook input has no command string, so the command cannot be checked.")
         cwd = data.get("cwd") if isinstance(data.get("cwd"), str) else os.getcwd()
         note = decide(command, cwd)
         if note:

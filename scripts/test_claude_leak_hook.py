@@ -40,6 +40,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 HOOK = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "scripts" / "claude_leak_hook.py"
 LEAK_GATE = ROOT / "scripts" / "leak-gate.sh"
+HOOK_TIMEOUT = 20  # seconds; one call takes well under one
 
 # Planted values. The prefix is split so this file never holds a whole one.
 CANARY_A = "cn" + "ry-a" + secrets.token_hex(4)
@@ -133,14 +134,19 @@ class Sandbox:
                 "tool_name": tool,
                 "tool_input": {"command": command, "description": "fixture"},
             })
-        proc = subprocess.run([sys.executable, str(HOOK)], input=stdin.encode(),
-                              capture_output=True, env=dict(self.env, **(env or {})),
-                              cwd=str(cwd or self.work))
+        try:
+            proc = subprocess.run([sys.executable, str(HOOK)], input=stdin.encode(),
+                                  capture_output=True, env=dict(self.env, **(env or {})),
+                                  cwd=str(cwd or self.work), timeout=HOOK_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            # A hook that hangs does not block the command in Claude Code, so a
+            # hang fails the fixture rather than the whole run.
+            return ("timeout", "", "")
         return (proc.returncode, proc.stdout.decode("utf-8", "replace"),
                 proc.stderr.decode("utf-8", "replace"))
 
     def cleanup(self):
-        (self.work / "locked.md").chmod(0o600)
+        (self.work / "locked.md").chmod(0o600)  # pipe.md and huge.md go with the tree
         shutil.rmtree(self.root, ignore_errors=True)
 
 
@@ -291,6 +297,18 @@ def fixtures(sb):
     else:
         check("a named file that cannot be read", sb.hook("gh issue comment 1 --body-file locked.md"),
               "deny", "cannot be read")
+    os.mkfifo(sb.work / "pipe.md")
+    with open(sb.work / "huge.md", "wb") as f:
+        f.truncate(11 * 1024 * 1024)
+    unbounded = [
+        ("a FIFO as the body file", "gh pr comment 1 --body-file pipe.md", "not a regular file"),
+        ("/dev/zero as the body file", "gh pr comment 1 --body-file /dev/zero", "not a regular file"),
+        ("/dev/zero through a stdin redirect", "gh pr comment 1 --body-file - < /dev/zero",
+         "not a regular file"),
+        ("a body file over 10 MiB", "gh pr comment 1 --body-file huge.md", "larger than 10 MiB"),
+    ]
+    for name, command, frag in unbounded:
+        check(name, sb.hook(command), "deny", frag)
     check("a named file that does not exist yet",
           sb.hook("cp clean.md gone.md && gh pr comment 1 --body-file gone.md"),
           "deny", "does not exist yet")
@@ -301,6 +319,8 @@ def fixtures(sb):
         ("a heredoc-written file then appended to",
          "cat > new.md <<'EOF'\nclean\nEOF\ncat dirty.md >> new.md\ngh pr create --body-file new.md"),
         ("an unbalanced quote with a body file", 'gh pr comment 1 --body-file clean.md --title "x'),
+        ("a heredoc plus another input file",
+         "cat dirty.md - > new.md <<'EOF'\nclean\nEOF\ngh pr create --body-file new.md"),
     ]
     for name, command in written:
         check(name, sb.hook(command), "deny", "cannot be")
@@ -314,6 +334,11 @@ def fixtures(sb):
         ("clean heredoc, AE2 shape", "cat > new.md <<'EOF'\nclean\nEOF\ngh pr create --body-file new.md"),
         ("clean issue close --comment", "gh issue close 1 --comment done"),
         ("clean release notes", "gh release create v1 --notes-file clean.md"),
+        ("clean issue create", "gh issue create --title t --body-file clean.md"),
+        ("clean pr edit", "gh pr edit 1 --body-file clean.md"),
+        ("clean issue edit", "gh issue edit 1 --body-file clean.md"),
+        ("clean pr review", "gh pr review 1 --comment --body-file clean.md"),
+        ("clean release edit", "gh release edit v1 --notes-file clean.md"),
         # Not outbound, so not scanned even though the value is present.
         ("echo is not outbound", f"echo {A}"),
         ("gh issue view is not outbound", f"echo {A} && gh issue view 1"),
@@ -357,9 +382,9 @@ def fixtures(sb):
     sb.declare(standard)
     check("git missing from PATH denies outbound", sb.hook("gh issue comment 1 --body hi",
           env={"PATH": str(sb.root / "empty")}), "deny", "could not be run")
-    check("an unexpected hook error denies",
-          sb.hook("", stdin=json.dumps({"tool_name": "Bash", "tool_input": "gh issue comment 1"})),
-          "deny", "the hook failed")
+    # JSON nested past the parser's recursion limit raises RecursionError, an
+    # error the hook does not expect, so this exercises its catch-all.
+    check("an unexpected hook error denies", sb.hook("", stdin="[" * 100000), "deny", "the hook failed")
 
     # --- List states (R6, R7, AE5) ----------------------------------------------
     out_cmd = "gh issue comment 1 --body hello"
@@ -510,6 +535,11 @@ def fixtures(sb):
     # --- Hook input -------------------------------------------------------------
     check("malformed JSON is denied", sb.hook("", stdin="{not json"), "deny", "not valid JSON")
     check("a tool other than Bash is allowed silently", sb.hook("git commit -n", tool="Write"), "allow")
+    for name, tool_input in (("no command", {}), ("a null tool_input", None),
+                             ("a command that is not a string", {"command": ["gh"]})):
+        check(f"Bash input with {name} is denied",
+              sb.hook("", stdin=json.dumps({"tool_name": "Bash", "tool_input": tool_input})),
+              "deny", "no command string")
 
 
 if __name__ == "__main__":
