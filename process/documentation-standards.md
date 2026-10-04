@@ -136,7 +136,7 @@ Each `docs/` subdirectory should have a `README.md` that:
 
 ### Automated Checks
 
-This repository's product is Markdown, so a rendering defect is a production defect. `scripts/check-docs.mjs` runs on every pull request touching a `.md` file, and each check exists because the defect it looks for reached the default branch. The last four rows are not Markdown checks and run in jobs of their own, described below:
+This repository's product is Markdown, so a rendering defect is a production defect. `scripts/check-docs.mjs` runs on every pull request touching a `.md` file, a script or a workflow, and each check exists because the defect it looks for reached the default branch. The last five rows are not Markdown checks and run in jobs of their own, described below:
 
 | Check | Catches |
 |-------|---------|
@@ -147,8 +147,10 @@ This repository's product is Markdown, so a rendering defect is a production def
 | No unmarked marker lists | Marker-prefixed lines with no list marker collapse into one paragraph |
 | Every code fence is closed | An unterminated fence makes the rest of the file invisible to the checks above |
 | No fence nested in one the same length | A quoted template whose own fences are the same length ends early, spilling the rest into the document |
+| The gitleaks pins live in one place | A gitleaks tarball hash, or a tarball name with a version in it, in any tracked file other than `scripts/install-gitleaks.sh`, outside the history directories. A second copy drifts the first time an upgrade misses it |
 | Template kit hook entries register and behave | A `.claude/settings.json` hook entry with no `hooks` array, an unknown key on the matcher, a command naming a script that is not in the tree, a permission rule that auto-approves what the kit's own prose says reaches a human, or a hook command that exits 2 when its path fails to resolve — which on `PreToolUse` refuses every write |
 | Secret reference examples hold only references | A `secret-refs.env` example in `code/python-standards.md` that holds a literal, quotes, `$`, an inline comment, a browser-exposed key, a repeated key, or a key its `example.env` example also defines. A pass means only that the examples are well-formed |
+| The gitleaks install fails closed | An `install-gitleaks.sh` change that installs a tampered tarball, under `sha256sum` or `shasum`, installs after a failed download or on an unknown platform, or requests the wrong platform's tarball |
 | No credential in the tree or an added commit | A token, key or password in any tracked file, including one added in one commit and removed in the next |
 | No absolute home-directory path in the tree or an added commit | A path out of a contributor's machine, disclosing a local username and directory layout to every reader of a public repository |
 
@@ -205,9 +207,12 @@ python scripts/check_secret_refs.py --standard
 python scripts/check_secret_refs.py secret-refs.env --config example.env
 ```
 
-The last two rows are the leak gate: gitleaks, run by
+The last three rows are the leak gate: gitleaks, run by
 `.github/workflows/leaks.yml` on every pull request and push whatever it
-changes, with the rules in `.gitleaks.toml`. That file extends gitleaks' default
+changes, with the rules in `.gitleaks.toml`. The job installs gitleaks with
+`scripts/install-gitleaks.sh`, the one place its version and hashes are written,
+and `scripts/test-install-gitleaks.sh` proves, without the network, that the
+script refuses a tampered tarball, a failed download and an unknown platform. That file extends gitleaks' default
 credential rules with the home-directory rule that was check 6 of
 `scripts/check-docs.mjs` until #31, so the rule now covers every tracked file
 rather than Markdown only. The job scans every commit the change adds, merge

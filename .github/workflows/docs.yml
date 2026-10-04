@@ -7,32 +7,30 @@ on:
   pull_request:
     paths:
       - '**/*.md'
-      - 'scripts/check-docs.mjs'
-      - 'scripts/package.json'
-      - 'scripts/package-lock.json'
+      # Every script and workflow, not only the checks' own files: check 7 in
+      # check-docs.mjs reads every tracked file for a restated gitleaks pin,
+      # and the likeliest place for one is a script or a workflow.
+      - 'scripts/**'
+      - '.github/workflows/**'
       - 'templates/.claude/**'
       # check-template-kit.mjs walks EVERY .claude/settings.json in the tree,
       # this repository's own included. Filtering on templates/ alone meant a
       # break in .claude/settings.json ran neither job.
       - '.claude/**'
-      - 'scripts/check-template-kit.mjs'
-      - 'scripts/check_secret_refs.py'
-      - '.github/workflows/docs.yml'
   push:
     branches: [main]
     paths:
       - '**/*.md'
-      - 'scripts/check-docs.mjs'
-      - 'scripts/package.json'
-      - 'scripts/package-lock.json'
+      # Every script and workflow, not only the checks' own files: check 7 in
+      # check-docs.mjs reads every tracked file for a restated gitleaks pin,
+      # and the likeliest place for one is a script or a workflow.
+      - 'scripts/**'
+      - '.github/workflows/**'
       - 'templates/.claude/**'
       # check-template-kit.mjs walks EVERY .claude/settings.json in the tree,
       # this repository's own included. Filtering on templates/ alone meant a
       # break in .claude/settings.json ran neither job.
       - '.claude/**'
-      - 'scripts/check-template-kit.mjs'
-      - 'scripts/check_secret_refs.py'
-      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 # Least privilege, stated rather than inherited. Both jobs run code out of the
