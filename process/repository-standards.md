@@ -102,7 +102,7 @@ These categories come from leaks that happened. This repository once published a
 
 **Credentials.** A repository whose language standard names a credential scanner follows it: for Python, see [Secret Detection](../code/python-standards.md#secret-detection). Any other repository uses gitleaks' default rules, which the committed configuration below includes. A Python project that keeps detect-secrets still runs gitleaks for the shape and value rules; [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead) makes gitleaks its only scanner.
 
-**Shape rules** are committed, because a shape names no value. A committed list of the values themselves would be the leak it guards against. An adopter may add shape rules for its own domain to `.gitleaks.toml`. A project that handles personal financial data, for example, adds formatted account-number shapes.
+**Shape rules** are committed, because a shape names no value. A committed list of the values themselves would be the leak it guards against. An adopter may add shape rules for its own domain to `.gitleaks.toml`. A project that handles personal financial data, for example, adds formatted account-number shapes. Such a rule, and any allowlist entry it needs, still names no value: not a real institution's number, the fixed prefix of the project's own accounts, or a real test account.
 
 **Value rules** run only on the machine of someone who holds the private list. CI never runs them: its log is public for a public repository, and the list must never reach it.
 
@@ -152,7 +152,7 @@ To upgrade, change the version and every hash together: here, in `.github/workfl
 
 The job scans every commit the change adds, merge commits included (with git's `-m`, since a plain `git log` shows no changes for a merge), and with git's `--text`, so a `.gitattributes` entry cannot hide a text file's changes as binary. A leak added in one commit and removed in the next still fails. It then scans the whole tree, so existing content is checked against a newly added rule. Every gitleaks call runs without `-v` and prints only through the template. With `-v`, gitleaks prints the line around each match, which can hold a second secret, and prints file paths, which can hold a private value; `--redact` masks only the match itself (gitleaks 8.24.2, run 2026-09-27). Every call also passes `--ignore-gitleaks-allow`, so an inline allow comment suppresses nothing. A Python project whose standard permits reviewed allow comments under `tests/` ([Secret Detection](../code/python-standards.md#secret-detection)) drops that flag from `leaks.yml`, sets `LEAKGATE_HONOR_ALLOW=1` for `scripts/leak-gate.sh` so local runs agree with CI, and keeps the `make security` pragma check, which confines the comments to `tests/`. The opt-in applies to the committed rules only; value rules ignore allow comments always. None of the copied files contains the literal marker, so copying them does not trip that pragma check.
 
-A pull request can weaken its own CI run by editing `.gitleaks.toml`, adding an entry to `.gitleaksignore`, marking files with `.gitattributes`, or editing the workflow. Give those four files required review, for example through `CODEOWNERS`. That review needs more than one maintainer identity: in a one-person repository the author is the code owner, so the required review never happens.
+A pull request can weaken its own CI run by editing `.gitleaks.toml`, adding an entry to `.gitleaksignore`, marking files with `.gitattributes`, or editing the workflow. An agent that turns a red check green this way does it by mistake as easily as on purpose. Give those four files required review, for example through `CODEOWNERS`. That review needs more than one maintainer identity. A pull request's author cannot approve it, so in a one-person repository the required review never happens: the change either merges unreviewed through an admin's bypass, which branch protection allows by default, or stays blocked.
 
 ### Private Values
 
@@ -203,7 +203,7 @@ chmod +x "$hook"
 
 The hook runs whichever `scripts/leak-gate.sh` the checked-out branch holds, on the machine that holds the list. On a branch you did not write, such as a contributor's pull request checked out to push a fixup, commit with `--no-verify` and run the pre-merge check below from the default branch's checkout instead.
 
-**Before merging a pull request**, a maintainer who holds the list runs the value rules over its commits. Run from the default branch's own checkout, never from the pull request's: the pull request can edit the wrapper, `.gitleaks.toml` and `.gitleaksignore`, and this machine holds the list.
+**Before merging a pull request**, a maintainer who holds the list runs the value rules over its commits. Run from the default branch's own checkout, never from the pull request's: the pull request can edit the wrapper, `.gitleaks.toml` and `.gitleaksignore`, and this machine holds the list. A mistaken edit there would make the check pass on the pull request's own terms, and running the default branch's copy costs nothing, so the rule holds whatever the author intended.
 
 ```bash
 git fetch origin pull/<N>/head:refs/leakgate/pr-<N>
