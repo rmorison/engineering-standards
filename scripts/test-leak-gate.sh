@@ -213,17 +213,24 @@ wcommit() { git -C "$1" add -A && git -C "$1" -c user.name=fixture -c user.email
 #                 set, every git command in this script would act on that
 #                 repository.
 #   absent        text the output must not contain.
+#   push_lines    the wrapper's standard input: pre-push ref lines, as git
+#                 writes them. Empty by default.
+#   pre_commit_env  VAR=value words set for the wrapper alone, as the pre-commit
+#                 framework sets PRE_COMMIT_* for its pre-push stage.
 hook_git_dir=
 absent=
+push_lines=
+pre_commit_env=
 gate() {
   want=$1 desc=$2 expect=$3 repo=$4
   shift 4
-  git_dir=$hook_git_dir must_lack=$absent
-  hook_git_dir= absent=
+  git_dir=$hook_git_dir must_lack=$absent lines_in=$push_lines env_in=$pre_commit_env
+  hook_git_dir= absent= push_lines= pre_commit_env=
   rc=0
-  out=$(cd "$repo" &&
+  # shellcheck disable=SC2086 # env_in is a list of VAR=value words
+  out=$(printf '%s' "$lines_in" | (cd "$repo" &&
     if [ -n "$git_dir" ]; then GIT_DIR=$git_dir; export GIT_DIR; fi &&
-    GITLEAKS="$GITLEAKS" sh "$GATE" "$@" 2>&1) || rc=$?
+    env $env_in GITLEAKS="$GITLEAKS" sh "$GATE" "$@") 2>&1) || rc=$?
   if [ "$rc" -ne "$want" ]; then
     bad "wrapper, $desc: exit $rc, expected $want"
     printf '%s\n' "$out" | sed 's/^/    /' >&2
@@ -646,10 +653,164 @@ no_gitleaks "staged, value list declared" "$R" staged
 wcommit "$R" leak
 no_gitleaks "range" "$R" range HEAD~1..HEAD
 no_gitleaks "history" "$R" history
+no_gitleaks "pre-push" "$R" pre-push origin "$WORK/no-remote.git"
 missing="$WORK/no-such-gitleaks-noexec"
 no_gitleaks "staged, a file without the execute bit" "$R" staged
 missing="$WORK/no-such-gitleaks-dir"
 no_gitleaks "staged, a directory" "$R" staged
+
+# --- pre-push: what a push would give the remote --------------------------------
+#
+# Each fixture pushes to a bare "origin" under $WORK and hands the wrapper the
+# ref lines git would write on the hook's standard input:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# or, for the pre-commit framework's pre-push stage, the PRE_COMMIT_* variables.
+
+Z=0000000000000000000000000000000000000000
+# prepo <name>: a clone of a fresh bare origin, its base commit pushed to main,
+# with the value list declared.
+prepo() {
+  git init -q --bare "$WORK/$1.git"
+  git clone -q "$WORK/$1.git" "$WORK/$1" 2>/dev/null
+  r="$WORK/$1"
+  git -C "$r" checkout -q -b main
+  cp "$CONFIG" "$r/.gitleaks.toml"
+  printf 'clean\n' > "$r/README.md"
+  wcommit "$r" base
+  git -C "$r" push -q origin main
+  declare_list "$r" "$LISTS/values"
+  echo "$r"
+}
+sha() { git -C "$1" rev-parse "$2"; }
+leak_file() { printf 'deploy to %s\n' "$VALUE" > "$1/$2"; wcommit "$1" "add $2"; }
+clean_file() { printf 'clean %s\n' "$2" > "$1/$2"; wcommit "$1" "add $2"; }
+
+# An existing branch: <remote sha>..<local sha>.
+R=$(prepo p-existing)
+old=$(sha "$R" HEAD)
+leak_file "$R" leak.md
+push_lines="refs/heads/main $(sha "$R" HEAD) refs/heads/main $old
+"
+gate 1 "pre-push, existing branch, value in a new commit" "[private-value-3]" "$R" pre-push origin "$WORK/p-existing.git"
+
+# A value the remote already has is not scanned again.
+git -C "$R" push -q origin main
+old=$(sha "$R" HEAD)
+clean_file "$R" later.md
+push_lines="refs/heads/main $(sha "$R" HEAD) refs/heads/main $old
+"
+gate 0 "pre-push, existing branch, value only in a pushed commit" "no leaks found" "$R" pre-push origin "$WORK/p-existing.git"
+
+# A new branch scans only the commits the remote has on no ref, here none of
+# main's pushed history, which holds a value.
+git -C "$R" push -q origin main
+git -C "$R" checkout -q -b feature
+clean_file "$R" feature.md
+push_lines="refs/heads/feature $(sha "$R" HEAD) refs/heads/feature $Z
+"
+gate 0 "pre-push, new branch, value only in pushed history" "no leaks found" "$R" pre-push origin "$WORK/p-existing.git"
+leak_file "$R" feature-leak.md
+push_lines="refs/heads/feature $(sha "$R" HEAD) refs/heads/feature $Z
+"
+gate 1 "pre-push, new branch, value in a new commit" "[private-value-3]" "$R" pre-push origin "$WORK/p-existing.git"
+
+# A force push scans what the remote does not have, both when the old remote
+# commit is known here and when it was never fetched.
+R=$(prepo p-force)
+clean_file "$R" one.md
+git -C "$R" push -q origin main
+old=$(sha "$R" HEAD)
+git -C "$R" reset -q --hard HEAD~1
+leak_file "$R" replaced.md
+push_lines="refs/heads/main $(sha "$R" HEAD) refs/heads/main $old
+"
+gate 1 "pre-push, force push" "[private-value-3]" "$R" pre-push origin "$WORK/p-force.git"
+push_lines="refs/heads/main $(sha "$R" HEAD) refs/heads/main 1234567890abcdef1234567890abcdef12345678
+"
+gate 1 "pre-push, force push over a commit never fetched" "[private-value-3]" "$R" pre-push origin "$WORK/p-force.git"
+
+# A deletion sends no commits.
+push_lines="(delete) $Z refs/heads/gone $old
+"
+gate 0 "pre-push, deletion" "nothing to scan" "$R" pre-push origin "$WORK/p-force.git"
+
+# Several refs in one push: each of them.
+R=$(prepo p-several)
+git -C "$R" checkout -q -b one
+clean_file "$R" one.md
+one=$(sha "$R" HEAD)
+git -C "$R" checkout -q -b two main
+leak_file "$R" two.md
+push_lines="refs/heads/one $one refs/heads/one $Z
+refs/heads/two $(sha "$R" HEAD) refs/heads/two $Z
+"
+gate 1 "pre-push, several refs, value on the second" "[private-value-3]" "$R" pre-push origin "$WORK/p-several.git"
+
+# A commit message, the case pre-push exists for.
+R=$(prepo p-message)
+old=$(sha "$R" HEAD)
+git -C "$R" -c user.name=fixture -c user.email=fixture@example.invalid \
+  commit -q --allow-empty -m "deploy to $VALUE"
+push_lines="refs/heads/main $(sha "$R" HEAD) refs/heads/main $old
+"
+gate 1 "pre-push, value in a commit message" "a commit message matches" "$R" pre-push origin "$WORK/p-message.git"
+
+# A push to a URL rather than a named remote, or to a remote with a separate
+# push URL, has no tracking refs that describe the target, so everything the
+# pushed commits reach is scanned: here, a value already on origin's main.
+R=$(prepo p-url)
+leak_file "$R" old-leak.md
+git -C "$R" push -q origin main
+git -C "$R" checkout -q -b fresh
+clean_file "$R" fresh.md
+push_lines="refs/heads/fresh $(sha "$R" HEAD) refs/heads/fresh $Z
+"
+gate 0 "pre-push, new branch to the named remote" "no leaks found" "$R" pre-push origin "$WORK/p-url.git"
+push_lines="refs/heads/fresh $(sha "$R" HEAD) refs/heads/fresh $Z
+"
+gate 1 "pre-push, new branch to a bare URL" "[private-value-3]" "$R" pre-push "$WORK/p-url.git" "$WORK/p-url.git"
+git -C "$R" config remote.origin.pushurl "$WORK/p-url-elsewhere.git"
+push_lines="refs/heads/fresh $(sha "$R" HEAD) refs/heads/fresh $Z
+"
+gate 1 "pre-push, new branch to a remote with a push URL" "[private-value-3]" "$R" pre-push origin "$WORK/p-url-elsewhere.git"
+git -C "$R" config --unset remote.origin.pushurl
+
+# The pre-commit framework's pre-push stage: variables, not standard input.
+R=$(prepo p-framework)
+old=$(sha "$R" HEAD)
+leak_file "$R" leak.md
+pre_commit_env="PRE_COMMIT_FROM_REF=$old PRE_COMMIT_TO_REF=$(sha "$R" HEAD) PRE_COMMIT_REMOTE_NAME=origin PRE_COMMIT_LOCAL_BRANCH=refs/heads/main"
+gate 1 "pre-push, framework range" "[private-value-3]" "$R" pre-push
+# Its whole-branch case, when the push reaches a root commit: no FROM or TO.
+git init -q --bare "$WORK/p-framework-empty.git"
+git -C "$R" remote add empty "$WORK/p-framework-empty.git"
+pre_commit_env="PRE_COMMIT_REMOTE_NAME=empty PRE_COMMIT_LOCAL_BRANCH=refs/heads/main"
+gate 1 "pre-push, framework whole branch" "[private-value-3]" "$R" pre-push
+R=$(prepo p-framework-clean)
+git -C "$R" remote add empty "$WORK/p-framework-empty.git"
+pre_commit_env="PRE_COMMIT_REMOTE_NAME=empty PRE_COMMIT_LOCAL_BRANCH=refs/heads/main"
+gate 0 "pre-push, framework whole branch, clean" "no leaks found" "$R" pre-push
+
+# A call that names no refs fails closed rather than passing with nothing scanned:
+# pre-commit gives its hooks an empty standard input.
+gate 2 "pre-push, no arguments and no PRE_COMMIT variables" "usage" "$R" pre-push
+pre_commit_env="PRE_COMMIT_REMOTE_NAME=origin"
+gate 2 "pre-push, PRE_COMMIT_REMOTE_NAME alone" "pre-commit gave no refs" "$R" pre-push
+
+# End to end: git itself runs a pre-push hook that hands the wrapper its lines.
+R=$(prepo p-hook)
+printf '#!/bin/sh\nexec sh "%s" pre-push "$@"\n' "$GATE" > "$R/.git/hooks/pre-push"
+chmod +x "$R/.git/hooks/pre-push"
+git -C "$R" -c user.name=fixture -c user.email=fixture@example.invalid \
+  commit -q --allow-empty -m "deploy to $VALUE"
+rc=0
+out=$(GITLEAKS="$GITLEAKS" git -C "$R" push -q origin main 2>&1) || rc=$?
+case "$rc:$out" in
+  *"$VALUE"*|*fixture-private*) bad "wrapper, pre-push through git: the value appears in the output" ;;
+  0:*) bad "wrapper, pre-push through git: the push went through" ;;
+  *"a commit message matches"*) ok ;;
+  *) bad "wrapper, pre-push through git: exit $rc without the finding"; printf '%s\n' "$out" | sed 's/^/    /' >&2 ;;
+esac
 
 # A value carrying a pasted no-break space would never match: refuse it.
 R=$(wrepo w-nbsp)

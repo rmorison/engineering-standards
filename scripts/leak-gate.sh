@@ -23,18 +23,30 @@
 #
 # Usage:
 #   sh scripts/leak-gate.sh staged                 # pre-commit: what is staged
-#   sh scripts/leak-gate.sh range <base>..<head>   # pre-push, and a maintainer's
-#                                                  # pre-merge run over a pull
-#                                                  # request's commits
+#   sh scripts/leak-gate.sh range <base>..<head>   # a maintainer's pre-merge run
+#                                                  # over a pull request's commits
+#   sh scripts/leak-gate.sh pre-push <remote> <url>  # the hand-written pre-push
+#                                                  # hook: ref lines on stdin
+#   sh scripts/leak-gate.sh pre-push               # the pre-commit framework's
+#                                                  # pre-push stage: PRE_COMMIT_*
 #   sh scripts/leak-gate.sh history                # going public: every ref, plus
 #                                                  # commit and tag messages,
 #                                                  # identities and ref names
 #
 # Besides file contents, value rules check what gitleaks does not read: the path
 # of every file the source touches (binary, empty and renamed files included),
-# commit author and committer identities in range and history, and in history
+# commit author and committer identities in range, pre-push and history, commit
+# messages in range and pre-push, and in history
 # branch and tag names and commit and tag messages. Merge commits are scanned
 # with git's -m, so content a merge introduces is not skipped.
+#
+# pre-push scans every commit the push would give the remote: the pushed commits,
+# less each ref's old remote commit and, for a configured remote with no separate
+# push URL, less its remote-tracking refs. Without that exclusion it scans all the
+# pushed commits reach, as history would. A deletion sends nothing. The pre-commit
+# framework passes its hooks only the first ref of a push that has commits to
+# scan (pre-commit 4.6.2, commands/hook_impl.py, _pre_push_ns), so in that form
+# the later refs of a multi-ref push are not scanned.
 #
 # Run a pre-merge check from the default branch's own checkout, never from the
 # pull request's: the pull request can edit this script, .gitleaks.toml and
@@ -53,6 +65,8 @@
 # always.
 
 set -eu
+# No pathname expansion: revision lists below are split into words, never globbed.
+set -f
 
 GITLEAKS=${GITLEAKS:-gitleaks}
 ROOT=$(git rev-parse --show-toplevel)
@@ -70,12 +84,13 @@ trap 'exit 130' INT TERM HUP
 chmod 700 "$WORK"
 
 die() { echo "leak-gate: $*" >&2; exit 2; }
-usage() { die "usage: leak-gate.sh staged | range <base>..<head> | history"; }
+usage() { die "usage: leak-gate.sh staged | range <base>..<head> | pre-push [<remote> <url>] | history"; }
 
 mode=${1:-}
 case "$mode" in
   staged|history) [ $# -eq 1 ] || usage ;;
-  range) [ $# -eq 2 ] || usage; range=$2 ;;
+  range) [ $# -eq 2 ] || usage; revs=$2 ;;
+  pre-push) [ $# -eq 1 ] || [ $# -eq 3 ] || usage ;;
   *) usage ;;
 esac
 [ -f "$CONFIG" ] || die "no .gitleaks.toml at the repository root"
@@ -87,6 +102,67 @@ esac
 gitleaks_path=$(command -v "$GITLEAKS" 2>/dev/null) &&
   [ -f "$gitleaks_path" ] && [ -x "$gitleaks_path" ] ||
   die "gitleaks was not found: install the pinned version with sh scripts/install-gitleaks.sh, or set GITLEAKS to its path"
+
+# --- pre-push: the commits a push would give the remote ------------------------
+
+# commit_of <rev>: the commit a pushed SHA names, peeling an annotated tag.
+commit_of() { git rev-parse --verify --quiet "$1^{commit}"; }
+
+if [ "$mode" = pre-push ]; then
+  Z40=0000000000000000000000000000000000000000
+  include= exclude= remote=
+  if [ $# -eq 3 ]; then
+    # The hand-written hook: git passes the remote and URL, and one line per ref.
+    remote=$2
+    while read -r lref lsha rref rsha; do
+      [ -n "$lsha" ] && [ "$lsha" != "$Z40" ] || continue   # a deletion
+      c=$(commit_of "$lsha") || die "pre-push: a pushed ref does not name a commit: $lref"
+      include="$include $c"
+      if [ "$rsha" != "$Z40" ] && c=$(commit_of "$rsha"); then
+        exclude="$exclude ^$c"
+      fi
+    done
+  elif [ -n "${PRE_COMMIT_REMOTE_NAME:-}" ]; then
+    # The pre-commit framework: its pre-push stage passes no arguments and an
+    # empty standard input, and sets these instead.
+    remote=$PRE_COMMIT_REMOTE_NAME
+    if [ -n "${PRE_COMMIT_TO_REF:-}" ]; then
+      c=$(commit_of "$PRE_COMMIT_TO_REF") || die "pre-push: PRE_COMMIT_TO_REF does not name a commit"
+      include=" $c"
+      if [ -n "${PRE_COMMIT_FROM_REF:-}" ] && c=$(commit_of "$PRE_COMMIT_FROM_REF"); then
+        exclude=" ^$c"
+      fi
+    elif [ -n "${PRE_COMMIT_LOCAL_BRANCH:-}" ]; then
+      c=$(commit_of "$PRE_COMMIT_LOCAL_BRANCH") || die "pre-push: PRE_COMMIT_LOCAL_BRANCH does not name a commit"
+      include=" $c"
+    else
+      die "pre-push: pre-commit gave no refs (PRE_COMMIT_TO_REF or PRE_COMMIT_LOCAL_BRANCH), so nothing could be scanned"
+    fi
+  else
+    # Without arguments or the framework's variables there are no refs to read,
+    # and passing would mean passing with nothing scanned.
+    usage
+  fi
+  if [ -z "$include" ]; then
+    echo "leak-gate: note: this push sends no commits, so there is nothing to scan."
+    exit 0
+  fi
+  # A remote's tracking refs describe what it already has only when it is a
+  # configured remote that pushes where it fetches from. The name must also be
+  # safe as a --remotes pattern.
+  case "$remote" in
+    ''|*[!A-Za-z0-9._/-]*) ;;
+    *)
+      if git remote | grep -qxF -e "$remote" &&
+         ! git config --get "remote.$remote.pushurl" >/dev/null; then
+        # --not last: a ^<sha> after it would be read as an include.
+        exclude="$exclude --not --remotes=$remote"
+      fi ;;
+  esac
+  # gitleaks splits --log-opts on single spaces, so no leading space.
+  revs="${include# }$exclude"
+  mode=range
+fi
 
 # --- The value list ---------------------------------------------------------------
 
@@ -206,11 +282,12 @@ case "$mode" in
   staged)
     git -c core.quotePath=false diff --cached --name-only --no-renames -z > "$WORK/paths.z" ;;
   range)
-    if [ "$(git rev-list --count "$range")" -eq 0 ]; then
-      echo "leak-gate: note: the range $range holds no commits, so there is nothing to scan."
+    # shellcheck disable=SC2086 # revs is a list of revision arguments
+    if [ "$(git rev-list --count $revs)" -eq 0 ]; then
+      echo "leak-gate: note: the range $revs holds no commits, so there is nothing to scan."
     fi
-    git -c core.quotePath=false log -m --format= --name-only --no-renames -z "$range" > "$WORK/paths.z"
-    git log --format='%H%x09%an <%ae>%x09%cn <%ce>' "$range" > "$WORK/identities" ;;
+    git -c core.quotePath=false log -m --format= --name-only --no-renames -z $revs > "$WORK/paths.z"
+    git log --format='%H%x09%an <%ae>%x09%cn <%ce>' $revs > "$WORK/identities" ;;
   history)
     git -c core.quotePath=false log --all -m --format= --name-only --no-renames -z > "$WORK/paths.z"
     git log --all --format='%H%x09%an <%ae>%x09%cn <%ce>' > "$WORK/identities"
@@ -280,7 +357,7 @@ if [ "$values" -gt 0 ]; then
       done
     fi
     if [ "$mode" = range ]; then
-      for sha in $(git log -i -F --grep="$value" --format=%H "$range"); do
+      for sha in $(git log -i -F --grep="$value" --format=%H $revs); do
         echo "a commit message matches private value (list line $n): commit $sha"
         leaks=1
       done
@@ -324,7 +401,7 @@ EOF
 # "Binary files differ", which gitleaks would skip.
 case "$mode" in
   staged) source_arg="--staged" ;;
-  range) source_arg="--log-opts=--text -m $range" ;;
+  range) source_arg="--log-opts=--text -m $revs" ;;
   history) source_arg="--log-opts=--all --text -m" ;;
 esac
 
