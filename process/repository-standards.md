@@ -84,7 +84,7 @@ Issue templates may apply only labels defined in [Label Strategy](./issue-tracki
 
 ## Leak Gate
 
-The gate protects the holder of a value list from publishing their own private values by mistake, including mistakes their agents make. It is not a control against someone who means to leak or to get around it.
+The gate protects the holder of a value list from publishing their private values by mistake, whether the mistake is theirs, their agents', or a contributor's. It is not a control against someone who means to leak or to get around it.
 
 A leak gate fails a change that would publish something that must not be published. It checks files and commits before they reach the default branch, and it says plainly what it cannot see.
 
@@ -201,7 +201,7 @@ EOF
 chmod +x "$hook"
 ```
 
-The hook runs whichever `scripts/leak-gate.sh` the checked-out branch holds, on the machine that holds the list. On a branch you did not write, such as a contributor's pull request checked out to push a fixup, commit with `--no-verify` and run the pre-merge check below from the default branch's checkout instead.
+The hook runs whichever `scripts/leak-gate.sh` the checked-out branch holds, on the machine that holds the list. On a branch you did not write, such as a contributor's pull request checked out to push a fixup, that is code you have not reviewed running where the list is. Commit with `--no-verify` and run the pre-merge check below from the default branch's checkout instead.
 
 **Before merging a pull request**, a maintainer who holds the list runs the value rules over its commits. Run from the default branch's own checkout, never from the pull request's: the pull request can edit the wrapper, `.gitleaks.toml` and `.gitleaksignore`, and this machine holds the list. A mistaken edit there would make the check pass on the pull request's own terms, and running the default branch's copy costs nothing, so the rule holds whatever the author intended.
 
