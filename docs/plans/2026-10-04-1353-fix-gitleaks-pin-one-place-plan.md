@@ -299,7 +299,7 @@ flowchart TB
 
 ## Verification Contract
 
-Node is not installed on the machine this will be built on, and the documentation checks need Node 22, the version `docs.yml` pins. Rod decides how Node is provided. Do not install it before he does.
+Node 22, the version `docs.yml` pins, is installed through nvm on the machine this will be built on. Load it in each command with `. "$HOME/.nvm/nvm.sh"`, and install the check's dependencies once per worktree with `npm ci` in `scripts/`, as CI does. Install nothing globally.
 
 | Gate | Command | Applies to |
 |---|---|---|
