@@ -26,7 +26,7 @@ Issue #75 added two things to the leak gate, both proved by `scripts/test-leak-g
 - [PR #79](https://github.com/rmorison/engineering-standards/pull/79): one-line refusal when gitleaks is missing;
 - [PR #83](https://github.com/rmorison/engineering-standards/pull/83): a `pre-push` mode.
 
-The work was done on a machine with git 2.34.1, dash as `sh`, and GNU coreutils. The suite ran under both `sh` and `bash` before each push. Three behaviours differed elsewhere. None was a mistake in what the code meant to do. Each was an assumption about a tool that held for the version or implementation under test.
+The work was done on a machine with git 2.34.1, dash as `sh`, and GNU coreutils. The suite ran under both `sh` and `bash` before each push. Three assumptions held only for the tool version or implementation under test. One failed in CI, one failed under the other shell on the same machine, and one is predicted on macOS. None was a mistake in what the code meant to do.
 
 1. **A newer git refused a fixture's setup.** A fixture added a remote named `origin/private` beside `origin`, to prove the wrapper does not trust tracking refs that another remote's name can reach.
    - **Local:** git 2.34.1 accepted `git remote add origin/private …`, and the suite passed 119 of 119 under dash and bash on the PR's head.
@@ -43,7 +43,7 @@ The work was done on a machine with git 2.34.1, dash as `sh`, and GNU coreutils.
    - bash checks that the file is executable;
    - dash, which is `sh` on Debian, Ubuntu and GitHub's Ubuntu runners, only checks that the path exists.
 
-   So under dash, a `GITLEAKS` naming a directory, or a file without the execute bit, passed the check. The wrapper then ran it and printed the path and `gitleaks exited 126`, which breaks both the one-line promise and the no-path promise. The scoped Claude review on PR #79 found this by reading dash's source. The author confirmed it by running the check under both shells, and two new fixtures failed under `sh` before the fix.
+   So under dash, a `GITLEAKS` naming a directory, or a file without the execute bit, passed the check. The wrapper then ran it and printed the path and `gitleaks exited 126`, which breaks both the one-line promise and the no-path promise. The scoped Claude review on PR #79 found this by reading dash's source. Two new fixtures then failed under `sh` before the fix, and after it the check gave the one-line refusal under both shells (the reply on PR #79).
 3. **BSD `wc` pads its count.** The missing-gitleaks fixtures counted output lines with `wc -l` and matched `"$rc:$lines:$out"` against `"2:1:"*`. BSD `wc`, as on macOS, prints `       1`, so the pattern would never match there. The same review flagged it. It was not run on macOS, because no macOS host was available.
 
 ## Guidance
@@ -51,7 +51,7 @@ The work was done on a machine with git 2.34.1, dash as `sh`, and GNU coreutils.
 **A pass is a statement about the tools it ran on. Name them, run on each one the script's users have, and read CI on the exact head before calling it verified.**
 
 1. **Record the versions with the proof.** "119 passed" means little without the git, the `sh` and the OS it ran on. PR #83's body now names git 2.34.1 locally and git 2.55.0 in CI, with the run ID. When the standard states a tool's behaviour, it names the version too. For example, § Running It Locally in `process/repository-standards.md` gives the framework's one-ref pre-push limit "(pre-commit 4.6.2)".
-2. **CI on the pushed head is part of the verification.** After a push, wait for the checks on that head before reporting it verified, for example with `gh pr checks <n> --watch`. A local run and a CI run are two environments, and only the one that was read counts. The fix for the first case was reported only after its CI run, Actions run 37379161341, showed git 2.55.0 and "119 passed, 0 failed".
+2. **CI on the pushed head is part of the verification.** After a push, wait for the checks on that head before reporting it verified, for example with `gh pr checks <n> --watch`. A `pull_request` run tests the head merged into its base, so a stacked pull request's CI also changes when its base moves. A local run and a CI run are two environments, and only the one that was read counts. The fix for the first case was reported only after its CI run, Actions run 37379161341, showed git 2.55.0 and "119 passed, 0 failed".
 3. **Run each shell the script claims to support.** A `#!/bin/sh` script runs under dash on Debian, Ubuntu and their CI runners, and may run under bash elsewhere. Running the suite under both `sh` and `bash` costs one more command. It is how the dash fix was confirmed, and how a bash-only fix would show itself.
 4. **"Found" is not "runnable".** `command -v` answers whether a name resolves. Check that what it returns is a regular executable file before relying on it. The leak gate now does this (`scripts/leak-gate.sh:103-104`):
 
@@ -60,9 +60,9 @@ The work was done on a machine with git 2.34.1, dash as `sh`, and GNU coreutils.
      [ -f "$gitleaks_path" ] && [ -x "$gitleaks_path" ] ||
    ```
 
-5. **In fixtures, set up state with primitives that carry no version-specific policy.** `git remote add` enforces naming rules, and they changed between 2.34 and 2.55. `git config` and `git update-ref` write the state the code under test reads without those rules. So the fixture now writes the remote into the config and sets its tracking ref directly (`nested_remote` and the `update-ref` call in `scripts/test-leak-gate.sh`), and it passes on both versions.
+5. **In fixtures, set up state with primitives that carry less version-specific policy.** `git remote add` enforces naming rules, and they changed somewhere between 2.34 and 2.55. `git config` and `git update-ref` write the state the code under test reads without those rules, though `update-ref` still checks ref-name format. So the fixture now writes the remote into the config and sets its tracking ref directly (`nested_remote` and the `update-ref` call in `scripts/test-leak-gate.sh`), and it passes on both versions.
 
-   The product code keeps its guard, because a config written by an older git is still valid on a newer one. The wrapper reads remote names from the config as well as from `git remote` (`scripts/leak-gate.sh:171-173`), so it sees such a name whatever the running git lists.
+   The product code keeps its guard, because a config written by an older git is still valid on a newer one. The wrapper reads remote names from the config as well as from `git remote` (`scripts/leak-gate.sh:172-173`), so it sees such a name whatever the running git lists.
 6. **Normalise output you parse.** Strip padding and whitespace from a utility's output before comparing it: `wc -l | tr -d ' '` (`scripts/test-leak-gate.sh:638`).
 
 ## Why This Matters
@@ -73,7 +73,7 @@ The gate is also copied verbatim by adopting projects (rmorison/buzai copies the
 
 The siblings each cover a different part of this:
 - [prove-a-check-fails-before-trusting-it-passes](./prove-a-check-fails-before-trusting-it-passes.md) is about a check that passes because it cannot fail. Its habit 3, make a pin real, is the closest relative: the version under test must be the version that matters.
-- [prove-a-pasted-command-from-the-docs-own-text](./prove-a-pasted-command-from-the-docs-own-text.md) covers the author's shell, HOME and PATH differing from the reader's, for a command a reader pastes. This doc covers tool versions and implementations, for scripts and their fixtures.
+- [prove-a-pasted-command-from-the-docs-own-text](./prove-a-pasted-command-from-the-docs-own-text.md) is the closest. Its habit 5, "Say which shells and platforms the run covered, and mark the rest not run", is the rule behind guidance 1 and 3 here. That doc applies it to commands a reader pastes. This doc extends it to scripts, their fixtures and CI, and to tool versions as well as shells.
 - [a-check-must-read-a-file-the-way-its-consumer-does](./a-check-must-read-a-file-the-way-its-consumer-does.md) says to pin the consumer version that fixtures were checked against. This doc applies the same idea to the tools a script runs.
 
 ## When to Apply
@@ -111,16 +111,23 @@ With the wrapper's nested-remote check removed, the reworked fixture still fails
 
 ### Found but not runnable
 
-PR #79's first check, `command -v "$GITLEAKS"` alone, run by the author under both shells with `GITLEAKS` set to each value (paths replaced). The PR records the two fixtures that failed under dash, and the matrix after the fix:
+Against PR #79's first check, `command -v "$GITLEAKS"` alone, the two new fixtures failed under `sh` (dash):
 
 ```text
-GITLEAKS                 dash                                     bash
-<scratch>/gl-noexec      passes check, then "gitleaks exited 126"  one-line refusal
-<scratch> (a directory)  passes check, then "gitleaks exited 126"  one-line refusal
-<scratch>/missing        one-line refusal                         one-line refusal
+FAIL: wrapper, missing gitleaks, staged, a file without the execute bit: the output names the path or the value
+FAIL: wrapper, missing gitleaks, staged, a directory: the output names the path or the value
+Leak gate fixtures: 92 passed, 2 failed.
 ```
 
-With the `-f` and `-x` test added, every row gives the one-line refusal under both shells.
+The review predicted from dash's source that the wrapper then prints the path and `gitleaks exited 126`. With the `-f` and `-x` test added, the reply on PR #79 records every unusable `GITLEAKS` value giving the one-line refusal under both shells, and every working one still scanning:
+
+```text
+           GITLEAKS                   dash          bash
+gitleaks (bare name, on PATH)    exit 0, scans  exit 0, scans
+<scratch>/gl-noexec              exit 2, 1 line exit 2, 1 line
+<scratch> (a directory)          exit 2, 1 line exit 2, 1 line
+<scratch>/missing                exit 2, 1 line exit 2, 1 line
+```
 
 ### A count with padding
 
