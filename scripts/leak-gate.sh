@@ -86,7 +86,7 @@ esac
 # dash's command -v accepts any existing path, a directory included.
 gitleaks_path=$(command -v "$GITLEAKS" 2>/dev/null) &&
   [ -f "$gitleaks_path" ] && [ -x "$gitleaks_path" ] ||
-  die "gitleaks was not found: install the pinned version (process/repository-standards.md, Adopting the Gate) or set GITLEAKS to its path"
+  die "gitleaks was not found: install the pinned version with sh scripts/install-gitleaks.sh, or set GITLEAKS to its path"
 
 # --- The value list ---------------------------------------------------------------
 

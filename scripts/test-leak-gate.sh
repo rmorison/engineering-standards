@@ -631,7 +631,7 @@ no_gitleaks() {
   lines=$(printf '%s\n' "$out" | wc -l | tr -d ' ')   # BSD wc pads the count
   case "$rc:$lines:$out" in
     *no-such-gitleaks*|*"$VALUE"*) bad "wrapper, missing gitleaks, $desc: the output names the path or the value" ;;
-    "2:1:"*"gitleaks was not found"*"Adopting the Gate"*) ok ;;
+    "2:1:"*"gitleaks was not found"*"sh scripts/install-gitleaks.sh"*) ok ;;
     *)
       bad "wrapper, missing gitleaks, $desc: exit $rc with $lines line(s), expected 2 with one line naming the install"
       printf '%s\n' "$out" | sed 's/^/    /' >&2 ;;
