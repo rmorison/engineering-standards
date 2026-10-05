@@ -167,8 +167,12 @@ if [ "$mode" = pre-push ]; then
   case "$remote" in
     ''|*[!A-Za-z0-9._-]*) ;;
     *)
-      if git remote | grep -qxF -e "$remote" &&
-         ! git remote | awk -v p="$remote/" 'index($0, p) == 1 { f = 1 } END { exit !f }' &&
+      # Remote names come from the config as well as from git remote, so a
+      # nested name an older git wrote is seen whatever this git lists.
+      remotes=$( { git remote; git config --name-only --get-regexp '^remote\..*\.url$' |
+        sed 's/^remote\.//; s/\.url$//'; } | sort -u)
+      if printf '%s\n' "$remotes" | grep -qxF -e "$remote" &&
+         ! printf '%s\n' "$remotes" | awk -v p="$remote/" 'index($0, p) == 1 { f = 1 } END { exit !f }' &&
          ! git config --get "remote.$remote.pushurl" >/dev/null; then
         # --not last: a ^<sha> after it would be read as an include.
         exclude="$exclude --not --remotes=$remote"

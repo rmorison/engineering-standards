@@ -777,13 +777,19 @@ git -C "$R" config --unset remote.origin.pushurl
 
 # --remotes=<name> also matches the tracking refs of a remote named <name>/...,
 # so a commit only on that remote must not be hidden when pushing to <name>.
+# git 2.55 refuses "git remote add" for a name nested under an existing remote,
+# but older gits allow it and their configs stay valid, so the remote is written
+# into the config directly and its tracking ref is set without a fetch. That
+# works on both.
+nested_remote() {   # nested_remote <repo> <name> <url>
+  git -C "$1" config "remote.$2.url" "$3"
+  git -C "$1" config "remote.$2.fetch" "+refs/heads/*:refs/remotes/$2/*"
+}
 R=$(prepo p-nested)
-git init -q --bare "$WORK/p-nested-private.git"
-git -C "$R" remote add origin/private "$WORK/p-nested-private.git"
+nested_remote "$R" origin/private "$WORK/p-nested-private.git"
 git -C "$R" checkout -q -b secret
 leak_file "$R" secret.md
-git -C "$R" push -q origin/private secret
-git -C "$R" fetch -q origin/private
+git -C "$R" update-ref refs/remotes/origin/private/secret HEAD
 git -C "$R" checkout -q -b public-branch
 clean_file "$R" public.md
 push_lines="refs/heads/public-branch $(sha "$R" HEAD) refs/heads/public-branch $Z
@@ -797,8 +803,7 @@ git -C "$R" checkout -q -b private/x
 leak_file "$R" on-origin.md
 git -C "$R" push -q origin private/x
 git -C "$R" fetch -q origin
-git init -q --bare "$WORK/p-nested-reverse-private.git"
-git -C "$R" remote add origin/private "$WORK/p-nested-reverse-private.git"
+nested_remote "$R" origin/private "$WORK/p-nested-reverse-private.git"
 git -C "$R" checkout -q -b onward
 clean_file "$R" onward.md
 push_lines="refs/heads/onward $(sha "$R" HEAD) refs/heads/onward $Z
