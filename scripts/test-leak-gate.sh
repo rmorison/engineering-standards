@@ -790,6 +790,21 @@ push_lines="refs/heads/public-branch $(sha "$R" HEAD) refs/heads/public-branch $
 "
 gate 1 "pre-push, a value only on a remote nested under the target's name" "[private-value-3]" "$R" pre-push origin "$WORK/p-nested.git"
 
+# The reverse: --remotes=origin/private also matches origin's branches
+# private/..., so a push to the remote origin/private must not trust them.
+R=$(prepo p-nested-reverse)
+git -C "$R" checkout -q -b private/x
+leak_file "$R" on-origin.md
+git -C "$R" push -q origin private/x
+git -C "$R" fetch -q origin
+git init -q --bare "$WORK/p-nested-reverse-private.git"
+git -C "$R" remote add origin/private "$WORK/p-nested-reverse-private.git"
+git -C "$R" checkout -q -b onward
+clean_file "$R" onward.md
+push_lines="refs/heads/onward $(sha "$R" HEAD) refs/heads/onward $Z
+"
+gate 1 "pre-push, to a remote whose name extends another's" "[private-value-3]" "$R" pre-push origin/private "$WORK/p-nested-reverse-private.git"
+
 # An annotated tag is peeled to its commit.
 R=$(prepo p-tag)
 leak_file "$R" tagged.md

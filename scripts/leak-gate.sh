@@ -42,7 +42,8 @@
 #
 # pre-push scans every commit the push would give the remote: the pushed commits,
 # less each ref's old remote commit and, for a configured remote with no separate
-# push URL and no remote nested under its name, less its remote-tracking refs.
+# push URL and a name that cannot reach another remote's refs, less its
+# remote-tracking refs.
 # Without that exclusion it scans all the pushed commits reach, as history would.
 # A deletion sends nothing. The pre-commit framework passes its hooks only one
 # ref of a push (pre-commit 4.6.2, commands/hook_impl.py, _pre_push_ns), so in
@@ -115,7 +116,7 @@ if [ "$mode" = pre-push ]; then
     # The hand-written hook: git passes the remote and URL, and one line per ref.
     # The || reads a last line that has no newline.
     remote=$2
-    while read -r lref lsha rref rsha || [ -n "${lref:-}" ]; do
+    while lref=; read -r lref lsha rref rsha || [ -n "$lref" ]; do
       lines=$((lines + 1))
       [ -n "$lsha" ] && [ "$lsha" != "$Z40" ] || continue   # a deletion
       # Fixed text: a ref name can hold a private value, and it is not scanned here.
@@ -159,10 +160,12 @@ if [ "$mode" = pre-push ]; then
   fi
   # A remote's tracking refs describe what it already has only when it is a
   # configured remote that pushes where it fetches from. The name must also be
-  # safe as a --remotes pattern, and --remotes=<name> must not also match the
-  # tracking refs of a remote named <name>/..., whose commits may be private.
+  # safe as a --remotes pattern. --remotes=<name> matches refs/remotes/<name>/
+  # and everything below it, so it must not reach another remote's refs: a name
+  # with a / could be another remote's branches (origin/private matches origin's
+  # private/x), and another remote named <name>/... would be matched by <name>.
   case "$remote" in
-    ''|*[!A-Za-z0-9._/-]*) ;;
+    ''|*[!A-Za-z0-9._-]*) ;;
     *)
       if git remote | grep -qxF -e "$remote" &&
          ! git remote | awk -v p="$remote/" 'index($0, p) == 1 { f = 1 } END { exit !f }' &&
