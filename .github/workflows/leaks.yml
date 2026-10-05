@@ -60,8 +60,12 @@ jobs:
       # passes its allowlisted cases, and nothing planted reaches this log. The
       # same script proves scripts/leak-gate.sh, the local wrapper, against
       # invented values in temporary repositories; no real value list is read.
+      # The second script proves scripts/claude_leak_hook.py, the Claude Code
+      # hook that applies the value list to text agent sessions post to GitHub.
       - name: Prove the rules and the wrapper fire
-        run: sh scripts/test-leak-gate.sh
+        run: |
+          sh scripts/test-leak-gate.sh
+          python3 scripts/test_claude_leak_hook.py
 
       # Every commit the change adds, so a leak added in one commit and removed
       # in the next still fails. Never all of history: it holds a path removed
