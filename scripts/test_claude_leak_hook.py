@@ -14,8 +14,8 @@ at temporary files, so no real value list is ever read. Nothing here installs a
 hook, writes under .git/hooks or sets core.hooksPath.
 
 The list-parity fixtures also run scripts/leak-gate.sh over the same lists, so
-the two read a list the same way. They set GITLEAKS=true, so they need no
-gitleaks, and LC_ALL=C, so a value's length is counted in bytes whichever shell
+the two read a list the same way. They set GITLEAKS to a stand-in script that
+exits 0, so they need no gitleaks, and LC_ALL=C, so a value's length is counted in bytes whichever shell
 is sh.
 
 Labels such as R1, AE3 and KTD4 in section comments and fixture names refer to
@@ -201,7 +201,13 @@ def check(name, result, want, frag=None, lines=None, extra_secrets=(), on_fail=N
 
 
 def run_leak_gate(sb, repo, list_path):
-    env = dict(sb.env, GITLEAKS="true", LC_ALL="C")
+    # leak-gate.sh refuses a GITLEAKS that is not an executable file before it
+    # reads the list, so the stand-in is a script that exits 0.
+    fake = sb.root / "fake-gitleaks"
+    if not fake.exists():
+        fake.write_text("#!/bin/sh\nexit 0\n")
+        fake.chmod(0o755)
+    env = dict(sb.env, GITLEAKS=str(fake), LC_ALL="C")
     env.pop("LANG", None)
     sb.declare(list_path)
     proc = subprocess.run(["sh", str(LEAK_GATE), "staged"], capture_output=True,
