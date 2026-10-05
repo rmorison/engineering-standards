@@ -116,7 +116,7 @@ Copy these files from this repository:
 - `scripts/install-gitleaks.sh`: installs the pinned gitleaks. It is the only file that holds the gitleaks version and tarball hashes.
 - `.github/workflows/leaks.yml`, with `scripts/test-leak-gate.sh` and `scripts/test-install-gitleaks.sh`: the CI job, and the fixtures that prove every rule fires and the install fails closed before any scan is trusted.
 
-Install gitleaks in CI and on every developer machine that runs the hook. Without it on `PATH`, the wrapper reports `gitleaks exited 127` and every commit is refused. `scripts/install-gitleaks.sh` installs it. CI's Install gitleaks step in `leaks.yml` runs it, as does the step in [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead).
+Install gitleaks in CI and on every developer machine that runs the hook. Without it on `PATH`, or `GITLEAKS` naming it, the wrapper refuses every commit with one line saying that gitleaks was not found and to run `sh scripts/install-gitleaks.sh`. `scripts/install-gitleaks.sh` installs it. CI's Install gitleaks step in `leaks.yml` runs it, as does the step in [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead).
 
 On a developer machine, or from a `make dev` target, run it from the repository root. It installs into `~/.local/bin`, or into the directory given as its argument:
 
@@ -193,6 +193,27 @@ sh scripts/leak-gate.sh range origin/main..refs/leakgate/pr-<N>
 ```
 
 It exits 0 when clean, 1 when it finds a leak, and 2 on a usage, list or gitleaks error.
+
+**With the pre-commit framework.** A repository whose hooks run through the [pre-commit](https://pre-commit.com) framework uses an entry in its `.pre-commit-config.yaml` instead of the hand-written hook, because `pre-commit install` owns the same `.git/hooks/pre-commit` file. Use one form per hook. `pre-commit install` renames a hand-written hook to `pre-commit.legacy` and still runs it, so the gate would run twice; `pre-commit install -f` replaces it instead. The entry runs the same wrapper with the gitleaks installed in [Adopting the Gate](#adopting-the-gate), so CI, the hooks and a maintainer's own runs share one pinned binary. The framework reads each branch's own `.pre-commit-config.yaml`, so a branch that predates the entry does not run it and needs no guard. A branch with no `.pre-commit-config.yaml` at all is the framework's own matter (`pre-commit install --allow-missing-config`).
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: leak-gate
+        name: leak gate
+        entry: sh scripts/leak-gate.sh staged
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+```
+
+```bash
+pre-commit install --hook-type pre-commit
+```
+
+`pass_filenames: false` is there because the wrapper reads git's index itself. `always_run: true` is there because, without it, the framework skips a hook when no changed file matches, and that would skip a commit that only deletes files. The `stages` name needs pre-commit 3.2 or later. A project that sets `LEAKGATE_HONOR_ALLOW=1` (see [Adopting the Gate](#adopting-the-gate)) uses `entry: env LEAKGATE_HONOR_ALLOW=1 sh scripts/leak-gate.sh staged`. The framework shows a passing hook's output only with `--verbose`, so confirm once that the value rules run, with `pre-commit run leak-gate --verbose`: the line saying value rules were skipped must not appear on a machine that holds the list. The entry checks commits only. `pre-commit run --all-files` runs it against an empty index, so it reports no leaks having scanned nothing. CI's coverage comes from `leaks.yml`.
 
 ### What the Gate Cannot See
 

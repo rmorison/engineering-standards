@@ -613,6 +613,44 @@ esac
 gate 1 "Latin-1 author name with a value in the email" "a commit author or committer matches" "$R" range HEAD~1..HEAD
 if [ -n "$had_lc_all" ]; then LC_ALL=$saved_lc_all; else unset LC_ALL; fi
 
+# A missing gitleaks fails closed in every mode with one line that says what to
+# do, never a bare "gitleaks exited 127". The line names no path: GITLEAKS is a
+# local path, and a path can hold a home directory.
+missing="$WORK/no-such-gitleaks"
+# A path that exists but cannot run counts as missing too: dash's command -v
+# accepts any existing path, a directory or a file without the execute bit.
+mkdir -p "$WORK/no-such-gitleaks-dir"
+printf '#!/bin/sh\n' > "$WORK/no-such-gitleaks-noexec"
+chmod 644 "$WORK/no-such-gitleaks-noexec"
+# no_gitleaks <description> <repo> <mode args...>
+no_gitleaks() {
+  desc=$1 repo=$2
+  shift 2
+  rc=0
+  out=$(cd "$repo" && GITLEAKS="$missing" sh "$GATE" "$@" 2>&1) || rc=$?
+  lines=$(printf '%s\n' "$out" | wc -l | tr -d ' ')   # BSD wc pads the count
+  case "$rc:$lines:$out" in
+    *no-such-gitleaks*|*"$VALUE"*) bad "wrapper, missing gitleaks, $desc: the output names the path or the value" ;;
+    "2:1:"*"gitleaks was not found"*"sh scripts/install-gitleaks.sh"*) ok ;;
+    *)
+      bad "wrapper, missing gitleaks, $desc: exit $rc with $lines line(s), expected 2 with one line naming the install"
+      printf '%s\n' "$out" | sed 's/^/    /' >&2 ;;
+  esac
+}
+R=$(wrepo w-no-gitleaks)
+printf 'deploy to %s\n' "$VALUE" > "$R/notes.md"
+git -C "$R" add notes.md
+no_gitleaks "staged, no value list" "$R" staged
+declare_list "$R" "$LISTS/values"
+no_gitleaks "staged, value list declared" "$R" staged
+wcommit "$R" leak
+no_gitleaks "range" "$R" range HEAD~1..HEAD
+no_gitleaks "history" "$R" history
+missing="$WORK/no-such-gitleaks-noexec"
+no_gitleaks "staged, a file without the execute bit" "$R" staged
+missing="$WORK/no-such-gitleaks-dir"
+no_gitleaks "staged, a directory" "$R" staged
+
 # A value carrying a pasted no-break space would never match: refuse it.
 R=$(wrepo w-nbsp)
 printf '%s\302\240\n' "$VALUE" > "$LISTS/nbsp"

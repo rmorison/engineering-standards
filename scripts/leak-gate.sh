@@ -80,6 +80,13 @@ case "$mode" in
 esac
 [ -f "$CONFIG" ] || die "no .gitleaks.toml at the repository root"
 [ -f "$SCRIPTS/gitleaks-report.tmpl" ] || die "no gitleaks-report.tmpl beside this script"
+# Fail closed with one line that says what to do, before anything else prints.
+# It names no path: GITLEAKS is a local path, and a path can hold a home directory.
+# What command -v finds must also be an executable file: for a name with a slash,
+# dash's command -v accepts any existing path, a directory included.
+gitleaks_path=$(command -v "$GITLEAKS" 2>/dev/null) &&
+  [ -f "$gitleaks_path" ] && [ -x "$gitleaks_path" ] ||
+  die "gitleaks was not found: install the pinned version with sh scripts/install-gitleaks.sh, or set GITLEAKS to its path"
 
 # --- The value list ---------------------------------------------------------------
 
