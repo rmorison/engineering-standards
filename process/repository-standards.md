@@ -113,46 +113,28 @@ Copy these files from this repository:
 - `.gitleaks.toml`: the committed rules. It extends gitleaks' default rules with the home-directory path rule and its allowlist of non-identifying directories such as `runner` and `linuxbrew`.
 - `scripts/gitleaks-report.tmpl`: the report template. Findings print as file, line and rule, never the matched text.
 - `scripts/leak-gate.sh`: the local wrapper that adds value rules. It needs `sh`, git, gitleaks and standard POSIX utilities, and `iconv` when a value list is declared.
-- `.github/workflows/leaks.yml`, with `scripts/test-leak-gate.sh`: the CI job, and the fixtures that prove every rule fires before any scan is trusted.
+- `scripts/install-gitleaks.sh`: installs the pinned gitleaks. It is the only file that holds the gitleaks version and tarball hashes.
+- `.github/workflows/leaks.yml`, with `scripts/test-leak-gate.sh` and `scripts/test-install-gitleaks.sh`: the CI job, and the fixtures that prove every rule fires and the install fails closed before any scan is trusted.
 
-Install gitleaks in CI and on every developer machine that runs the hook. Without it on `PATH`, the wrapper reports `gitleaks exited 127` and every commit is refused. Each install pins the version and the tarball's SHA-256, and none pipes `curl` into a shell. CI uses the Install gitleaks step in `leaks.yml`, and a Python project can use the step in [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead). The CI job pins 8.24.2.
+Install gitleaks in CI and on every developer machine that runs the hook. Without it on `PATH`, the wrapper reports `gitleaks exited 127` and every commit is refused. `scripts/install-gitleaks.sh` installs it. CI's Install gitleaks step in `leaks.yml` runs it, as does the step in [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead).
 
-On an x86_64 Linux developer machine, this installs gitleaks into `~/.local/bin`. It pins no hash for other architectures. Every step is chained with `&&`, so a hash mismatch stops it in an interactive shell too. The download happens in a temporary directory, not the working tree, and the subshell keeps its variables out of your shell:
-
-```bash
-( V=8.24.2 SHA=fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e
-  F=gitleaks_${V}_linux_x64.tar.gz
-  d=$(mktemp -d) && cd "$d" && curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v$V/$F" &&
-  echo "$SHA  $F" | sha256sum -c - && tar xzf "$F" gitleaks &&
-  mkdir -p ~/.local/bin && install -m 755 gitleaks ~/.local/bin/gitleaks &&
-  { [ "$(command -v gitleaks)" = "$HOME/.local/bin/gitleaks" ] ||
-    echo "gitleaks is installed in ~/.local/bin, which is not first on PATH: add it to PATH, or set GITLEAKS to its path"; } )
-```
-
-A `~/.local/bin` created by this command reaches `PATH` only in a new login shell, and only where the shell profile adds it, as Debian's and Ubuntu's default profile does. The last line says when the `gitleaks` on `PATH` is not the one just installed.
-
-On macOS the command differs in the tarball, its hash, and `shasum -a 256 -c` in place of `sha256sum -c`. It picks the Apple silicon (`arm64`) or Intel (`x64`) tarball from `uname -m`, and carries no comments, because zsh, the default macOS shell, reads `#` as a command when pasted. macOS does not add `~/.local/bin` to `PATH`, so add it in the shell profile.
+On a developer machine, or from a `make dev` target, run it from the repository root. It installs into `~/.local/bin`, or into the directory given as its argument:
 
 ```bash
-( V=8.24.2
-  case $(uname -m) in
-    arm64) F=gitleaks_${V}_darwin_arm64.tar.gz SHA=90d13686937ac7429b97a3acbf1e1d0ce90d92ae2d0cf46a690bd8ae5230bea0 ;;
-    *) F=gitleaks_${V}_darwin_x64.tar.gz SHA=bc3c46f8039ba716ba8461fa6745c9d1cfb90ca2f5f881d8d0cf66b7ba7b742c ;;
-  esac
-  d=$(mktemp -d) && cd "$d" && curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v$V/$F" &&
-  echo "$SHA  $F" | shasum -a 256 -c - && tar xzf "$F" gitleaks &&
-  mkdir -p ~/.local/bin && install -m 755 gitleaks ~/.local/bin/gitleaks &&
-  { [ "$(command -v gitleaks)" = "$HOME/.local/bin/gitleaks" ] ||
-    echo "gitleaks is installed in ~/.local/bin, which is not first on PATH: add it to PATH, or set GITLEAKS to its path"; } )
+sh scripts/install-gitleaks.sh
 ```
 
-The Linux command was run on 2026-09-28, including against a tarball with one changed byte, which it refused before installing. The macOS variant was not run on macOS. Its two hashes were computed from the downloaded tarballs and match the release's checksums file.
+It picks the Linux or macOS tarball for x86_64 or arm64 from `uname` and checks it against the pinned SHA-256. On a mismatch, a failed download or any other platform it exits non-zero and installs nothing. It never pipes `curl` into a shell, downloads into a temporary directory rather than the working tree, and never prompts, so `make dev` and CI can run it unattended. It prints the installed path. When the `gitleaks` on `PATH` is a different one, it says so: add the directory to `PATH`, or set `GITLEAKS` to the printed path. A `~/.local/bin` the script creates reaches `PATH` only in a new login shell, and only where the shell profile adds it, as Debian's and Ubuntu's default profile does. macOS does not add it, so add it in the shell profile.
 
-To upgrade, change the version and every hash together: here, in `.github/workflows/leaks.yml`, and in the Python standard's CI step. Take each new hash from the downloaded tarball and compare it with the release's `gitleaks_<V>_checksums.txt` before writing it in. That file comes from the same release, so the release is trusted once, at the upgrade, and the pinned hash catches any later replacement of the tarball.
+The pin block at the top of the script, `GITLEAKS_VERSION=` followed by one `SHA256_<os>_<arch>=` line per tarball, is a stable format, and so is the output of `sh scripts/install-gitleaks.sh --pins`. An upgrade changes the values, never the names or the form, so an adopting project can copy the script whole each time.
+
+The script was run on x86_64 Linux on 2026-10-04 and installed gitleaks 8.24.2. `scripts/test-install-gitleaks.sh` proves, without the network, that it refuses a tampered tarball whether it checks with `sha256sum` or with `shasum -a 256` as on macOS, a failed download, a machine with neither tool, an unknown platform, a missing `HOME`, and a directory where the binary goes. It also proves that each platform requests its own tarball and checks it against its own hash, that a matching tarball installs only `gitleaks` and replaces one already there, and that an interrupted install leaves nothing behind; CI runs it. The script was not run on arm64 Linux or on macOS. Those three hashes were computed from the downloaded tarballs and match the release's checksums file.
+
+To upgrade, change the version and every hash in the script's pin block together. Take each new hash from the downloaded tarball and compare it with the release's `gitleaks_<V>_checksums.txt` before writing it in. That file comes from the same release, so the release is trusted once, at the upgrade, and the pinned hash catches any later replacement of the tarball. Then install the new version and run `sh scripts/test-leak-gate.sh` to prove the rules still fire on it. Nothing else in this repository holds the version or a hash. `node scripts/check-docs.mjs` fails if a hash, a versioned tarball name, a gitleaks release download, a `go install` of gitleaks at a version, or a `rev` on a gitleaks pre-commit hook appears anywhere else. An adopting project re-copies `scripts/install-gitleaks.sh` from this repository, and `scripts/test-install-gitleaks.sh` when it has changed too, then runs the install again. That copy is the only one it keeps.
 
 The job scans every commit the change adds, merge commits included (with git's `-m`, since a plain `git log` shows no changes for a merge), and with git's `--text`, so a `.gitattributes` entry cannot hide a text file's changes as binary. A leak added in one commit and removed in the next still fails. It then scans the whole tree, so existing content is checked against a newly added rule. Every gitleaks call runs without `-v` and prints only through the template. With `-v`, gitleaks prints the line around each match, which can hold a second secret, and prints file paths, which can hold a private value; `--redact` masks only the match itself (gitleaks 8.24.2, run 2026-09-27). Every call also passes `--ignore-gitleaks-allow`, so an inline allow comment suppresses nothing. A Python project whose standard permits reviewed allow comments under `tests/` ([Secret Detection](../code/python-standards.md#secret-detection)) drops that flag from `leaks.yml`, sets `LEAKGATE_HONOR_ALLOW=1` for `scripts/leak-gate.sh` so local runs agree with CI, and keeps the `make security` pragma check, which confines the comments to `tests/`. The opt-in applies to the committed rules only; value rules ignore allow comments always. None of the copied files contains the literal marker, so copying them does not trip that pragma check.
 
-A pull request can weaken its own CI run by editing `.gitleaks.toml`, adding an entry to `.gitleaksignore`, marking files with `.gitattributes`, or editing the workflow. An agent that turns a red check green this way does it by mistake as easily as on purpose. Give those four files required review, for example through `CODEOWNERS`. That review needs more than one maintainer identity. A pull request's author cannot approve it, so in a one-person repository the required review never happens: the change either merges unreviewed through an admin's bypass, which branch protection allows by default, or stays blocked.
+A pull request can weaken its own CI run by editing `.gitleaks.toml`, adding an entry to `.gitleaksignore`, marking files with `.gitattributes`, editing `scripts/install-gitleaks.sh`, which chooses the gitleaks binary the job runs, or editing the workflow. An agent that turns a red check green this way does it by mistake as easily as on purpose. Give those five files required review, for example through `CODEOWNERS`. That review needs more than one maintainer identity. A pull request's author cannot approve it, so in a one-person repository the required review never happens: the change either merges unreviewed through an admin's bypass, which branch protection allows by default, or stays blocked.
 
 ### Private Values
 

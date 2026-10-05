@@ -18,20 +18,13 @@ on:
 # NEVER move this workflow to pull_request_target, give it secrets, or grant it a
 # write token: it runs scripts the pull request can edit, which is safe only
 # because a pull_request run has nothing worth taking. A pull request can also
-# weaken its own run by editing this file, .gitleaks.toml, .gitleaksignore or
-# .gitattributes, so those four get required review.
+# weaken its own run by editing this file, .gitleaks.toml, .gitleaksignore,
+# .gitattributes or scripts/install-gitleaks.sh, so those five get required
+# review.
 permissions:
   contents: read
 
 env:
-  # The version code/python-standards.md pins, and the SHA-256 of its
-  # linux_x64 tarball. Upgrade the version, the hash, and the literals in
-  # code/python-standards.md and process/repository-standards.md together. Take
-  # the new hash from the downloaded tarball and compare it with the release's
-  # checksums file before pinning it. Let scripts/test-leak-gate.sh prove the
-  # rules still fire on the new version.
-  GITLEAKS_VERSION: '8.24.2'
-  GITLEAKS_SHA256: 'fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e'
   # Every scan's flags, in one place so no step can drift from them. No -v: it
   # prints the line around each match, and this log is public. Findings print
   # only through the template. An inline allow comment suppresses nothing.
@@ -48,20 +41,20 @@ jobs:
           # The commit-range scan reads every commit the change adds.
           fetch-depth: 0
 
-      # Pinned, and verified against the SHA-256 above, as in
-      # code/python-standards.md, never piped from curl into a shell. The hash
-      # is not taken from the release's checksums file: a replaced release asset
-      # would ship with a checksums file that matches it. sha256sum is the last
-      # command of its pipeline, so a mismatch fails the step under bash -e.
+      # The version and SHA-256 are pinned in scripts/install-gitleaks.sh and
+      # nowhere else; process/repository-standards.md (Adopting the Gate) says
+      # how to upgrade them. The script installs nothing unless the tarball
+      # matches the pinned hash. The scans are later steps, so they find the
+      # binary through GITHUB_PATH.
       - name: Install gitleaks
         run: |
-          F="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          U="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
-          cd "$RUNNER_TEMP"
-          curl -sSfLO "$U/$F"
-          echo "$GITLEAKS_SHA256  $F" | sha256sum -c -
-          tar xzf "$F" gitleaks
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          sh scripts/install-gitleaks.sh "$RUNNER_TEMP/gitleaks-bin"
+          echo "$RUNNER_TEMP/gitleaks-bin" >> "$GITHUB_PATH"
+
+      # The install script refuses a tampered tarball, a failed download and an
+      # unknown platform, and requests the right tarball for each platform.
+      - name: Prove the install script fails closed
+        run: sh scripts/test-install-gitleaks.sh
 
       # Before any real scan is trusted: each rule fails on a planted leak and
       # passes its allowlisted cases, and nothing planted reaches this log. The

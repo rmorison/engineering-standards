@@ -7,36 +7,35 @@ on:
   pull_request:
     paths:
       - '**/*.md'
-      - 'scripts/check-docs.mjs'
-      - 'scripts/package.json'
-      - 'scripts/package-lock.json'
+      # Every script and workflow, not only the checks' own files: check 7 in
+      # check-docs.mjs reads every tracked file for a restated gitleaks pin,
+      # and the likeliest place for one is a script or a workflow.
+      - 'scripts/**'
+      - '.github/workflows/**'
       - 'templates/.claude/**'
       # check-template-kit.mjs walks EVERY .claude/settings.json in the tree,
       # this repository's own included. Filtering on templates/ alone meant a
       # break in .claude/settings.json ran neither job.
       - '.claude/**'
-      - 'scripts/check-template-kit.mjs'
-      - 'scripts/check_secret_refs.py'
-      - '.github/workflows/docs.yml'
   push:
     branches: [main]
     paths:
       - '**/*.md'
-      - 'scripts/check-docs.mjs'
-      - 'scripts/package.json'
-      - 'scripts/package-lock.json'
+      # Every script and workflow, not only the checks' own files: check 7 in
+      # check-docs.mjs reads every tracked file for a restated gitleaks pin,
+      # and the likeliest place for one is a script or a workflow.
+      - 'scripts/**'
+      - '.github/workflows/**'
       - 'templates/.claude/**'
       # check-template-kit.mjs walks EVERY .claude/settings.json in the tree,
       # this repository's own included. Filtering on templates/ alone meant a
       # break in .claude/settings.json ran neither job.
       - '.claude/**'
-      - 'scripts/check-template-kit.mjs'
-      - 'scripts/check_secret_refs.py'
-      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 # Least privilege, stated rather than inherited. Both jobs run code out of the
-# checkout -- check-docs installs from a PR-authored package-lock.json, and
+# checkout -- check-docs installs from a PR-authored package-lock.json and
+# runs `sh scripts/install-gitleaks.sh --pins` (check 7), and
 # check-template-kit runs the kit's own hook commands (check 9) -- so neither
 # job may ever be given something worth stealing. A fork's pull_request run is
 # already read-only and secret-free; this makes that unconditional for same-repo

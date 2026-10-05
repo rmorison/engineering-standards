@@ -11,6 +11,8 @@
  *   3. No list item opens a blockquote by accident.
  *   4. No run of marker-prefixed lines collapses into one paragraph.
  *   5. Every code fence is closed.
+ *   7. The gitleaks version and hashes are written only in
+ *      scripts/install-gitleaks.sh. (6 was retired in #31; see below.)
  *
  * Checks 2 through 4 skip fenced code blocks, and check 2 also ignores inline
  * code spans: an example of a defect is not a defect, which is what lets the
@@ -25,6 +27,7 @@
  * Exits non-zero if any check fails.
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join, dirname, resolve, relative } from 'node:path';
@@ -394,12 +397,102 @@ function checkFencesClosed(files) {
   }
 }
 
+/**
+ * Check 7 — the gitleaks pins live in one place.
+ *
+ * `scripts/install-gitleaks.sh` is the only file that writes the gitleaks
+ * version and the SHA-256 of each release tarball (#70). A second copy, in a
+ * workflow, a standard's install text or another script, drifts the first time
+ * an upgrade misses it. So no tracked file outside the script and the history
+ * directories may hold a 64-hex-digit literal or a gitleaks tarball name with a
+ * version in it. No other 64-hex literal exists outside those directories, so
+ * the rule needs no allowlist; a future unrelated one gets a named exemption
+ * here.
+ *
+ * Three install forms pin a version with no hash at all, and they fail too: a
+ * gitleaks release download URL, a `go install` of the gitleaks module at a
+ * version, and a rev on or within three lines after a pre-commit repo line
+ * naming the gitleaks repository. A version in prose is not read: what is left
+ * of it is dated evidence of what was run. (This comment avoids the literal
+ * forms, because this file is checked too.)
+ *
+ * Unlike checks 1 to 5, this reads every tracked file, not only Markdown, and
+ * .github/workflows/docs.yml runs it when a script or workflow changes. A stale
+ * copy of an old hash fails as well as a copy of a current one.
+ *
+ * The pins are read by running the script with --pins, so the check sees what
+ * sh sees. A literal equal to a current pin is named by its platform. Any other
+ * is reported without being printed: it could be a secret, and this log is
+ * public.
+ */
+const PIN_SCRIPT = 'scripts/install-gitleaks.sh';
+const PIN_HISTORY = ['docs/plans/', 'docs/solutions/', 'agent-transcripts/', 'archive/'];
+
+function checkGitleaksPins() {
+  const script = join(REPO_ROOT, PIN_SCRIPT);
+  let pins;
+  try {
+    pins = execFileSync('sh', [script, '--pins'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    fail(script, 1, 'gitleaks-pin', '`sh install-gitleaks.sh --pins` failed, so the pins cannot be read');
+    return;
+  }
+  const platformOf = new Map();
+  for (const line of pins.split('\n')) {
+    const m = /^((?:linux|darwin)_(?:x64|arm64)) ([0-9a-f]{64})$/.exec(line);
+    if (m) platformOf.set(m[2], m[1]);
+  }
+  if (platformOf.size !== 4 || !/^version \d+\.\d+\.\d+$/m.test(pins)) {
+    fail(script, 1, 'gitleaks-pin', '`--pins` did not print a version and four distinct platform hashes');
+    return;
+  }
+
+  const HEX = /(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])/g;
+  const TARBALL = /gitleaks_\d+\.\d+\.\d+_/;
+  const DOWNLOAD = /gitleaks\/gitleaks\/releases\/download\//;
+  const GO_INSTALL = /\/gitleaks\/v\d+@/;
+  const HOOK_REPO = /repo:\s*\S*gitleaks\/gitleaks\b/;
+  const REV = /\brev:/;
+  const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: REPO_ROOT, encoding: 'utf8' })
+    .split('\0').filter(Boolean);
+  for (const path of tracked) {
+    if (path === PIN_SCRIPT || PIN_HISTORY.some(dir => path.startsWith(dir))) continue;
+    const file = join(REPO_ROOT, path);
+    let text;
+    try { text = readFileSync(file, 'utf8'); } catch { continue; } // deleted in the working tree
+    if (text.includes('\0')) continue; // binary
+    const lines = text.split('\n');
+    lines.forEach((line, i) => {
+      for (const [hex] of line.matchAll(HEX)) {
+        const platform = platformOf.get(hex.toLowerCase());
+        fail(file, i + 1, 'gitleaks-pin', platform
+          ? `restates the ${platform} gitleaks hash, which belongs only in ${PIN_SCRIPT}`
+          : `holds a 64-hex-digit literal (not printed) that is no current gitleaks pin: a stale ` +
+            `gitleaks hash belongs only in ${PIN_SCRIPT}, and an unrelated one needs an exemption in check 7`);
+      }
+      if (TARBALL.test(line)) {
+        fail(file, i + 1, 'gitleaks-pin',
+          `names a gitleaks tarball with a version in it; the version belongs only in ${PIN_SCRIPT}`);
+      }
+      if (DOWNLOAD.test(line) || GO_INSTALL.test(line)) {
+        fail(file, i + 1, 'gitleaks-pin',
+          `installs gitleaks at a version without the pinned hash; install it with ${PIN_SCRIPT}`);
+      }
+      if (HOOK_REPO.test(line) && lines.slice(i, i + 4).some(l => REV.test(l))) {
+        fail(file, i + 1, 'gitleaks-pin',
+          `pins a gitleaks pre-commit hook by rev; the leak gate's repo: local entry runs the binary ${PIN_SCRIPT} installs`);
+      }
+    });
+  }
+}
+
 const files = await markdownFiles();
 const diagrams = await checkMermaid(files);
 const links = checkLinks(files);
 checkAccidentalBlockquotes(files);
 checkUnmarkedLists(files);
 checkFencesClosed(files);
+checkGitleaksPins();
 
 if (VERBOSE || failures.length === 0) {
   console.log(

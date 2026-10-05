@@ -802,44 +802,36 @@ make security
 
 #### Using gitleaks Instead
 
-gitleaks meets the same requirement with a different allowlist and no baseline file. Only these parts change:
+gitleaks meets the same requirement with a different allowlist and no baseline file. It runs as the [leak gate](../process/repository-standards.md#leak-gate), so copy the gate's files as [Adopting the Gate](../process/repository-standards.md#adopting-the-gate) lists them. Only these parts change:
 
 | Part | detect-secrets (default) | gitleaks |
 |------|--------------------------|----------|
-| Install | dev dependency, pinned in `uv.lock` | the hook's `rev`, which pre-commit builds from source. The CI step reads its version from that `rev` and pins the tarball's SHA-256 in the step, so after `make update-hooks` moves the `rev`, update the hash by hand |
-| Pre-commit hook | local hook, `entry: uv run detect-secrets-hook` | `repo: https://github.com/gitleaks/gitleaks`, `rev: v8.24.2`, `id: gitleaks` |
+| Install | dev dependency, pinned in `uv.lock` | `sh scripts/install-gitleaks.sh`, copied with the gate's files. It is the only place the version and each tarball's SHA-256 are written. Run it from `make dev` on developer machines; the CI step below runs it too |
+| Pre-commit hook | local hook, `entry: uv run detect-secrets-hook` | the gate's `repo: local` entry, with `language: system`, `pass_filenames: false`, `always_run: true`, `stages: [pre-commit]` and `entry: env LEAKGATE_HONOR_ALLOW=1 sh scripts/leak-gate.sh staged`, as [Running It Locally](../process/repository-standards.md#running-it-locally) describes. `LEAKGATE_HONOR_ALLOW=1` honours the reviewed `gitleaks:allow` comments this section permits under `tests/` |
 | CI scan | `make security` | the step below: `gitleaks dir .` from a binary checked against a pinned SHA-256, as the first step after checkout |
 | `make security` | as written | delete the `detect-secrets-hook` line and the baseline audit check; keep the pragma check and `pip-audit`. The tree scan stays a separate CI step, because run locally `gitleaks dir` also scans `.venv/` |
 | Allowlist | `.secrets.baseline`, audited | `.gitleaksignore`, one finding fingerprint per line, added and reviewed by a person |
 
 - Remove detect-secrets from the dev dependencies and delete `.secrets.baseline`. CI keeps its `make security` step, so `pip-audit` still runs.
-- The hook scans staged changes only. `pre-commit run gitleaks --all-files` passes on a tree with a committed secret, so it cannot stand in for the CI scan.
+- The hook scans staged changes only, so `pre-commit run --all-files` cannot stand in for the CI scan.
 - `gitleaks dir` does not read `.gitignore`. Run it straight after `actions/checkout` and before `uv sync`, or it scans `.venv/` and any other untracked files as well.
 - A fingerprint for `gitleaks dir` has the form `path:rule-id:line`, so it stops matching when the line moves.
 - A `gitleaks:allow` comment follows the pragma rule above: under `tests/` only, never a `*.env` file. The `make security` pragma check enforces it.
 - `gitleaks/gitleaks-action` needs a `GITLEAKS_LICENSE` secret for repositories owned by an organization; the binary does not.
-- The CI step checks the tarball against a SHA-256 written in the step, not against the release's `gitleaks_<V>_checksums.txt`. A replaced release asset would ship with a checksums file that matches it. When the hook's `rev` moves, the step fails on the old hash until you update it: take the new hash from the downloaded tarball, compare it with the release's checksums file, and write it in. `sha256sum -c` is the last command of its pipeline, so a mismatch fails the step under the runner's `bash -e`.
+- The CI step checks the tarball against the SHA-256 pinned in `scripts/install-gitleaks.sh`, not against the release's `gitleaks_<V>_checksums.txt`. A replaced release asset would ship with a checksums file that matches it. The script installs nothing on a mismatch and exits non-zero, which fails the step. [Adopting the Gate](../process/repository-standards.md#adopting-the-gate) says how to upgrade the pins.
 
 CI step:
 
 ```yaml
       - name: Secret scan
         run: |
-          V=$(sed -n '/gitleaks\/gitleaks/{n;s/.*rev: v//p;}' .pre-commit-config.yaml)
-          F="gitleaks_${V}_linux_x64.tar.gz"
-          # SHA-256 of gitleaks_8.24.2_linux_x64.tar.gz. Update it when the rev moves.
-          SHA=fa0500f6b7e41d28791ebc680f5dd9899cd42b58629218a5f041efa899151a8e
-          cd "$RUNNER_TEMP"
-          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${V}/${F}"
-          echo "$SHA  $F" | sha256sum -c -
-          tar xzf "$F" gitleaks
-          cd "$GITHUB_WORKSPACE"
-          "$RUNNER_TEMP/gitleaks" dir . --redact
+          sh scripts/install-gitleaks.sh "$RUNNER_TEMP/gitleaks-bin"
+          "$RUNNER_TEMP/gitleaks-bin/gitleaks" dir . --redact
 ```
 
 `--redact` keeps a finding's value out of the log if someone later adds `-v` to see which file failed, but `-v` still prints the line around each match, which can hold a second secret. To see findings in a public CI log, print them through a report template as the [leak gate](../process/repository-standards.md#adopting-the-gate) does. That gate adds the home-directory and private-value rules to these credential rules.
 
-gitleaks 8.24.2 was run on 2026-09-25 for these claims: the hook, the committed-secret gap, `gitleaks dir` failing on a committed secret and scanning a gitignored `.venv/`, the release URL, and a `.gitleaksignore` fingerprint clearing a finding. The CI step above was run under `bash -e` on 2026-09-27: it read `8.24.2` from the hook's `rev` and installed from a tarball matching the pinned hash, failed at `sha256sum` on a tarball with one changed byte and on a `rev` moved to 8.24.0 with the hash left alone, and exited 1 on a planted token. The `GITLEAKS_LICENSE` requirement comes from the gitleaks README (fetched 2026-09-24) and was not run.
+gitleaks 8.24.2 was run on 2026-09-25 for these claims: `gitleaks dir` failing on a committed secret and scanning a gitignored `.venv/`, and a `.gitleaksignore` fingerprint clearing a finding. The CI step above was run under `bash -e` on 2026-10-04, in a scratch directory holding a copy of the script, with `RUNNER_TEMP` set and no other gitleaks on `PATH`: it installed gitleaks 8.24.2 and exited 1 on a planted token. The step calls the binary by its path because a `GITHUB_PATH` entry reaches only later steps. The `GITLEAKS_LICENSE` requirement comes from the gitleaks README (fetched 2026-09-24) and was not run.
 
 ### Dependency Vulnerability Scanning
 
