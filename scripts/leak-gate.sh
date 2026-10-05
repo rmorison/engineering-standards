@@ -42,11 +42,11 @@
 #
 # pre-push scans every commit the push would give the remote: the pushed commits,
 # less each ref's old remote commit and, for a configured remote with no separate
-# push URL, less its remote-tracking refs. Without that exclusion it scans all the
-# pushed commits reach, as history would. A deletion sends nothing. The pre-commit
-# framework passes its hooks only the first ref of a push that has commits to
-# scan (pre-commit 4.6.2, commands/hook_impl.py, _pre_push_ns), so in that form
-# the later refs of a multi-ref push are not scanned.
+# push URL and no remote nested under its name, less its remote-tracking refs.
+# Without that exclusion it scans all the pushed commits reach, as history would.
+# A deletion sends nothing. The pre-commit framework passes its hooks only one
+# ref of a push (pre-commit 4.6.2, commands/hook_impl.py, _pre_push_ns), so in
+# that form the other refs of a multi-ref push are not scanned.
 #
 # Run a pre-merge check from the default branch's own checkout, never from the
 # pull request's: the pull request can edit this script, .gitleaks.toml and
@@ -110,13 +110,16 @@ commit_of() { git rev-parse --verify --quiet "$1^{commit}"; }
 
 if [ "$mode" = pre-push ]; then
   Z40=0000000000000000000000000000000000000000
-  include= exclude= remote=
+  include= exclude= remote= lines=0
   if [ $# -eq 3 ]; then
     # The hand-written hook: git passes the remote and URL, and one line per ref.
+    # The || reads a last line that has no newline.
     remote=$2
-    while read -r lref lsha rref rsha; do
+    while read -r lref lsha rref rsha || [ -n "${lref:-}" ]; do
+      lines=$((lines + 1))
       [ -n "$lsha" ] && [ "$lsha" != "$Z40" ] || continue   # a deletion
-      c=$(commit_of "$lsha") || die "pre-push: a pushed ref does not name a commit: $lref"
+      # Fixed text: a ref name can hold a private value, and it is not scanned here.
+      c=$(commit_of "$lsha") || die "pre-push: a pushed ref names a tree or blob, not a commit"
       include="$include $c"
       if [ "$rsha" != "$Z40" ] && c=$(commit_of "$rsha"); then
         exclude="$exclude ^$c"
@@ -143,17 +146,26 @@ if [ "$mode" = pre-push ]; then
     # and passing would mean passing with nothing scanned.
     usage
   fi
+  if [ -z "$include" ] && [ $# -eq 3 ] && [ "$lines" -eq 0 ]; then
+    # git sends no lines when everything is up to date. A hook manager that does
+    # not pass standard input through looks the same, so say which this is.
+    echo "leak-gate: note: no ref lines were read on standard input, so there is nothing to scan." \
+      "git sends none when everything is up to date; a hook run through another tool must pass standard input through."
+    exit 0
+  fi
   if [ -z "$include" ]; then
     echo "leak-gate: note: this push sends no commits, so there is nothing to scan."
     exit 0
   fi
   # A remote's tracking refs describe what it already has only when it is a
   # configured remote that pushes where it fetches from. The name must also be
-  # safe as a --remotes pattern.
+  # safe as a --remotes pattern, and --remotes=<name> must not also match the
+  # tracking refs of a remote named <name>/..., whose commits may be private.
   case "$remote" in
     ''|*[!A-Za-z0-9._/-]*) ;;
     *)
       if git remote | grep -qxF -e "$remote" &&
+         ! git remote | awk -v p="$remote/" 'index($0, p) == 1 { f = 1 } END { exit !f }' &&
          ! git config --get "remote.$remote.pushurl" >/dev/null; then
         # --not last: a ^<sha> after it would be read as an include.
         exclude="$exclude --not --remotes=$remote"

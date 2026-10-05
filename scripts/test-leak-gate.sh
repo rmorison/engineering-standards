@@ -775,6 +775,47 @@ push_lines="refs/heads/fresh $(sha "$R" HEAD) refs/heads/fresh $Z
 gate 1 "pre-push, new branch to a remote with a push URL" "[private-value-3]" "$R" pre-push origin "$WORK/p-url-elsewhere.git"
 git -C "$R" config --unset remote.origin.pushurl
 
+# --remotes=<name> also matches the tracking refs of a remote named <name>/...,
+# so a commit only on that remote must not be hidden when pushing to <name>.
+R=$(prepo p-nested)
+git init -q --bare "$WORK/p-nested-private.git"
+git -C "$R" remote add origin/private "$WORK/p-nested-private.git"
+git -C "$R" checkout -q -b secret
+leak_file "$R" secret.md
+git -C "$R" push -q origin/private secret
+git -C "$R" fetch -q origin/private
+git -C "$R" checkout -q -b public-branch
+clean_file "$R" public.md
+push_lines="refs/heads/public-branch $(sha "$R" HEAD) refs/heads/public-branch $Z
+"
+gate 1 "pre-push, a value only on a remote nested under the target's name" "[private-value-3]" "$R" pre-push origin "$WORK/p-nested.git"
+
+# An annotated tag is peeled to its commit.
+R=$(prepo p-tag)
+leak_file "$R" tagged.md
+git -C "$R" -c user.name=fixture -c user.email=fixture@example.invalid tag -a -m release v1
+push_lines="refs/tags/v1 $(sha "$R" v1) refs/tags/v1 $Z
+"
+gate 1 "pre-push, annotated tag on a new commit" "[private-value-3]" "$R" pre-push origin "$WORK/p-tag.git"
+
+# A force push that rewinds a branch sends no commits.
+R=$(prepo p-rewind)
+clean_file "$R" ahead.md
+git -C "$R" push -q origin main
+old=$(sha "$R" HEAD)
+push_lines="refs/heads/main $(sha "$R" HEAD~1) refs/heads/main $old
+"
+gate 0 "pre-push, rewinding force push" "nothing to scan" "$R" pre-push origin "$WORK/p-rewind.git"
+
+# git runs the hook with no ref lines when everything is up to date. That passes,
+# but says so apart from a push of deletions, since a hook manager that does not
+# pass standard input through looks the same.
+gate 0 "pre-push, no ref lines on standard input" "no ref lines" "$R" pre-push origin "$WORK/p-rewind.git"
+# A last line without a newline is still read.
+leak_file "$R" unterminated.md
+push_lines="refs/heads/main $(sha "$R" HEAD) refs/heads/main $old"
+gate 1 "pre-push, last ref line without a newline" "[private-value-3]" "$R" pre-push origin "$WORK/p-rewind.git"
+
 # The pre-commit framework's pre-push stage: variables, not standard input.
 R=$(prepo p-framework)
 old=$(sha "$R" HEAD)
