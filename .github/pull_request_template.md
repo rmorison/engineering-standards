@@ -16,7 +16,11 @@
 
 ## Related
 
-- Closes: #
+<!-- Keep one line. "Closes #<n>" closes the issue when this PR merges into the default branch; "Part of #<n>" leaves it open.
+     GitHub acts on a closing keyword (close, fix, resolve and their forms) followed by an issue number ANYWHERE in this body, even quoted.
+     Check before merge: gh pr view <pr> --json closingIssuesReferences -->
+- Closes #<n>
+- Part of #<n>
 
 <!-- For a bug fix, also give Problem, Root cause and Fix: see process/technical-work-workflow.md -->
 
