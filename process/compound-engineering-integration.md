@@ -161,7 +161,7 @@ When the merge decision belongs to someone other than the author, as with an [op
 
 **The Done-gate record.** One bullet per gate that applies, each stated on the head:
 
-- **At a glance:** the description's [At a glance](./git-branching-strategy.md#at-a-glance) is current on the head, within the word limits.
+- **At a glance:** the description's [At a glance](./git-branching-strategy.md#at-a-glance) is current on the head, within the word limits (Spec drift may be exactly "None.").
 - **CI:** the conclusions of every check on the head, not only that the checks ran.
 - **Review:** each round, with a one-line summary, and where its answers are recorded: the PR body's disposition record or an answer comment. The per-finding detail lives there, not here, so the two records cannot disagree.
 - **Acceptance:** where the pull request closes an issue, each of its criteria, MET or not, with the evidence. Otherwise the plan's criteria, or omit.
@@ -177,7 +177,7 @@ When the merge decision belongs to someone other than the author, as with an [op
 ```markdown
 **Ready for <who merges> to merge (Done gate, head <sha>).**
 
-- **At a glance:** <current on <sha>; Problem <n>, Spec drift <n>, Solution <n> words>
+- **At a glance:** <current on <sha>; Problem <n>, Spec drift <n, or None.>, Solution <n> words>
 - **CI:** <every check's conclusion on <sha>>
 - **Review:** <each round in one line, and where its answers are recorded>
 - **Acceptance (#<n>):** <each criterion: MET or not, with the evidence, or omit>

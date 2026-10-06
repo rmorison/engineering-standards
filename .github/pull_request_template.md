@@ -6,7 +6,7 @@
 
 **Problem.** <!-- What was wrong or missing, and why it matters to that reader. 125 words or fewer. No drift here. -->
 
-**Spec drift.** <!-- What was added, cut or changed after the issue was filed, why, and who decided. 50 to 100 words, or exactly: None. -->
+**Spec drift.** <!-- What was added, cut or changed after the issue was filed (with no issue, after the plan was written), why, and who decided. 50 to 100 words, or exactly: None. -->
 
 **Solution.** <!-- How this pull request solves it: what it does and where it steps in, in plain language. 125 words or fewer. -->
 
