@@ -298,6 +298,8 @@ Then add this entry to `~/.claude/settings.json`, merged with any `hooks` alread
 
 Claude Code blocks a call only when a hook exits 2, so `|| exit 2` makes a broken install deny every Bash command rather than allow them. If that happens, fix `python3` or the copied script, or remove the entry. Copy the script again whenever it changes on the default branch.
 
+To also keep agent sessions from merging or changing repository settings, install the policy hook beside this one: see [Guarding Repository Authority](#guarding-repository-authority).
+
 The copy command and the settings command were run on 2026-10-04 under bash 5.1 on Linux with Python 3.10, against a scratch home directory. The installed hook denied a listed value and `git commit -n` and allowed clean text. With `python3` missing, the script missing, a planted import failure or a planted syntax error, it denied every command. They were not run under zsh or on macOS.
 
 **What it does not see:**
