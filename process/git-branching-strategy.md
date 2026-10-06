@@ -75,7 +75,12 @@ gitGraph
 3. Develop and commit iteratively
 4. Open pull request when ready (auto-links to issue)
 5. Merge to `main` when approved and CI passes
-6. On merge, GitHub closes the issue only if the pull request targets the default branch and either a closing keyword for the issue (`Closes #<n>`) is in the PR body or a commit message, or the issue is linked in the PR's Development sidebar. A pull request that is only part of an issue says `Part of #<n>` and carries no closing keyword before the issue number anywhere, quoted text included. Check what GitHub will close with `gh pr view <pr> --json closingIssuesReferences`; see [A closing keyword anywhere in a pull request body closes the issue](../docs/solutions/best-practices/a-closing-keyword-anywhere-in-a-pr-body-closes-the-issue.md). GitHub deletes the branch only if the repository's "Automatically delete head branches" setting is on ([Branch Protection Configuration](#branch-protection-configuration))
+6. GitHub closes the issue only through one of these routes, and none is automatic:
+   - **PR body**: a closing keyword for the issue (`Closes #<n>`) in the body of a pull request that targets the default branch, acting when it merges. A pull request that is only part of an issue says `Part of #<n>` and carries no closing keyword before the issue number anywhere, quoted text included.
+   - **Development sidebar**: the issue linked to a pull request into the default branch, acting when it merges.
+   - **Commit message**: a closing keyword in a commit message, acting when that commit reaches the default branch by any route, including a stacked pull request's base merging or a direct push. Under squash merge it survives only if the squash commit message keeps the commit messages (the repository's squash-message setting, or the merger's edit at merge time), and a keyword in the PR title or a body included in the squash message acts the same way.
+
+   Before merge, check the body with `gh pr view <pr> --json closingIssuesReferences --jq '[.closingIssuesReferences[].number]'` and search the branch's commit messages; see [A closing keyword anywhere in a pull request body closes the issue](../docs/solutions/best-practices/a-closing-keyword-anywhere-in-a-pr-body-closes-the-issue.md) for both checks. GitHub deletes the branch only if the repository's "Automatically delete head branches" setting is on ([Branch Protection Configuration](#branch-protection-configuration))
 
 ---
 
@@ -111,7 +116,7 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 1. Open pull request (links to issue automatically)
 2. Get review approval and passing CI
 3. **Squash and merge** (recommended) - creates clean single commit per issue
-4. The issue closes only if the pull request carries a closing keyword for it or is linked to it, and the branch is deleted only with the auto-delete setting on (see [Feature Branches](#feature-branches), Lifecycle step 6)
+4. The issue closes only if a pull request into the default branch carries a closing keyword for it or is linked to it, or a commit message on `main` does, and the branch is deleted only with the auto-delete setting on (see [Feature Branches](#feature-branches), Lifecycle step 6)
 
 **Note on squash merging**: When you squash and merge, all individual commits on the branch are combined into a single commit. This means:
 - Individual commit messages are preserved in the squashed commit body
@@ -207,7 +212,9 @@ Implementation approach (reference design doc if applicable)
 How this was tested (unit tests, manual testing, edge cases)
 
 ## Related
-- Closes #123 (or `Part of #123` when this pull request is only part of the issue)
+<!-- Keep one line: the first closes the issue on merge, the second leaves it open -->
+- Closes #123
+- Part of #123
 - Spec: docs/engineering/designs/feature-name.md (if applicable)
 ```
 
