@@ -352,6 +352,8 @@ def fixtures(sb):
         ("stdin redirect from a listed path", f"gh pr comment 1 --body-file - < {D}/clean.md"),
         ("a listed path inside $(gh ...)", f'url="$(gh pr create --title t --body-file {D}/clean.md)"'),
         ("a listed path inside bash -c", f"bash -c 'cd {D} && gh pr comment 1 --body-file clean.md'"),
+        ("a listed path after an unquoted $(...)",
+         f"gh pr create --title $(git log -1 --format=%s) --body-file {D}/clean.md"),
     ]
     for name, command in path_allowed:
         check(name, sb.hook(command), "allow")
@@ -379,6 +381,18 @@ def fixtures(sb):
          f"git -C {D} status && gh pr comment 1 --body-file clean.md"),
         ("unbalanced quote after a cd into a listed path", f'cd {D} && gh issue comment 1 --body "x'),
         ("value in a substitution that is not gh", f'gh issue comment 1 --body "$(echo {A})"'),
+        # Unquoted, the parentheses of $(...) used to split the command, so the
+        # options after it formed a command of their own and the file went unread.
+        ("body file after an unquoted $(...)",
+         "gh pr create --title $(git log -1 --format=%s) --body-file dirty.md"),
+        ("body file after an unquoted $(...) in --body",
+         "gh pr comment 1 --body $(git log -1 --format=%s) --body-file dirty.md"),
+        ("body file after an unquoted $(...) as the number",
+         "gh pr comment $(gh pr view --json number -q .number) --body-file dirty.md"),
+        ("body file after unquoted backticks",
+         "gh pr create --title `git log -1 --format=%s` --body-file dirty.md"),
+        ("body file after nested unquoted $(...)",
+         "gh pr create --title $(echo $(git log -1 --format=%s)) --body-file dirty.md"),
         # A heredoc the stripper cannot follow must not leave its body to be read
         # as commands, where "> name" puts the name in a redirect target.
         ("<<\\EOF heredoc body", f"gh pr comment 1 --body-file - <<\\EOF\nrenamed it -> {A}\nEOF"),
