@@ -62,10 +62,13 @@ jobs:
       # invented values in temporary repositories; no real value list is read.
       # The second script proves scripts/claude_leak_hook.py, the Claude Code
       # hook that applies the value list to text agent sessions post to GitHub.
+      # The third proves scripts/claude_policy_hook.py, the hook that keeps
+      # merges and settings changes out of agent sessions.
       - name: Prove the rules and the wrapper fire
         run: |
           sh scripts/test-leak-gate.sh
           python3 scripts/test_claude_leak_hook.py
+          python3 scripts/test_claude_policy_hook.py
 
       # Every commit the change adds, so a leak added in one commit and removed
       # in the next still fails. Never all of history: it holds a path removed

@@ -334,6 +334,85 @@ The copy command and the settings command were run on 2026-10-04 under bash 5.1 
 
 `scripts/check_secret_refs.py` holds the [Secrets](../code/python-standards.md#secrets) rule: every line of a committed `secret-refs.env` is a reference into a secret manager. That check allows only what it recognises in one dotenv file type and reads lines the way python-dotenv does. The leak gate is the opposite shape: it rejects what it recognises, in every file and commit. They share no logic, so they stay two checks.
 
+## Guarding Repository Authority
+
+These standards assume a human in the loop: the **operator**, who signs off on agent work, merges in the GitHub web UI and owns repository settings, rulesets and branch protection. Agent sessions build, push their own branches and open pull requests; they don't merge or change settings. Every session posts as the operator's account, though, so GitHub cannot tell a session from the operator, and a ruleset bypass that covers the operator covers every session. `scripts/claude_policy_hook.py` is a Claude Code `PreToolUse` hook that keeps the merge and the settings with the operator. Like [the agent-session leak hook](#guarding-agent-sessions), it guards against mistakes, such as an agent that "finishes the job" by merging or loosens a setting to get a check to pass. It does not stop a session that sets out to get around it.
+
+It applies to every agent session on the machine, the operator's own included. There is no role marker, so none can go missing. The operator merges and changes settings in the web UI, or in a terminal outside Claude Code, which the hook never sees.
+
+It denies these, with a message saying the operator does them and the session should say what it needs and stop:
+
+- **Merging.** `gh pr merge`, with any flags; `gh api` writes to `repos/{owner}/{repo}/pulls/{n}/merge` and `repos/{owner}/{repo}/merges`; and the GraphQL mutations `mergePullRequest`, `enablePullRequestAutoMerge` and `mergeBranch`.
+- **Settings.** `gh repo edit`, `gh repo delete`, `gh repo rename`, `gh repo archive`, `gh repo unarchive`, `gh repo deploy-key add|delete`, `gh secret set`, `gh secret delete`, `gh secret remove`, `gh variable set`, `gh variable delete`, `gh workflow enable` and `gh workflow disable`. Also `gh api` writes to `repos/{owner}/{repo}` itself and to its `transfer`, `topics`, `collaborators`, `teams`, `hooks`, `keys`, `environments`, `pages`, `actions/permissions`, `actions/secrets`, `actions/variables`, `vulnerability-alerts`, `automated-security-fixes` and `private-vulnerability-reporting` paths, and the GraphQL mutations `updateRepository`, `archiveRepository` and `unarchiveRepository`.
+- **Rulesets and branch protection.** A `gh ruleset` verb other than `list`, `view` or `check` (none writes today); `gh api` writes to `repos/{owner}/{repo}/rulesets`, `orgs/{org}/rulesets` and `repos/{owner}/{repo}/branches/{branch}/protection`; and the GraphQL mutations `createBranchProtectionRule`, `updateBranchProtectionRule`, `deleteBranchProtectionRule`, `createRepositoryRuleset`, `updateRepositoryRuleset` and `deleteRepositoryRuleset`.
+- **Moving the default branch.** A `git push` that reaches the remote's default branch by any route: a refspec naming it (`main`, `refs/heads/main`), a `<src>:<dst>` refspec whose destination is it, either with a leading `+`, `--all`, `--branches`, `--mirror`, and a bare `git push` while the current branch is the default or tracks it. Also `gh api` writes to `repos/{owner}/{repo}/git/refs`, `gh repo sync` with a remote repository, and the GraphQL mutations `updateRef` and `updateRefs`. The default branch is read from the clone's `refs/remotes/<remote>/HEAD`, or is `main` and `master` when that is not set. A push whose destination the hook cannot work out, such as a refspec in a variable, is denied.
+- **GitHub MCP tools** whose names merge a pull request, update, delete, archive or transfer a repository, or change branch protection or rulesets, and `push_files`, `create_or_update_file` and `delete_file` on `main`, `master` or no branch. No GitHub MCP server runs on the agent hosts today; this is a name rule.
+
+A `gh api` call writes when its method is not GET, or when it sends a field or `--input` without naming a method. Reads of every endpoint above are allowed, and so is everything else a worker or a lead does: pushing its own branch, `--force-with-lease` included; creating, editing, commenting on, reviewing, closing and reopening pull requests and issues; labels; `gh api` writes to comments, reactions, labels and review threads; and GraphQL mutations outside the list, such as `resolveReviewThread`. The hook adds no permission approval of its own, so an allowed command still goes through the session's normal permission prompts.
+
+**A repository that commits straight to its default branch.** A notebook or personal repository with no pull requests, such as a private repository on the free plan, which can't have rulesets, needs agents to push to its default branch. A person exempts that clone once, in a terminal outside Claude Code:
+
+```bash
+git config --local agentpolicy.allowDefaultPush true
+```
+
+The hook then allows pushes to the default branch from that clone. It still denies merges and settings writes there, and it denies any session writing `agentpolicy.allowDefaultPush`, with `git config` or `git -c`.
+
+**Roles.** Every denial goes through one decision point in the script, with a table of roles and what each is granted. The table is empty: no session is granted anything, and a missing, empty or unknown role never grants anything. If a later role, such as a principal agent that may merge, is ever granted an action, it is one row in that table, plus `CLAUDE_AGENT_ROLE` in the environment that session's Claude Code process starts with. The hook reads the role only from its own environment, never from the command. `python3 "$HOME/.claude/hooks/claude_policy_hook.py" --whoami` prints the role and what it is granted.
+
+**Installing.** It is installed beside the leak hook and needs it: it parses commands with the leak hook's parser, so **both scripts are required**, and without `claude_leak_hook.py` beside it every call is denied. It needs `python3` 3.10 or later, and git. Copy both scripts out of the default branch's checkout of this repository, never a pull request's:
+
+```bash
+mkdir -p ~/.claude/hooks && install -m 755 scripts/claude_leak_hook.py scripts/claude_policy_hook.py ~/.claude/hooks/
+```
+
+Then make the `hooks` entry in `~/.claude/settings.json` hold both hooks on `Bash` and the policy hook on MCP tools:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/claude_leak_hook.py\" || exit 2"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/claude_policy_hook.py\" || exit 2"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/claude_policy_hook.py\" || exit 2"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Claude Code runs every hook that matches, and a call is blocked when any of them exits 2, so the two hooks don't need to know about each other. As with the leak hook, `|| exit 2` makes a broken install deny every call. If that blocks work, fix `python3` or the copied scripts, or remove the entry. Copy both scripts again whenever either changes on the default branch.
+
+The copy command and the settings commands were run on 2026-10-05 under bash 5.1 on Linux with Python 3.10 and git 2.34, against a scratch home directory. The installed policy hook denied `gh pr merge` and allowed `gh pr comment`, and the leak hook beside it still denied `git commit -n`. With the leak hook missing, the policy hook missing, or `python3` missing, the policy hook's command denied every call. They were not run under zsh or on macOS.
+
+**What it does not see:**
+
+- Actions outside Claude Code: the web UI, a person's own terminal, CI, and the Claude GitHub Action, which runs without user-scope hooks. A session on a machine or account without the hook.
+- Other GitHub clients such as `curl`, commands run through `xargs`, `find -exec`, a pipe into a shell, a `gh` alias, or a script or `make` target that runs `gh` or `git push` inside it.
+- A clone whose default branch is not `main` or `master` and that has no `refs/remotes/<remote>/HEAD` (`git remote set-head origin --auto` sets it).
+- Writing `agentpolicy.allowDefaultPush` by editing `.git/config` directly, and editing or deleting the hooks or their settings entry.
+- A clone whose `.claude/settings.json` or `.claude/settings.local.json` sets `"disableAllHooks": true`, as for the leak hook.
+
+`scripts/test_claude_policy_hook.py` proves each rule and pins the `curl`, `xargs`, pipe, alias, `make` and `.git/config` forms above as still allowed, so a change that starts denying one fails until this list is updated.
+
 ## Going Public
 
 Making a private repository public publishes its whole history, including the refs GitHub keeps for every pull request, which no history rewrite removes. Before changing the visibility:
