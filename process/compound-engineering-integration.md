@@ -11,7 +11,7 @@
 
 ## Scope
 
-This document describes how compound-engineering ([CE](https://github.com/EveryInc/compound-engineering-plugin), v3.x) realizes the six-layer AI architecture in the engineering-standards repository, and resolves the operational details that surface when CE coexists with these standards: artifact path conventions, issue-tracking ceremony scaling, branch-naming reconciliation, AI-review discipline and the ready-to-merge comment, and ticket-tracking modes.
+This document describes how compound-engineering ([CE](https://github.com/EveryInc/compound-engineering-plugin), v3.x) realizes the six-layer AI architecture in the engineering-standards repository, and resolves the operational details that surface when CE coexists with these standards: artifact path conventions, issue-tracking ceremony scaling, branch-naming reconciliation, AI-review discipline, At a glance and the ready-to-merge comment, and ticket-tracking modes.
 
 For the architecture itself, see [`ai/claude-code/README.md`](../ai/claude-code/README.md). This doc is the operational complement.
 
@@ -153,30 +153,15 @@ Where a human reviewer is available, these classes take human approval and the a
 
 [`process/git-branching-strategy.md`](./git-branching-strategy.md) carries a one-line note in its branch protection block pointing at this discipline.
 
-### The ready-to-merge comment
+### At a glance and the ready-to-merge comment
 
-When the merge decision belongs to someone other than the implementer, as with an [operator](./repository-standards.md#guarding-repository-authority) who merges what agent sessions build, the last thing posted before the merge is a **ready-to-merge comment** on the pull request. It is the gate-level record: the PR-body disposition record above covers the reviews, and this comment covers every gate. Like the discipline, it is a record, not something that blocks the merge.
+Two records serve two readers. **At a glance**, at the top of every pull request description, is for someone who uses the repository rather than contributes to it: what was wrong, what changed in the plan, and how the change fixes it. The **ready-to-merge comment**, posted where someone else merges, is for contributors: the Done-gate record. Like the discipline above, both are records, not something that blocks the merge.
 
-**Who and when.** The lead, meaning the session that coordinates the implementers and checks their work ([#49](https://github.com/rmorison/engineering-standards/issues/49)), posts it; at solo scale, the implementer does. It names the head commit being merged and is posted only after every gate has passed on that head. A push after it makes it stale, so a fresh comment is posted on the new head.
+**At a glance.** Every pull request description opens with it, before any technical detail; the [pull request template](../.github/pull_request_template.md), and its [starter-kit copy](../templates/.github/pull_request_template.md), start with its skeleton. The author writes it when opening the pull request and brings it up to date before merge, Spec drift especially, since a plan usually changes during review. Three sections, each with a hard word limit:
 
-**Shape.** Two parts, in this order:
-
-1. **At a glance**, written for someone who uses the repository rather than contributes to it. Three sections, each with a hard word limit:
-   - **Problem**, 125 words or fewer: what was wrong or missing, and why it matters to that reader. No drift here.
-   - **Spec drift**, 50 to 100 words: what was added, cut or changed after the issue was filed, why, and who decided. When the change matches the request, the section is exactly **None.**
-   - **Solution**, 125 words or fewer: how this pull request solves the problem. Explain the mechanism in plain language, meaning what it does and where it steps in, so the reader understands how it works. Don't restate the problem from the other side ("merges are now blocked").
-2. **The Done-gate record**, for contributors. One bullet per gate that applies, each stated on the head:
-   - **CI:** the conclusions of every check on the head, not only that the checks ran.
-   - **Review:** each round, with a one-line summary, and where its answers are recorded: the PR body's disposition record or an answer comment. The per-finding detail lives there, not here, so the two records cannot disagree.
-   - **Acceptance:** where the pull request closes an issue, each of its criteria, MET or not, with the evidence. Otherwise the plan's criteria, or omit.
-   - **closingIssuesReferences:** the issues GitHub will close on merge, as intended. **Names:** where the project names people by role, none are named.
-   - **Private-value scan:** where the project keeps a private value list, the scan over the pull request's commits, run from the default branch's checkout.
-   - **Residuals:** what is left, and where it is filed, or none.
-   - **ce-compound:** the decision: done, deferred to when, or not needed.
-   - **Other gates:** any gate this change needed, such as an adopter's test, an importer's suite or an overlap check, each with its result on the head.
-   - **After the merge:** any step someone must take, such as re-installing a hook.
-
-A pull request body may open with the same At a glance; this standard requires it only in the ready-to-merge comment.
+- **Problem**, 125 words or fewer: what was wrong or missing, and why it matters to that reader. No drift here.
+- **Spec drift**, 50 to 100 words: what was added, cut or changed after the issue was filed, why, and who decided. When the change matches the request, the section is exactly **None.**
+- **Solution**, 125 words or fewer: how this pull request solves the problem. Explain the mechanism in plain language, meaning what it does and where it steps in, so the reader understands how it works. Don't restate the problem from the other side ("merges are now blocked").
 
 **Plain language in At a glance.**
 
@@ -186,21 +171,37 @@ A pull request body may open with the same At a glance; this standard requires i
 - Say who decided by role: the operator, the lead, a reviewer.
 - Count the words. The limits are what keep the section readable at a glance.
 
+**Example.** An At a glance for the description of [#90](https://github.com/rmorison/engineering-standards/pull/90), the agent policy hook, written after it merged; #90 predates this convention.
+
+> **Problem.** AI agent sessions on this account all act on GitHub as the operator's own account, the operator being the person who signs off on their work and merges it. Nothing technical stopped a session from merging its own pull request or loosening a repository setting so a check would pass. The rule "the operator merges; agents never do" lived only in written instructions, and an agent keen to finish its job could break it by mistake. Because every session looks like the operator to GitHub, GitHub's own protection rules can't tell an agent from the operator.
+>
+> **Spec drift.** The original request (#76, a guard that keeps agent sessions from merging or changing settings) asked for the guard only in "worker" sessions, the ones that build changes. The operator signed off on covering every agent session instead, as the lead of buzai, another project using these standards, had suggested: a session that lost its "worker" label would go unguarded. The operator also signed off on refusing saves straight to a repository's main line, which the request hadn't named, with a switch only a person can turn on for repositories used as notebooks.
+>
+> **Solution.** The change adds a guard that runs before every command or GitHub action an agent session takes, so it steps in before anything reaches GitHub. The guard reads the command and recognises three kinds of action, in the many forms each can be written: merging a pull request, changing a repository's settings or protection rules, and saving straight to a repository's main line. It refuses those with a message saying what was refused and that the operator does it in GitHub's web pages. Everything else goes through untouched: in another project's 62 test cases, no everyday work was refused. The operator still merges from the web pages, or from a terminal outside the AI tool, where the guard doesn't run.
+
+**The ready-to-merge comment.** When the merge decision belongs to someone other than the author, as with an [operator](./repository-standards.md#guarding-repository-authority) who merges what agent sessions build, the last thing posted before the merge is a ready-to-merge comment on the pull request. It carries the Done-gate record only; the At a glance stays in the description, not in both places.
+
+**Who and when.** The lead, meaning the session that coordinates the implementers and checks their work ([#49](https://github.com/rmorison/engineering-standards/issues/49)), posts it; at solo scale, the author does. It names the head commit being merged and is posted only after every gate has passed on that head. A push after it makes it stale, so a fresh comment is posted on the new head.
+
+**The Done-gate record.** One bullet per gate that applies, each stated on the head:
+
+- **At a glance:** the description's At a glance is current on the head, within the word limits.
+- **CI:** the conclusions of every check on the head, not only that the checks ran.
+- **Review:** each round, with a one-line summary, and where its answers are recorded: the PR body's disposition record or an answer comment. The per-finding detail lives there, not here, so the two records cannot disagree.
+- **Acceptance:** where the pull request closes an issue, each of its criteria, MET or not, with the evidence. Otherwise the plan's criteria, or omit.
+- **closingIssuesReferences:** the issues GitHub will close on merge, as intended. **Names:** where the project names people by role, none are named.
+- **Private-value scan:** where the project keeps a private value list, the scan over the pull request's commits, run from the default branch's checkout.
+- **Residuals:** what is left, and where it is filed, or none.
+- **ce-compound:** the decision: done, deferred to when, or not needed.
+- **Other gates:** any gate this change needed, such as an adopter's test, an importer's suite or an overlap check, each with its result on the head.
+- **After the merge:** any step someone must take, such as re-installing a hook.
+
 **Skeleton** to copy:
 
 ```markdown
 **Ready for <who merges> to merge (Done gate, head <sha>).**
 
-#### At a glance
-
-**Problem.** <What was wrong or missing, for someone who uses the repository. 125 words or fewer.>
-
-**Spec drift.** <What was added, cut or changed after the issue was filed, why, and who decided. 50 to 100 words. Or exactly: None.>
-
-**Solution.** <How this pull request solves it: what it does and where it steps in, in plain language. 125 words or fewer.>
-
-#### Done gate
-
+- **At a glance:** <current on <sha>; Problem <n>, Spec drift <n>, Solution <n> words>
 - **CI:** <every check's conclusion on <sha>>
 - **Review:** <each round in one line, and where its answers are recorded>
 - **Acceptance (#<n>):** <each criterion: MET or not, with the evidence, or omit>
@@ -211,14 +212,6 @@ A pull request body may open with the same At a glance; this standard requires i
 - **Other gates:** <each gate this change needed, with its result, or omit>
 - **After the merge:** <any step someone must take, or omit>
 ```
-
-**Example.** An At a glance for [#90](https://github.com/rmorison/engineering-standards/pull/90), the agent policy hook, written after it merged. Its Done-gate record is the [ready comment posted at the time](https://github.com/rmorison/engineering-standards/pull/90#issuecomment-6009628085).
-
-> **Problem.** AI agent sessions on this account all act on GitHub as the operator's own account, the operator being the person who signs off on their work and merges it. Nothing technical stopped a session from merging its own pull request or loosening a repository setting so a check would pass. The rule "the operator merges; agents never do" lived only in written instructions, and an agent keen to finish its job could break it by mistake. Because every session looks like the operator to GitHub, GitHub's own protection rules can't tell an agent from the operator.
->
-> **Spec drift.** The original request (#76, a guard that keeps agent sessions from merging or changing settings) asked for the guard only in "worker" sessions, the ones that build changes. The operator signed off on covering every agent session instead, as the lead of buzai, another project using these standards, had suggested: a session that lost its "worker" label would go unguarded. The operator also signed off on refusing saves straight to a repository's main line, which the request hadn't named, with a switch only a person can turn on for repositories used as notebooks.
->
-> **Solution.** The change adds a guard that runs before every command or GitHub action an agent session takes, so it steps in before anything reaches GitHub. The guard reads the command and recognises three kinds of action, in the many forms each can be written: merging a pull request, changing a repository's settings or protection rules, and saving straight to a repository's main line. It refuses those with a message saying what was refused and that the operator does it in GitHub's web pages. Everything else goes through untouched: in another project's 62 test cases, no everyday work was refused. The operator still merges from the web pages, or from a terminal outside the AI tool, where the guard doesn't run.
 
 ---
 

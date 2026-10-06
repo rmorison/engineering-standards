@@ -198,7 +198,14 @@ A PR title must satisfy [Commit Messages](#commit-messages) above. Squash and me
 
 ### PR Description
 
+The description opens with **At a glance** for someone who uses the repository: Problem, Spec drift and Solution, each word-limited. [At a glance and the ready-to-merge comment](./compound-engineering-integration.md#at-a-glance-and-the-ready-to-merge-comment) defines it, with plain-language rules and an example.
+
 ```markdown
+## At a glance
+**Problem.** What was wrong or missing, for a user (125 words or fewer)
+**Spec drift.** What changed after the issue was filed, why, and who decided (50-100 words), or: None.
+**Solution.** How this change solves it, in plain language (125 words or fewer)
+
 ## What
 Brief description of the change
 
