@@ -261,7 +261,8 @@ def graphql(cmd, words):
     files = list(option(words, {"--input"})) + [f.split("=@", 1)[1] for f in typed if "=@" in f]
     unread = "a GraphQL query file that cannot be read, so it cannot be checked"
     fields = option(words, {"-f", "-F", "--field", "--raw-field"})
-    # Unquoted, query=$(cat q) splits into the word query=$ and the rest.
+    # The leak hook's parser reads an unquoted query=$(cat q) as the word
+    # query=$(), but past its depth limit it still splits it into query=$.
     if any("$(" in f or "`" in f or f.endswith("$") for f in fields if f.startswith("query=")):
         raise Deny("a GraphQL query built when the command runs, so it cannot be checked")
     for name in files:

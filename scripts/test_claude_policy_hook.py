@@ -342,6 +342,9 @@ def fixtures(sb):
     check("R5 deny: a substitution with git -C, which runs in another directory",
           sb.bash(f'git -C {sb.feat} push origin "$(git branch --show-current)"', cwd=sb.trunk),
           "deny", "built when it runs")
+    check("R5 deny: an unquoted substitution is built at run time, even on a feature branch",
+          sb.bash("git push origin $(git branch --show-current)", cwd=sb.feat), "deny",
+          "built when it runs")
     check("R5 deny: a bare push from a branch that tracks the default says so",
           sb.bash("git push", cwd=sb.track), "deny", "which this branch tracks")
     check("R5 deny: a bare push outside a clone", sb.bash("git push", cwd=sb.home),

@@ -352,6 +352,8 @@ def fixtures(sb):
         ("stdin redirect from a listed path", f"gh pr comment 1 --body-file - < {D}/clean.md"),
         ("a listed path inside $(gh ...)", f'url="$(gh pr create --title t --body-file {D}/clean.md)"'),
         ("a listed path inside bash -c", f"bash -c 'cd {D} && gh pr comment 1 --body-file clean.md'"),
+        ("a listed path after an unquoted $(...)",
+         f"gh pr create --title $(git log -1 --format=%s) --body-file {D}/clean.md"),
     ]
     for name, command in path_allowed:
         check(name, sb.hook(command), "allow")
@@ -379,6 +381,25 @@ def fixtures(sb):
          f"git -C {D} status && gh pr comment 1 --body-file clean.md"),
         ("unbalanced quote after a cd into a listed path", f'cd {D} && gh issue comment 1 --body "x'),
         ("value in a substitution that is not gh", f'gh issue comment 1 --body "$(echo {A})"'),
+        # Unquoted, the parentheses of $(...) used to split the command, so the
+        # options after it formed a command of their own and the file went unread.
+        ("body file after an unquoted $(...)",
+         "gh pr create --title $(git log -1 --format=%s) --body-file dirty.md"),
+        ("body file after an unquoted $(...) in --body",
+         "gh pr comment 1 --body $(git log -1 --format=%s) --body-file dirty.md"),
+        ("body file after an unquoted $(...) as the number",
+         "gh pr comment $(gh pr view --json number -q .number) --body-file dirty.md"),
+        ("body file after unquoted backticks",
+         "gh pr create --title `git log -1 --format=%s` --body-file dirty.md"),
+        ("body file after nested unquoted $(...)",
+         "gh pr create --title $(echo $(git log -1 --format=%s)) --body-file dirty.md"),
+        ("body file after an attached --title=$(...)",
+         "gh pr create --title=$(git log -1 --format=%s) --body-file dirty.md"),
+        ("api --input after an unquoted $(...) in the endpoint",
+         "gh api repos/o/r/issues/$(echo 1)/comments --input dirty.md"),
+        ("api -F key=@ after an unquoted $(...) in the endpoint",
+         "gh api repos/o/r/issues/$(echo 1)/comments -F body=@dirty.md"),
+        ("notes file after an unquoted $(...)", "gh release create v1 --notes $(date) --notes-file dirty.md"),
         # A heredoc the stripper cannot follow must not leave its body to be read
         # as commands, where "> name" puts the name in a redirect target.
         ("<<\\EOF heredoc body", f"gh pr comment 1 --body-file - <<\\EOF\nrenamed it -> {A}\nEOF"),
@@ -389,6 +410,10 @@ def fixtures(sb):
     ]
     for name, command in path_denied:
         check(name, sb.hook(command), "deny", "matches private value list line", {3})
+    # The parenthesis inside the quotes leaves the $(...) open as the hook counts,
+    # so the options after it would never reach the gh command.
+    check("a $(...) the hook cannot close", sb.hook(
+        'gh pr create --title $(echo "fix (wip") --body-file dirty.md'), "deny", "does not close")
 
     # --- Directory changes the hook follows, and says when it can't (R7) ----------
     P = sb.root / "pushed"
