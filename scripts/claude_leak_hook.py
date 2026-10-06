@@ -286,6 +286,7 @@ class Parsed:
         self.words = []
         self.stripped = []
         self.lost_dir = False
+        self.unclosed = False  # a $(...) or backtick span whose end was not found
 
 
 def parse(text, cwd):
@@ -318,9 +319,10 @@ def parse_command(text, cwd, depth=0, found=None):
     command_text = matched_text = text
     if depth < MAX_DEPTH:
         spans = substitutions(text)
-        for _, _, script, _ in spans:
+        found.unclosed = found.unclosed or not all(span[4] for span in spans)
+        for _, _, script, _, _ in spans:
             parse_command(script, cwd, depth + 1, found)
-        for start, end, _, quoted in reversed(spans):
+        for start, end, _, quoted, _ in reversed(spans):
             cut = "$()" if quoted else '"$()"'  # unquoted, the parentheses split words
             matched_text = matched_text[:start] + cut + matched_text[end:]
             if not quoted:
@@ -361,8 +363,10 @@ def parse_command(text, cwd, depth=0, found=None):
 
 
 def substitutions(text):
-    """Returns (start, end, script, quoted) for each $(...) and backtick span
-    outside single quotes; quoted says whether it is inside double quotes.
+    """Returns (start, end, script, quoted, closed) for each $(...) and backtick
+    span outside single quotes: quoted says whether it is inside double quotes,
+    and closed whether its end was found. Parentheses are counted without
+    reading quotes, so "fix (wip" inside $(...) leaves the span unclosed.
 
     The shell runs them, quoted in double quotes or not, as in
     url="$(gh pr create ...)". Inside single quotes they are literal text, as
@@ -385,14 +389,15 @@ def substitutions(text):
         elif c == "`":
             end = text.find("`", i + 1)
             end = len(text) if end == -1 else end
-            bodies.append((i, min(end + 1, len(text)), text[i + 1:end], quote == '"'))
+            bodies.append((i, min(end + 1, len(text)), text[i + 1:end], quote == '"', end < len(text)))
             i = end
         elif text.startswith("$(", i):
             depth, j = 1, i + 2
             while j < len(text) and depth:
                 depth += {"(": 1, ")": -1}.get(text[j], 0)
                 j += 1
-            bodies.append((i, j, text[i + 2:j - 1] if depth == 0 else text[i + 2:], quote == '"'))
+            bodies.append((i, j, text[i + 2:j - 1] if depth == 0 else text[i + 2:], quote == '"',
+                           depth == 0))
             i = j - 1
         i += 1
     return bodies
@@ -772,11 +777,17 @@ def decide(command, cwd):
                 files += [expand(f, cmd.cwd) for f in cmd.files]
     if not outbound:
         return None
-
     entries = read_list()
     if entries is None:
         return ("leak hook: value rules skipped: no global value list declared "
                 f"({LIST_KEY}), so the text this command sends to GitHub was not checked.")
+
+    if found is not None and found.unclosed:
+        # The span runs to the end of the text, so the options after it never
+        # reach the gh command, and its files would go unread.
+        raise Deny("a $(...) or backtick substitution in this command does not close where the "
+                   "hook can tell, so the files it sends to GitHub cannot be checked. Balance its "
+                   "parentheses, quotes included, or build the text in an earlier step.")
 
     # A parsed command is matched without the words that only name a file or a
     # directory (parse_command()); one that cannot be split is matched whole.
