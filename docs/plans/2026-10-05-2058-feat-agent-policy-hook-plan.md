@@ -53,6 +53,16 @@ Some repositories have no pull-request flow: a notebook or personal repository t
 
 ---
 
+## Changes from review (PR #90)
+
+The scoped review of the first build added these. Each fixture was seen to fail against the reviewed hook first.
+- R2 also covers `merge-upstream`, `branches/{b}/rename`, and contents-API writes with no `branch` field or one naming a default branch.
+- R3 also covers `createCommitOnBranch` and `enqueuePullRequest`. A query the hook cannot read (non-heredoc standard input, or built with `$(...)`) is denied, and a denial names the canonical mutation, never the command's own text.
+- R5 reads `"$(git branch --show-current)"` and similar as `HEAD`.
+- KTD3 is narrowed: every *policy* denial goes through `decide()`, and a call the hook cannot check is denied outside it.
+
+---
+
 ## Product Contract
 
 ### Summary

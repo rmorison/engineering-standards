@@ -255,8 +255,21 @@ def fixtures(sb):
         ("gh api -X POST repos/o/r/hooks --input h.json", SETTINGS),
         ("gh api -X PATCH repos/o/r/git/refs/heads/trunk -f sha=abc -F force=true",
          "moving a branch"),
+        ("gh api -X POST repos/o/r/merge-upstream -f branch=trunk", "syncing"),
+        ("gh api -X POST repos/o/r/branches/trunk/rename -f new_name=x", "renaming a branch"),
+        ("gh api -X PUT repos/o/r/contents/README.md -f message=m -f content=Y29udGVudA==",
+         "contents API"),
+        ("gh api -X PUT repos/o/r/contents/docs/a.md -f message=m -f content=eA== -f branch=main",
+         "contents API"),
+        ("gh api -X DELETE repos/o/r/contents/a.md -f message=m -f sha=abc -f branch=master",
+         "contents API"),
+        ('gh api -X PUT repos/o/r/contents/a.md -f message=m -f content=eA== -f branch="$B"',
+         "contents API"),
     ]:
         check(f"R2 deny: {command!r}", sb.bash(command), "deny", frag)
+    check("R2 deny: a contents write to the clone's own default branch",
+          sb.bash("gh api -X PUT repos/o/r/contents/a.md -f message=m -f content=eA== -f branch=trunk",
+                  cwd=sb.trunk), "deny", "contents API")
 
     # --- R3: GraphQL mutations, inline, from a file, and from a heredoc (AE3) --------
     for command, frag in [
@@ -266,7 +279,14 @@ def fixtures(sb):
         ("cat > q.graphql <<'EOF'\nmutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }\n"
          "EOF\ngh api graphql -F query=@q.graphql", "enablePullRequestAutoMerge"),
         ("gh api graphql -f query='mutation { MERGEBRANCH(input: {}) { clientMutationId } }'",
-         "MERGEBRANCH"),
+         "the GraphQL mutation mergeBranch"),
+        ("gh api graphql -f query='mutation { createCommitOnBranch(input: {}) { clientMutationId } }'",
+         "createCommitOnBranch"),
+        ("gh api graphql -f query='mutation { enqueuePullRequest(input: {}) { clientMutationId } }'",
+         "enqueuePullRequest"),
+        ("cat merge.graphql | gh api graphql -F query=@-", "standard input"),
+        ("gh api graphql --input - < merge.graphql", "standard input"),
+        ('gh api graphql -f query="$(cat read.graphql)"', "built when the command runs"),
         ("gh api graphql -f query='mutation { updateRepository(input: {}) { clientMutationId } }'",
          "updateRepository"),
         ("gh api graphql -f query='mutation { createBranchProtectionRule(input: {}) { clientMutationId } }'",
@@ -307,7 +327,11 @@ def fixtures(sb):
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),
-          "deny", "cannot be checked")
+          "deny", "use git push -u origin HEAD")
+    check("R5 deny: the current branch by substitution, on the default",
+          sb.bash('git push -u origin "$(git branch --show-current)"', cwd=sb.trunk), "deny", PUSH)
+    check("R5 deny: a bare push from a branch that tracks the default says so",
+          sb.bash("git push", cwd=sb.track), "deny", "which this branch tracks")
     check("R5 deny: a bare push outside a clone", sb.bash("git push", cwd=sb.home),
           "deny", "cannot be checked")
     check("R5 deny: the denial names the opt-out", sb.bash("git push origin trunk", cwd=sb.trunk),
@@ -409,6 +433,13 @@ def fixtures(sb):
         ("git push", sb.feat),
         ("git push --dry-run origin trunk", sb.trunk),
         ("git push origin trunk", sb.nohead),
+        ('git push -u origin "$(git branch --show-current)"', sb.feat),
+        ('git push origin "$(git rev-parse --abbrev-ref HEAD)"', sb.feat),
+        ("git push -u origin HEAD", sb.track),
+        ("gh api -X PUT repos/o/r/contents/a.md -f message=m -f content=eA== -f branch=76-x",
+         sb.trunk),
+        ("gh api graphql -F query=@- <<'EOF'\nquery { viewer { login } }\nEOF", sb.work),
+        ("gh api repos/o/r/contents/README.md", sb.work),
         ("git fetch origin trunk", sb.trunk),
         ("git pull origin trunk", sb.trunk),
     ]:

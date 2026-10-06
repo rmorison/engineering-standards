@@ -25,9 +25,10 @@ prompts.
      writing it.
 
 Everything the hook denies is listed once, in the tables under "What is
-denied", and every denial goes through decide(). That is the one place a role
-could later be granted an action (GRANTS); today nothing is granted, and a
-missing or unknown role never grants anything.
+denied", and every policy denial goes through decide(). That is the one place a
+role could later be granted an action (GRANTS); today nothing is granted, and a
+missing or unknown role never grants anything. A call the hook cannot check is
+denied outside it, so no grant ever lets an unchecked call through.
 
 It parses commands with the leak hook's parser, imported from the same
 directory, so both scripts must be installed. Without the leak hook, every call
@@ -95,6 +96,9 @@ API_PATHS = [
     (re.compile(rf"repos/{S}/{S}/pulls/{S}/merge"), MERGE, "merging a pull request through the API"),
     (re.compile(rf"repos/{S}/{S}/merges"), MERGE, "merging a branch through the API"),
     (re.compile(rf"repos/{S}/{S}/git/refs(/.*)?"), DEFAULT_PUSH, "moving a branch through the API"),
+    (re.compile(rf"repos/{S}/{S}/merge-upstream"), DEFAULT_PUSH,
+     "syncing a remote repository's branch through the API"),
+    (re.compile(rf"repos/{S}/{S}/branches/.+/rename"), SETTINGS, "renaming a branch"),
     (re.compile(rf"repos/{S}/{S}/rulesets(/.*)?"), RULESETS, "a write to repository rulesets"),
     (re.compile(rf"orgs/{S}/rulesets(/.*)?"), RULESETS, "a write to organization rulesets"),
     (re.compile(rf"repos/{S}/{S}/branches/.+/protection(/.*)?"), PROTECTION,
@@ -112,6 +116,8 @@ GRAPHQL_MUTATIONS = {
     "mergePullRequest": MERGE,
     "enablePullRequestAutoMerge": MERGE,
     "mergeBranch": MERGE,
+    "enqueuePullRequest": MERGE,
+    "createCommitOnBranch": DEFAULT_PUSH,
     "updateRef": DEFAULT_PUSH,
     "updateRefs": DEFAULT_PUSH,
     "updateRepository": SETTINGS,
@@ -228,13 +234,23 @@ def gh_api(cmd, words):
     method = methods[-1] if methods else ("POST" if sends else "GET")
     if method in ("GET", "HEAD"):
         return
+    if CONTENTS.fullmatch(path):
+        # A contents write commits to the branch its branch field names, or to the
+        # default branch when there is none.
+        fields = option(words, {"-f", "-F", "--field", "--raw-field"})
+        branches = [f.split("=", 1)[1] for f in fields if f.startswith("branch=")]
+        defaults = {"main", "master"} | default_branches(Clone(cmd.cwd, []), "origin")
+        if not branches or any(b in defaults or "$" in b or "`" in b for b in branches):
+            decide(DEFAULT_PUSH, "a commit to the default branch through the contents API")
     for pattern, category, noun in API_PATHS:
         if pattern.fullmatch(path):
             decide(category, noun)
 
 
+CONTENTS = re.compile(rf"repos/{S}/{S}/contents/.+")
 MUTATION_WORDS = re.compile(r"\b(" + "|".join(GRAPHQL_MUTATIONS) + r")\b", re.I)
 MUTATION_BY_NAME = {name.casefold(): category for name, category in GRAPHQL_MUTATIONS.items()}
+CANONICAL = {name.casefold(): name for name in GRAPHQL_MUTATIONS}
 
 
 def graphql(cmd, words):
@@ -243,9 +259,15 @@ def graphql(cmd, words):
     typed = list(option(words, {"-F", "--field"}))
     files = list(option(words, {"--input"})) + [f.split("=@", 1)[1] for f in typed if "=@" in f]
     unread = "a GraphQL query file that cannot be read, so it cannot be checked"
+    fields = option(words, {"-f", "-F", "--field", "--raw-field"})
+    if any("$(" in f or "`" in f for f in fields if f.startswith("query=")):
+        raise Deny("a GraphQL query built when the command runs, so it cannot be checked")
     for name in files:
         if name == "-":
-            continue  # stdin: a heredoc's text is in the command, which raw_text holds
+            # stdin: only a heredoc's text is in the command, which raw_text holds.
+            if "<<" not in cmd.raw_text:
+                raise Deny("a GraphQL query read from standard input, so it cannot be checked")
+            continue
         if not os.path.isabs(name) and cmd.cwd is None:
             raise Deny(unread)
         try:
@@ -257,8 +279,8 @@ def graphql(cmd, words):
                 raise Deny(unread)
     texts.append(cmd.raw_text)
     for match in MUTATION_WORDS.finditer("\n".join(texts)):
-        category = MUTATION_BY_NAME[match.group(1).casefold()]
-        decide(category, f"the GraphQL mutation {match.group(1)}")
+        name = CANONICAL[match.group(1).casefold()]
+        decide(MUTATION_BY_NAME[name.casefold()], f"the GraphQL mutation {name}")
 
 
 # --- git -----------------------------------------------------------------------------
@@ -372,13 +394,20 @@ def destination(refspec, current):
     return dst
 
 
+# A substitution that names the current branch, as in git push -u origin "$(git branch --show-current)".
+CURRENT_BRANCH = re.compile(r"\$\(\s*git\s+(branch\s+--show-current|rev-parse\s+--abbrev-ref\s+HEAD"
+                            r"|symbolic-ref\s+--short\s+HEAD)\s*\)")
+
+
 def git_push(cmd, prefix, rest):
     """Denies a push that reaches the remote's default branch, unless the clone opted out."""
     if any(w in DRY_RUN for w in rest):
         return
+    rest = [CURRENT_BRANCH.sub("HEAD", w) for w in rest]
     if any("$" in w or "`" in w for w in rest):
         return deny_push(cmd, prefix, None, "a push whose destination is built when it runs, "
-                                            "so it cannot be checked")
+                                            "so it cannot be checked; to push the current "
+                                            "branch, use git push -u origin HEAD")
     positional, everything = [], False
     i = 0
     while i < len(rest):
@@ -418,8 +447,11 @@ def git_push(cmd, prefix, rest):
             return deny_push(cmd, prefix, defaults, DEFAULT_PUSH_NOUN)
         merge = current and clone.git("config", f"branch.{current}.merge")
         upstream = destination(merge, current) if merge else None
-        if current in defaults or upstream in defaults:
+        if current in defaults:
             return deny_push(cmd, prefix, defaults, DEFAULT_PUSH_NOUN)
+        if upstream in defaults:
+            return deny_push(cmd, prefix, defaults, DEFAULT_PUSH_NOUN + ", which this branch "
+                             "tracks; push it to its own name with git push -u origin HEAD")
         return
     for spec in refspecs:
         dst = destination(spec, current)
