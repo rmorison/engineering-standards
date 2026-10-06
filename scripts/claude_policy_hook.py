@@ -238,7 +238,8 @@ def gh_api(cmd, words):
         # A contents write commits to the branch its branch field names, or to the
         # default branch when there is none.
         fields = option(words, {"-f", "-F", "--field", "--raw-field"})
-        branches = [f.split("=", 1)[1] for f in fields if f.startswith("branch=")]
+        branches = [f.split("=", 1)[1].removeprefix("refs/heads/") for f in fields
+                    if f.startswith("branch=")]
         defaults = {"main", "master"} | default_branches(Clone(cmd.cwd, []), "origin")
         if not branches or any(b in defaults or "$" in b or "`" in b for b in branches):
             decide(DEFAULT_PUSH, "a commit to the default branch through the contents API")
@@ -260,12 +261,13 @@ def graphql(cmd, words):
     files = list(option(words, {"--input"})) + [f.split("=@", 1)[1] for f in typed if "=@" in f]
     unread = "a GraphQL query file that cannot be read, so it cannot be checked"
     fields = option(words, {"-f", "-F", "--field", "--raw-field"})
-    if any("$(" in f or "`" in f for f in fields if f.startswith("query=")):
+    # Unquoted, query=$(cat q) splits into the word query=$ and the rest.
+    if any("$(" in f or "`" in f or f.endswith("$") for f in fields if f.startswith("query=")):
         raise Deny("a GraphQL query built when the command runs, so it cannot be checked")
     for name in files:
         if name == "-":
             # stdin: only a heredoc's text is in the command, which raw_text holds.
-            if "<<" not in cmd.raw_text:
+            if not any(op == "<<" for op, _ in cmd.redirects):
                 raise Deny("a GraphQL query read from standard input, so it cannot be checked")
             continue
         if not os.path.isabs(name) and cmd.cwd is None:
@@ -274,8 +276,8 @@ def graphql(cmd, words):
             with open(os.path.join(cmd.cwd or "", name), encoding="utf-8", errors="replace") as f:
                 texts.append(f.read(1024 * 1024))
         except OSError:
-            # A file the same command writes from a heredoc has its text in the command.
-            if "<<" not in cmd.raw_text:
+            # A file this call writes from a heredoc has its text in the command.
+            if os.path.normpath(os.path.join(cmd.cwd or "", name)) not in cmd.heredoc_files:
                 raise Deny(unread)
     texts.append(cmd.raw_text)
     for match in MUTATION_WORDS.finditer("\n".join(texts)):
@@ -403,7 +405,10 @@ def git_push(cmd, prefix, rest):
     """Denies a push that reaches the remote's default branch, unless the clone opted out."""
     if any(w in DRY_RUN for w in rest):
         return
-    rest = [CURRENT_BRANCH.sub("HEAD", w) for w in rest]
+    # The substitution runs in the shell's directory, so it names HEAD only when
+    # the push does not name another clone.
+    if not any(p == "-C" or p.split("=", 1)[0] in ("--git-dir", "--work-tree") for p in prefix):
+        rest = [CURRENT_BRANCH.sub("HEAD", w) for w in rest]
     if any("$" in w or "`" in w for w in rest):
         return deny_push(cmd, prefix, None, "a push whose destination is built when it runs, "
                                             "so it cannot be checked; to push the current "
@@ -516,8 +521,16 @@ def check_command(command, cwd):
             if pattern.search(command):
                 decide(category, noun + "; rewrite it with balanced quotes")
         return
+    heredoc_files = set()
+    for cmd in commands:
+        if cmd.cwd is not None and any(op == "<<" for op, _ in cmd.redirects):
+            targets = [t for op, t in cmd.redirects if op in (">", ">>", ">|")]
+            if cmd.program == "tee":
+                targets += [w for w in cmd.words[1:] if not w.startswith("-")]
+            heredoc_files.update(os.path.normpath(os.path.join(cmd.cwd, t)) for t in targets)
     for cmd in commands:
         cmd.raw_text = command
+        cmd.heredoc_files = heredoc_files
         if cmd.program == "gh":
             gh_command(cmd)
         elif cmd.program == "git":

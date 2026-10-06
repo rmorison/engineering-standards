@@ -350,7 +350,7 @@ It denies these, with a message saying the operator does them and the session sh
 - **Moving the default branch.** A `git push` that reaches the remote's default branch by any route: a refspec naming it (`main`, `refs/heads/main`), a `<src>:<dst>` refspec whose destination is it, either with a leading `+`, `--all`, `--branches`, `--mirror`, and a bare `git push` while the current branch is the default or tracks it. Also `gh api` writes to `repos/{owner}/{repo}/git/refs` and `merge-upstream`; a `gh api` write to `repos/{owner}/{repo}/contents/{path}` whose `branch` field is missing, names `main` or `master` or the clone's default, or is built at run time; `gh repo sync` with a remote repository; and the GraphQL mutations `updateRef`, `updateRefs` and `createCommitOnBranch`. The default branch is read from the clone's `refs/remotes/<remote>/HEAD`, or is `main` and `master` when that is not set. A push whose destination the hook cannot work out, such as a refspec in a variable, is denied.
 - **GitHub MCP tools** whose names merge a pull request, update, delete, archive or transfer a repository, or change branch protection or rulesets, and `push_files`, `create_or_update_file` and `delete_file` on `main`, `master` or no branch. No GitHub MCP server runs on the agent hosts today; this is a name rule.
 
-A GraphQL query the hook cannot read is denied too: a query file that does not exist, a query on standard input that is not a heredoc in the command, and a query built at run time such as `-f query="$(cat q.graphql)"`.
+A GraphQL query the hook cannot read is denied too: a query file that does not exist, a query on standard input that is not a heredoc on that `gh` command (a here-string `<<<` does not count), and a query built at run time such as `-f query="$(cat q.graphql)"`.
 
 A `gh api` call writes when its method is not GET, or when it sends a field or `--input` without naming a method. Reads of every endpoint above are allowed, and so is everything else a worker or a lead does: pushing its own branch, `--force-with-lease` included; creating, editing, commenting on, reviewing, closing and reopening pull requests and issues; labels; `gh api` writes to comments, reactions, labels and review threads; and GraphQL mutations outside the list, such as `resolveReviewThread`. The hook adds no permission approval of its own, so an allowed command still goes through the session's normal permission prompts.
 
@@ -410,12 +410,12 @@ The copy command and the settings commands were run on 2026-10-05 under bash 5.1
 **What it does not see:**
 
 - Actions outside Claude Code: the web UI, a person's own terminal, CI, and the Claude GitHub Action, which runs without user-scope hooks. A session on a machine or account without the hook.
-- Other GitHub clients such as `curl`, commands run through `xargs`, `find -exec`, a pipe into a shell, a `gh` alias, or a script or `make` target that runs `gh` or `git push` inside it.
+- Other GitHub clients such as `curl`, commands run through `xargs`, `find -exec`, a pipe or a heredoc into a shell (`bash <<'EOF'`), a `gh` alias, or a script or `make` target that runs `gh` or `git push` inside it.
 - A clone whose default branch is not `main` or `master` and that has no `refs/remotes/<remote>/HEAD` (`git remote set-head origin --auto` sets it).
 - Writing `agentpolicy.allowDefaultPush` by editing `.git/config` directly, and editing or deleting the hooks or their settings entry.
 - A clone whose `.claude/settings.json` or `.claude/settings.local.json` sets `"disableAllHooks": true`, as for the leak hook.
 
-`scripts/test_claude_policy_hook.py` proves each rule and pins the `curl`, `xargs`, pipe, alias, `make` and `.git/config` forms above as still allowed, so a change that starts denying one fails until this list is updated.
+`scripts/test_claude_policy_hook.py` proves each rule and pins the `curl`, `xargs`, pipe, heredoc-into-a-shell, alias, `make` and `.git/config` forms above as still allowed, so a change that starts denying one fails until this list is updated.
 
 ## Going Public
 

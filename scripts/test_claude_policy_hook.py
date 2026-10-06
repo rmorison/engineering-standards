@@ -265,6 +265,8 @@ def fixtures(sb):
          "contents API"),
         ('gh api -X PUT repos/o/r/contents/a.md -f message=m -f content=eA== -f branch="$B"',
          "contents API"),
+        ("gh api -X PUT repos/o/r/contents/a.md -f message=m -f content=eA== -f branch=refs/heads/main",
+         "contents API"),
     ]:
         check(f"R2 deny: {command!r}", sb.bash(command), "deny", frag)
     check("R2 deny: a contents write to the clone's own default branch",
@@ -287,6 +289,11 @@ def fixtures(sb):
         ("cat merge.graphql | gh api graphql -F query=@-", "standard input"),
         ("gh api graphql --input - < merge.graphql", "standard input"),
         ('gh api graphql -f query="$(cat read.graphql)"', "built when the command runs"),
+        ("gh api graphql -f query=$(cat read.graphql)", "built when the command runs"),
+        ('gh api graphql -F query=@- <<< "$(cat merge.graphql)"', "standard input"),
+        ("cat > n.md <<'EOF'\nx\nEOF\ncat merge.graphql | gh api graphql -F query=@-",
+         "standard input"),
+        ("cat > n.md <<'EOF'\nx\nEOF\ngh api graphql -F query=@missing.graphql", "cannot be read"),
         ("gh api graphql -f query='mutation { updateRepository(input: {}) { clientMutationId } }'",
          "updateRepository"),
         ("gh api graphql -f query='mutation { createBranchProtectionRule(input: {}) { clientMutationId } }'",
@@ -330,6 +337,11 @@ def fixtures(sb):
           "deny", "use git push -u origin HEAD")
     check("R5 deny: the current branch by substitution, on the default",
           sb.bash('git push -u origin "$(git branch --show-current)"', cwd=sb.trunk), "deny", PUSH)
+    check("R5 deny: the rev-parse substitution, on the default",
+          sb.bash('git push origin "$(git rev-parse --abbrev-ref HEAD)"', cwd=sb.trunk), "deny", PUSH)
+    check("R5 deny: a substitution with git -C, which runs in another directory",
+          sb.bash(f'git -C {sb.feat} push origin "$(git branch --show-current)"', cwd=sb.trunk),
+          "deny", "built when it runs")
     check("R5 deny: a bare push from a branch that tracks the default says so",
           sb.bash("git push", cwd=sb.track), "deny", "which this branch tracks")
     check("R5 deny: a bare push outside a clone", sb.bash("git push", cwd=sb.home),
@@ -435,6 +447,7 @@ def fixtures(sb):
         ("git push origin trunk", sb.nohead),
         ('git push -u origin "$(git branch --show-current)"', sb.feat),
         ('git push origin "$(git rev-parse --abbrev-ref HEAD)"', sb.feat),
+        ('git push origin "$(git symbolic-ref --short HEAD)"', sb.feat),
         ("git push -u origin HEAD", sb.track),
         ("gh api -X PUT repos/o/r/contents/a.md -f message=m -f content=eA== -f branch=76-x",
          sb.trunk),
@@ -504,6 +517,7 @@ def fixtures(sb):
         ("a pipe into sh", "echo 'gh pr merge 12' | sh"),
         ("a gh alias", "gh pm 12"),
         ("a make target", "make push"),
+        ("a heredoc fed to a shell", "bash <<'EOF'\ngh pr merge 5\nEOF"),
         ("editing the clone's config file",
          "printf '[agentpolicy]\\n\\tallowDefaultPush = true\\n' >> .git/config"),
     ]:
