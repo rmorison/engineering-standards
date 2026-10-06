@@ -17,8 +17,8 @@ command still goes through the session's normal permission prompts.
      targets, and cd, pushd and popd operands. gh sends a file's contents, which
      are matched, never its path. A body file that does not exist yet, or that
      the same command writes, is denied, unless the command writes it only from
-     a heredoc, whose text is part of the command. sed -i and perl -i count as
-     writes. Commands after shell keywords (if, then, do, {, !), inside $(...)
+     a heredoc, whose text is part of the command. sed -i, gsed -i and perl -i
+     count as writes. Commands after shell keywords (if, then, do, {, !), inside $(...)
      or backticks, and inside sh -c or eval are checked like any other.
   2. Gate escapes. Denied in every list state: `--no-verify` on any git
      command, `git commit -n`, `git -c core.hooksPath=...`, a `git config`
@@ -63,12 +63,19 @@ class Deny(Exception):
 # --- The command: heredocs, continuations, tokens, simple commands -----------------
 
 # The lookbehind keeps a here-string (<<<) from reading as a heredoc.
-HEREDOC = re.compile(r"(?<!<)<<(-?)\s*(['\"]?)([A-Za-z0-9_.-]+)\2")
+HEREDOC = re.compile(r"(?<!<)<<(-?)\s*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
+HEREDOC_OPERATOR = re.compile(r"(?<!<)<<(?!<)")
 
 
 def strip_heredocs(text):
     """Returns (command, bodies): the command without heredoc bodies, so a body is
-    never read as a command, and the bodies, which are still text to match."""
+    never read as a command, and the bodies, which are still text to match.
+
+    A heredoc this cannot follow, with a delimiter it does not read or no
+    terminator, leaves the rest of the text in the command, and adds it to the
+    bodies too: read as commands, a body line such as "> name" would otherwise
+    put its text where a redirect target goes, which is not matched.
+    """
     lines = text.split("\n")
     out, bodies = [], []
     i = 0
@@ -76,7 +83,10 @@ def strip_heredocs(text):
         line = lines[i]
         out.append(line)
         i += 1
-        for dash, _, delim in HEREDOC.findall(line):
+        found = HEREDOC.findall(line)
+        if len(HEREDOC_OPERATOR.findall(line)) > len(found):
+            bodies.append("\n".join(lines[i:]))
+        for dash, _, delim in found:
             end = i
             while end < len(lines):
                 candidate = lines[end].lstrip("\t") if dash else lines[end]
@@ -84,6 +94,7 @@ def strip_heredocs(text):
                     break
                 end += 1
             if end == len(lines):
+                bodies.append("\n".join(lines[i:]))
                 break  # no terminator: leave the rest visible
             bodies.append("\n".join(lines[i:end]))
             i = end + 1
@@ -267,7 +278,7 @@ def enter(target, cwd):
 
 
 class Parsed:
-    """What parse() finds: the simple commands, the words to match, the text the
+    """What parse_command() finds: the simple commands, the words to match, the text the
     parser stripped before splitting words, and whether a directory change was lost."""
 
     def __init__(self):
@@ -277,7 +288,16 @@ class Parsed:
         self.lost_dir = False
 
 
-def parse(text, cwd, depth=0, found=None):
+def parse(text, cwd):
+    """Returns (commands, words) for a command string, as parse_command() finds them.
+
+    scripts/claude_policy_hook.py imports this, so its shape stays fixed.
+    """
+    found = parse_command(text, cwd)
+    return found.commands, found.words
+
+
+def parse_command(text, cwd, depth=0, found=None):
     """Returns a Parsed for a command string, descending into $(...), sh -c and eval.
 
     Words that only name a file or a directory are left out of found.words: the
@@ -289,20 +309,22 @@ def parse(text, cwd, depth=0, found=None):
     text, bodies = strip_heredocs(text)
     text, comments = strip_comments_and_continuations(text)
     found.stripped += bodies + comments
+    # The commands keep their words as written, as callers that read them
+    # expect. The words matched come from a second pass with each parsed
+    # $(...) cut out, since its own parse matches what it holds.
+    matched_text = text
     if depth < MAX_DEPTH:
         spans = substitutions(text)
         for _, _, script in spans:
-            parse(script, cwd, depth + 1, found)
+            parse_command(script, cwd, depth + 1, found)
         for start, end, _ in reversed(spans):
-            text = text[:start] + "$()" + text[end:]
+            matched_text = matched_text[:start] + "$()" + matched_text[end:]
     stack = []
     for words, redirects in simple_commands(tokenize(text)):
         assigns, unwrapped = unwrap(words)
         cmd = Command(assigns, unwrapped, redirects, cwd)
         found.commands.append(cmd)
-        unmatched = dict(cmd.unmatched)
         if cmd.program in ("cd", "pushd", "popd"):
-            unmatched.update((k, None) for k in range(1, len(unwrapped)))
             args = [w for w in unwrapped[1:] if w == "-" or not w.startswith("-")]
             if cmd.program == "popd":
                 cwd = stack.pop() if stack else None
@@ -312,9 +334,17 @@ def parse(text, cwd, depth=0, found=None):
             else:
                 cwd = None if args[:1] == ["-"] else enter(args[0] if args else "~", cwd)
             found.lost_dir = found.lost_dir or cwd is None
+        script, _ = nested_script(cmd)
+        if script is not None and depth < MAX_DEPTH:
+            parse_command(script, cwd, depth + 1, found)
+    for words, redirects in simple_commands(tokenize(matched_text)):
+        assigns, unwrapped = unwrap(words)
+        cmd = Command(assigns, unwrapped, redirects, None)
+        unmatched = dict(cmd.unmatched)
+        if cmd.program in ("cd", "pushd", "popd"):
+            unmatched.update((k, None) for k in range(1, len(unwrapped)))
         script, at = nested_script(cmd)
         if script is not None and depth < MAX_DEPTH:
-            parse(script, cwd, depth + 1, found)
             unmatched.update((k, None) for k in at)
         skipped = len(words) - len(unwrapped)  # assignments and wrappers stay matched
         for k, w in enumerate(words):
@@ -613,7 +643,7 @@ FALLBACK_FILE_FLAGS = re.compile(r"--body-file|--notes-file|--input|\s-F|=@")
 
 WRITE_REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
 COPIERS = {"cp", "mv", "install", "ln"}  # the last operand is written
-IN_PLACE_EDITORS = {"sed", "perl"}
+IN_PLACE_EDITORS = {"sed", "gsed", "perl"}
 
 
 def edits_in_place(cmd):
@@ -624,7 +654,7 @@ def edits_in_place(cmd):
     for w in cmd.words[1:]:
         if w == "--":
             return False
-        if cmd.program == "sed" and w.startswith("--in-place"):
+        if cmd.program != "perl" and w.startswith("--in-place"):
             return True
         if w.startswith("-") and not w.startswith("--") and "i" in w[1:]:
             return True
@@ -707,7 +737,7 @@ def read_body(path):
 def decide(command, cwd):
     """Returns None to allow, or a note to show. Raises Deny."""
     try:
-        found = parse(command, cwd)
+        found = parse_command(command, cwd)
     except ValueError:
         found = None
 
@@ -742,8 +772,10 @@ def decide(command, cwd):
                 f"({LIST_KEY}), so the text this command sends to GitHub was not checked.")
 
     # A parsed command is matched without the words that only name a file or a
-    # directory (parse()); one that cannot be split is matched whole.
+    # directory (parse_command()); one that cannot be split is matched whole.
     texts = [command] if found is None else found.stripped + [" ".join(found.words)]
+    if "$'" in command:  # the parser does not read $'...' quoting, so match it whole
+        texts.append(command)
     for path in files:
         rewritten = path is not None and written.rewrites(path)
         if rewritten or path is None or not os.path.exists(path):

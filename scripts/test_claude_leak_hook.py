@@ -378,6 +378,14 @@ def fixtures(sb):
         ("git -C under a listed path is still matched",
          f"git -C {D} status && gh pr comment 1 --body-file clean.md"),
         ("unbalanced quote after a cd into a listed path", f'cd {D} && gh issue comment 1 --body "x'),
+        ("value in a substitution that is not gh", f'gh issue comment 1 --body "$(echo {A})"'),
+        # A heredoc the stripper cannot follow must not leave its body to be read
+        # as commands, where "> name" puts the name in a redirect target.
+        ("<<\\EOF heredoc body", f"gh pr comment 1 --body-file - <<\\EOF\nrenamed it -> {A}\nEOF"),
+        ("heredoc with a delimiter the stripper does not read",
+         f"gh pr comment 1 --body-file - <<'END BODY'\nrenamed it -> {A}\nEND BODY"),
+        ("heredoc with no terminator", f"gh pr comment 1 --body-file - <<'EOF'\nrenamed it -> {A}\n  EOF"),
+        ("$'...' body with > before the value", "gh pr comment 1 --body $'It\\'s for > " + A + ", see #84.'"),
     ]
     for name, command in path_denied:
         check(name, sb.hook(command), "deny", "matches private value list line", {3})
@@ -401,6 +409,7 @@ def fixtures(sb):
           sb.hook(f"cd {sb.root}/d-*-two? && gh pr comment 1 --body-file clean.md"), "deny", unfollowed)
     check("popd with nothing pushed", sb.hook("popd; gh pr comment 1 --body-file clean.md"), "deny",
           unfollowed)
+    check("cd -", sb.hook("cd - && gh pr comment 1 --body-file clean.md"), "deny", unfollowed)
     check("cd to a variable", sb.hook('cd "$SCRATCH" && gh pr comment 1 --body-file clean.md'), "deny",
           unfollowed)
 
@@ -408,6 +417,7 @@ def fixtures(sb):
     then_post = " && gh pr comment 1 --body-file reused.md"
     in_place = [
         "sed -i 's/a/b/' reused.md",
+        "gsed -i 's/a/b/' reused.md",
         "sed -i.bak 's/a/b/' reused.md",
         "sed --in-place 's/a/b/' reused.md",
         "sed --in-place=.bak 's/a/b/' reused.md",
