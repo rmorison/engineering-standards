@@ -73,9 +73,14 @@ gitGraph
 1. Create issue, assign labels
 2. Create branch from issue (GitHub auto-names it)
 3. Develop and commit iteratively
-4. Open pull request when ready (auto-links to issue)
+4. Open pull request when ready, naming the issue in the body (`Closes #<n>` or `Part of #<n>`, see step 6)
 5. Merge to `main` when approved and CI passes
-6. GitHub auto-closes issue and deletes branch
+6. GitHub closes the issue only through one of these routes, and none is automatic:
+   - **PR body**: a closing keyword for the issue (`Closes #<n>`) in the body of a pull request that targets the default branch, acting when it merges. A pull request that is only part of an issue says `Part of #<n>` and carries no closing keyword before the issue number anywhere, quoted text included.
+   - **Development sidebar**: the issue linked to a pull request into the default branch, acting when it merges.
+   - **Commit message**: a closing keyword in a commit message, acting when that commit reaches the default branch by any route, including a stacked pull request's base merging or a direct push. Under squash merge it survives only if the squash commit message keeps the commit messages (the repository's squash-message setting, or the merger's edit at merge time), and a keyword in the PR title or a body included in the squash message acts the same way.
+
+   Before merge, check the body with `gh pr view <pr> --json closingIssuesReferences --jq '[.closingIssuesReferences[].number]'` and search the branch's commit messages; see [A closing keyword anywhere in a pull request body closes the issue](../docs/solutions/best-practices/a-closing-keyword-anywhere-in-a-pr-body-closes-the-issue.md) for both checks. GitHub deletes the branch only if the repository's "Automatically delete head branches" setting is on ([Branch Protection Configuration](#branch-protection-configuration))
 
 ---
 
@@ -108,13 +113,13 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 
 ### Merging to Main
 
-1. Open pull request (links to issue automatically)
+1. Open pull request, naming the issue in the body (`Closes #<n>` or `Part of #<n>`)
 2. Get review approval and passing CI
 3. **Squash and merge** (recommended) - creates clean single commit per issue
-4. Branch auto-deleted, issue auto-closed
+4. The issue closes only if a pull request into the default branch carries a closing keyword for it or is linked to it, or a commit message on `main` does, and the branch is deleted only with the auto-delete setting on (see [Feature Branches](#feature-branches), Lifecycle step 6)
 
 **Note on squash merging**: When you squash and merge, all individual commits on the branch are combined into a single commit. This means:
-- Individual commit messages are preserved in the squashed commit body
+- Individual commit messages are preserved in the squashed commit body under GitHub's default squash-message setting; another setting, or an edit at merge time, can drop them (and any closing keywords in them, see [Lifecycle](#feature-branches) step 6)
 - The PR title is what GitHub builds the final commit message summary from (see [PR Title](#pr-title))
 - Write clear, incremental commits during development for your own tracking
 - Write the PR title to the format in [Commit Messages](#commit-messages); [PR Title](#pr-title) covers exactly how it reaches `main`
@@ -207,7 +212,9 @@ Implementation approach (reference design doc if applicable)
 How this was tested (unit tests, manual testing, edge cases)
 
 ## Related
-- Closes: #123
+<!-- Keep one line: the first closes the issue on merge, the second leaves it open -->
+- Closes #123
+- Part of #123
 - Spec: docs/engineering/designs/feature-name.md (if applicable)
 ```
 
@@ -338,7 +345,7 @@ Configure these rules for `main` branch in repository settings:
 - ✅ Require at least 1 approval
 - ✅ Require status checks to pass (CI/tests)
 - ✅ Require branches to be up to date before merging
-- ✅ Delete head branches automatically after merge
+- ✅ Delete head branches automatically after merge ("Automatically delete head branches" under General settings). Without it, merged branches stay until someone deletes them; the Lifecycle's branch deletion depends on this setting
 
 **When compound-engineering is in use**: the "Require at least 1 approval" rule has a process-level complement — the AI-review **discipline** (`ce-code-review` + `ce-doc-review`) defined in [`process/compound-engineering-integration.md`](./compound-engineering-integration.md). The discipline is process-level, not enforced by repo configuration; the standards' approval rule re-engages when a human reviewer onboards.
 
