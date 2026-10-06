@@ -213,7 +213,7 @@ Every pull request description opens with [At a glance](#at-a-glance), for someo
 Brief description of the change
 
 ## Why
-User/business value or problem being solved (link to issue/spec)
+The technical reason for the change, for contributors (the user-facing problem is in At a glance); link the issue or spec
 
 ## How
 Implementation approach (reference design doc if applicable)

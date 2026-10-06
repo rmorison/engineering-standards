@@ -16,7 +16,7 @@
 
 ## Why
 
-<!-- The problem being solved; link the issue -->
+<!-- The technical reason for the change, for contributors (the user-facing problem is in At a glance); link the issue or spec -->
 
 ## How
 
