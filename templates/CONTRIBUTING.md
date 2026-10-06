@@ -26,6 +26,8 @@ Every commit must carry a [Developer Certificate of Origin](https://developercer
 
 ## Before You Open a Pull Request
 
+Open the description with At a glance; see Git Branching Strategy § PR Description: https://github.com/rmorison/engineering-standards/blob/main/process/git-branching-strategy.md#pr-description
+
 ```bash
 <the checks CI runs, in the order to run them>
 sh scripts/leak-gate.sh range origin/main..HEAD   # no leak in your commits

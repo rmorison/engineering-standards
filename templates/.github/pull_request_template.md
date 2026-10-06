@@ -2,7 +2,7 @@
 
 <!-- For someone who uses the repository rather than contributes to it. Write it when opening the pull request, and bring it up to date before merge, Spec drift especially.
      Plain language: say what a check does, not its name; no file names or commands a user wouldn't type. Word limits are hard.
-     https://github.com/rmorison/engineering-standards/blob/main/process/compound-engineering-integration.md#at-a-glance-and-the-ready-to-merge-comment -->
+     https://github.com/rmorison/engineering-standards/blob/main/process/git-branching-strategy.md#at-a-glance -->
 
 **Problem.** <!-- What was wrong or missing, and why it matters to that reader. 125 words or fewer. No drift here. -->
 

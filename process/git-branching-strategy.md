@@ -198,7 +198,7 @@ A PR title must satisfy [Commit Messages](#commit-messages) above. Squash and me
 
 ### PR Description
 
-The description opens with **At a glance** for someone who uses the repository: Problem, Spec drift and Solution, each word-limited. [At a glance and the ready-to-merge comment](./compound-engineering-integration.md#at-a-glance-and-the-ready-to-merge-comment) defines it, with plain-language rules and an example.
+Every pull request description opens with [At a glance](#at-a-glance), for someone who uses the repository, then the sections for contributors:
 
 ```markdown
 ## At a glance
@@ -224,6 +224,30 @@ How this was tested (unit tests, manual testing, edge cases)
 - Part of #123
 - Spec: docs/engineering/designs/feature-name.md (if applicable)
 ```
+
+#### At a glance
+
+The top of the description, before any technical detail, written for someone who uses the repository rather than contributes to it. The author writes it when opening the pull request and brings it up to date before merge, Spec drift especially, since a plan usually changes during review. It applies to every pull request. Three sections, each with a hard word limit:
+
+- **Problem**, 125 words or fewer: what was wrong or missing, and why it matters to that reader. No drift here.
+- **Spec drift**, 50 to 100 words: what was added, cut or changed after the issue was filed, why, and who decided. When the change matches the request, the section is exactly **None.**
+- **Solution**, 125 words or fewer: how this pull request solves the problem. Explain the mechanism in plain language, meaning what it does and where it steps in, so the reader understands how it works. Don't restate the problem from the other side ("merges are now blocked").
+
+**Plain language in At a glance.**
+
+- Say what a check does, not its name: "another project ran 62 test cases through it", not "the adopter test passed".
+- Spell out an issue's subject the first time it is cited: "#76, a guard that keeps agent sessions from merging".
+- No file names, command syntax, commit hashes or internal labels (decision numbers, finding severities) unless the reader would type them.
+- Say who decided by role: the operator, the lead, a reviewer.
+- Count the words. The limits are what keep the section readable at a glance.
+
+**Example.** An At a glance for the description of [#90](https://github.com/rmorison/engineering-standards/pull/90), the agent policy hook, written after it merged; #90 predates this convention.
+
+> **Problem.** AI agent sessions on this account all act on GitHub as the operator's own account, the operator being the person who signs off on their work and merges it. Nothing technical stopped a session from merging its own pull request or loosening a repository setting so a check would pass. The rule "the operator merges; agents never do" lived only in written instructions, and an agent keen to finish its job could break it by mistake. Because every session looks like the operator to GitHub, GitHub's own protection rules can't tell an agent from the operator.
+>
+> **Spec drift.** The original request (#76, a guard that keeps agent sessions from merging or changing settings) asked for the guard only in "worker" sessions, the ones that build changes. The operator signed off on covering every agent session instead, as the lead of buzai, another project using these standards, had suggested: a session that lost its "worker" label would go unguarded. The operator also signed off on refusing saves straight to a repository's main line, which the request hadn't named, with a switch only a person can turn on for repositories used as notebooks.
+>
+> **Solution.** The change adds a guard that runs before every command or GitHub action an agent session takes, so it steps in before anything reaches GitHub. The guard reads the command and recognises three kinds of action, in the many forms each can be written: merging a pull request, changing a repository's settings or protection rules, and saving straight to a repository's main line. It refuses those with a message saying what was refused and that the operator does it in GitHub's web pages. Everything else goes through untouched: in another project's 62 test cases, no everyday work was refused. The operator still merges from the web pages, or from a terminal outside the AI tool, where the guard doesn't run.
 
 ### PR Size
 
