@@ -12,11 +12,14 @@ command still goes through the session's normal permission prompts.
      `gh pr|issue close|reopen --comment`, `gh pr review`,
      `gh release create|edit`, or a writing `gh api` call is denied when its
      text, or a file it passes as the body, contains a value from the private
-     value list. Matching is literal and case-insensitive. A body file that does
-     not exist yet, or that the same command writes, is denied, unless the
-     command writes it only from a heredoc, whose text is part of the command.
-     Commands after shell keywords (if, then, do, {, !), inside $(...) or
-     backticks, and inside sh -c or eval are checked like any other.
+     value list. Matching is literal and case-insensitive. Words that only name
+     a file or a directory are not matched: the files gh sends, redirect
+     targets, and cd, pushd and popd operands. gh sends a file's contents, which
+     are matched, never its path. A body file that does not exist yet, or that
+     the same command writes, is denied, unless the command writes it only from
+     a heredoc, whose text is part of the command. sed -i, gsed -i and perl -i
+     count as writes. Commands after shell keywords (if, then, do, {, !), inside $(...)
+     or backticks, and inside sh -c or eval are checked like any other.
   2. Gate escapes. Denied in every list state: `--no-verify` on any git
      command, `git commit -n`, `git -c core.hooksPath=...`, a `git config`
      write of core.hooksPath, and `SKIP=` on git or pre-commit. These are the
@@ -38,6 +41,8 @@ Written in Python 3.10+, standard library only: it needs json and shlex, which
 POSIX sh lacks. scripts/test_claude_leak_hook.py proves each rule.
 """
 
+import fnmatch
+import glob
 import json
 import os
 import re
@@ -58,19 +63,30 @@ class Deny(Exception):
 # --- The command: heredocs, continuations, tokens, simple commands -----------------
 
 # The lookbehind keeps a here-string (<<<) from reading as a heredoc.
-HEREDOC = re.compile(r"(?<!<)<<(-?)\s*(['\"]?)([A-Za-z0-9_.-]+)\2")
+HEREDOC = re.compile(r"(?<!<)<<(-?)\s*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
+HEREDOC_OPERATOR = re.compile(r"(?<!<)<<(?!<)")
 
 
 def strip_heredocs(text):
-    """Returns the command without heredoc bodies, so a body is never read as a command."""
+    """Returns (command, bodies): the command without heredoc bodies, so a body is
+    never read as a command, and the bodies, which are still text to match.
+
+    A heredoc this cannot follow, with a delimiter it does not read or no
+    terminator, leaves the rest of the text in the command, and adds it to the
+    bodies too: read as commands, a body line such as "> name" would otherwise
+    put its text where a redirect target goes, which is not matched.
+    """
     lines = text.split("\n")
-    out = []
+    out, bodies = [], []
     i = 0
     while i < len(lines):
         line = lines[i]
         out.append(line)
         i += 1
-        for dash, _, delim in HEREDOC.findall(line):
+        found = HEREDOC.findall(line)
+        if len(HEREDOC_OPERATOR.findall(line)) > len(found):
+            bodies.append("\n".join(lines[i:]))
+        for dash, _, delim in found:
             end = i
             while end < len(lines):
                 candidate = lines[end].lstrip("\t") if dash else lines[end]
@@ -78,20 +94,24 @@ def strip_heredocs(text):
                     break
                 end += 1
             if end == len(lines):
+                bodies.append("\n".join(lines[i:]))
                 break  # no terminator: leave the rest visible
+            bodies.append("\n".join(lines[i:end]))
             i = end + 1
-    return "\n".join(out)
+    return "\n".join(out), bodies
 
 
 def strip_comments_and_continuations(text):
     """Removes # comments and backslash-newlines outside quotes, as the shell does.
 
     A comment is dropped before tokenizing, because an apostrophe in one, as in
-    "# it's done", would otherwise leave shlex with an unclosed quote.
+    "# it's done", would otherwise leave shlex with an unclosed quote. Returns
+    (command, comments): what this takes for a comment may be text the shell
+    sends, as in $'it\\'s #1', so the comments are still text to match.
     """
     if "\\\n" not in text and "#" not in text:
-        return text
-    out = []
+        return text, []
+    out, comments = [], []
     quote = None
     i = 0
     while i < len(text):
@@ -101,7 +121,9 @@ def strip_comments_and_continuations(text):
                 quote = None
         elif quote is None and c == "#" and (i == 0 or text[i - 1] in " \t\n;&|()<>"):
             end = text.find("\n", i)
-            i = len(text) if end == -1 else end
+            end = len(text) if end == -1 else end
+            comments.append(text[i:end])
+            i = end
             continue
         elif c == "\\" and i + 1 < len(text):
             if text[i + 1] == "\n":
@@ -117,7 +139,7 @@ def strip_comments_and_continuations(text):
                 quote = None
         out.append(c)
         i += 1
-    return "".join(out)
+    return "".join(out), comments
 
 
 PUNCTUATION = ";&|()<>\n"
@@ -188,6 +210,7 @@ class Command:
         self.words = words
         self.redirects = redirects
         self.cwd = cwd
+        self.outbound, self.files, self.unmatched = gh_outbound(self)
 
     @property
     def program(self):
@@ -239,33 +262,100 @@ def expand(path, cwd):
     return os.path.normpath(path)
 
 
-def parse(text, cwd, depth=0):
-    """Returns (commands, words) for a command string, descending into sh -c and eval."""
-    text = strip_comments_and_continuations(strip_heredocs(text))
-    tokens = tokenize(text)
-    commands, all_words = [], list(tokens)
-    for script in substitutions(text):
-        if depth < MAX_DEPTH:
-            sub, sub_words = parse(script, cwd, depth + 1)
-            commands += sub
-            all_words += sub_words
-    for words, redirects in simple_commands(tokens):
-        assigns, words = unwrap(words)
-        cmd = Command(assigns, words, redirects, cwd)
-        commands.append(cmd)
-        if cmd.program == "cd":
-            target = words[1] if len(words) > 1 else "~"
-            cwd = expand(target, cwd) if target != "-" else None
-        script = nested_script(cmd)
+GLOB_CHARS = set("*?[")
+
+
+def enter(target, cwd):
+    """Returns the directory cd or pushd enters, or None when it cannot be known.
+
+    A glob is followed when it matches exactly one directory, as the shell does.
+    """
+    path = expand(target, cwd)
+    if path is None or not GLOB_CHARS & set(path):
+        return path
+    matches = [m for m in glob.glob(path) if os.path.isdir(m)]
+    return os.path.normpath(matches[0]) if len(matches) == 1 else None
+
+
+class Parsed:
+    """What parse_command() finds: the simple commands, the words to match, the text the
+    parser stripped before splitting words, and whether a directory change was lost."""
+
+    def __init__(self):
+        self.commands = []
+        self.words = []
+        self.stripped = []
+        self.lost_dir = False
+
+
+def parse(text, cwd):
+    """Returns (commands, words) for a command string, as parse_command() finds them.
+
+    scripts/claude_policy_hook.py imports this, so its shape stays fixed.
+    """
+    found = parse_command(text, cwd)
+    return found.commands, found.words
+
+
+def parse_command(text, cwd, depth=0, found=None):
+    """Returns a Parsed for a command string, descending into $(...), sh -c and eval.
+
+    Words that only name a file or a directory are left out of found.words: the
+    files an outbound gh command sends, cd, pushd and popd operands, and redirect
+    targets, which simple_commands() keeps apart. So are scripts this parses on
+    their own, whose words are added from that parse. Everything else is matched.
+    """
+    found = found if found is not None else Parsed()
+    text, bodies = strip_heredocs(text)
+    text, comments = strip_comments_and_continuations(text)
+    found.stripped += bodies + comments
+    # The commands keep their words as written, as callers that read them
+    # expect. The words matched come from a second pass with each parsed
+    # $(...) cut out, since its own parse matches what it holds.
+    matched_text = text
+    if depth < MAX_DEPTH:
+        spans = substitutions(text)
+        for _, _, script in spans:
+            parse_command(script, cwd, depth + 1, found)
+        for start, end, _ in reversed(spans):
+            matched_text = matched_text[:start] + "$()" + matched_text[end:]
+    stack = []
+    for words, redirects in simple_commands(tokenize(text)):
+        assigns, unwrapped = unwrap(words)
+        cmd = Command(assigns, unwrapped, redirects, cwd)
+        found.commands.append(cmd)
+        if cmd.program in ("cd", "pushd", "popd"):
+            args = [w for w in unwrapped[1:] if w == "-" or not w.startswith("-")]
+            if cmd.program == "popd":
+                cwd = stack.pop() if stack else None
+            elif cmd.program == "pushd":
+                stack.append(cwd)
+                cwd = enter(args[0], cwd) if args else None
+            else:
+                cwd = None if args[:1] == ["-"] else enter(args[0] if args else "~", cwd)
+            found.lost_dir = found.lost_dir or cwd is None
+        script, _ = nested_script(cmd)
         if script is not None and depth < MAX_DEPTH:
-            sub, sub_words = parse(script, cwd, depth + 1)
-            commands += sub
-            all_words += sub_words
-    return commands, all_words
+            parse_command(script, cwd, depth + 1, found)
+    for words, redirects in simple_commands(tokenize(matched_text)):
+        assigns, unwrapped = unwrap(words)
+        cmd = Command(assigns, unwrapped, redirects, None)
+        unmatched = dict(cmd.unmatched)
+        if cmd.program in ("cd", "pushd", "popd"):
+            unmatched.update((k, None) for k in range(1, len(unwrapped)))
+        script, at = nested_script(cmd)
+        if script is not None and depth < MAX_DEPTH:
+            unmatched.update((k, None) for k in at)
+        skipped = len(words) - len(unwrapped)  # assignments and wrappers stay matched
+        for k, w in enumerate(words):
+            w = unmatched.get(k - skipped, w) if k >= skipped else w
+            if w is not None:
+                found.words.append(w)
+    return found
 
 
 def substitutions(text):
-    """Returns the scripts in $(...) and backticks outside single quotes.
+    """Returns (start, end, script) for each $(...) and backtick span outside single quotes.
 
     The shell runs them, quoted in double quotes or not, as in
     url="$(gh pr create ...)". Inside single quotes they are literal text, as
@@ -288,28 +378,31 @@ def substitutions(text):
         elif c == "`":
             end = text.find("`", i + 1)
             end = len(text) if end == -1 else end
-            bodies.append(text[i + 1:end])
+            bodies.append((i, min(end + 1, len(text)), text[i + 1:end]))
             i = end
         elif text.startswith("$(", i):
             depth, j = 1, i + 2
             while j < len(text) and depth:
                 depth += {"(": 1, ")": -1}.get(text[j], 0)
                 j += 1
-            bodies.append(text[i + 2:j - 1] if depth == 0 else text[i + 2:])
+            bodies.append((i, j, text[i + 2:j - 1] if depth == 0 else text[i + 2:]))
             i = j - 1
         i += 1
     return bodies
 
 
 def nested_script(cmd):
-    """Returns the script that sh -c or eval runs, or None."""
+    """Returns (script, positions): the script that sh -c or eval runs, or None,
+    and the positions of the words that hold it."""
     if cmd.program == "eval" and len(cmd.words) > 1:
-        return " ".join(cmd.words[1:])
+        return " ".join(cmd.words[1:]), range(1, len(cmd.words))
     if cmd.program in SHELLS:
         for j, w in enumerate(cmd.words[1:], 1):
             if w.startswith("-") and not w.startswith("--") and "c" in w:
-                return next((x for x in cmd.words[j + 1:] if not x.startswith("-")), None)
-    return None
+                k = next((k for k in range(j + 1, len(cmd.words))
+                          if not cmd.words[k].startswith("-")), None)
+                return (cmd.words[k], [k]) if k is not None else (None, [])
+    return None, []
 
 
 # --- Gate escapes ---------------------------------------------------------------------
@@ -400,52 +493,75 @@ GH_API_FIELDS = {"-f", "-F", "--field", "--raw-field"}
 STDIN_PATHS = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 
 
-def option(words, names):
-    """Yields each value given to any of the named options, in every spelling."""
+def option_at(words, names):
+    """Yields (value, position, kept) for each value given to any of the named
+    options, in every spelling: the position of the word that holds the value, and
+    what is left of that word without it (None when the value is the whole word)."""
     for i, w in enumerate(words):
         for n in names:
             if w == n and i + 1 < len(words):
-                yield words[i + 1]
+                yield words[i + 1], i + 1, None
             elif n.startswith("--") and w.startswith(n + "="):
-                yield w[len(n) + 1:]
+                yield w[len(n) + 1:], i, n + "="
             elif not n.startswith("--") and w.startswith(n) and len(w) > len(n):
-                yield w[len(n):]
+                yield w[len(n):], i, n
+
+
+def option(words, names):
+    """Yields each value given to any of the named options, in every spelling."""
+    return (value for value, _, _ in option_at(words, names))
 
 
 def gh_outbound(cmd):
-    """Returns (outbound, files): whether this is a gh write, and the files it sends."""
+    """Returns (outbound, files, unmatched): whether this is a gh write, the files
+    it sends, and the words that only name those files, as {position in cmd.words:
+    what of the word stays matched}. gh sends a file's contents, never its path.
+    """
     if cmd.program != "gh":
-        return False, []
+        return False, [], {}
     args = cmd.words[1:]
     while args and args[0].startswith("-"):
         args = args[1:]
     if not args:
-        return False, []
+        return False, [], {}
     group, rest = args[0], args[1:]
     while rest and rest[0].startswith("-"):  # gh issue -R o/r comment ...
         rest = rest[2:] if rest[0] in ("-R", "--repo") else rest[1:]
     verb = rest[0] if rest else ""
-    files = []
+    base = len(cmd.words) - len(rest)
+    files, unmatched = [], {}
+
+    def named(names):
+        for value, at, kept in option_at(rest, names):
+            files.append(value)
+            unmatched[base + at] = kept
+
     if group in GH_TEXT_VERBS and verb in GH_TEXT_VERBS[group]:
-        files = list(option(rest, GH_FILE_FLAGS))
+        named(GH_FILE_FLAGS)
     elif group in ("pr", "issue") and verb in ("close", "reopen"):
         if not list(option(rest, {"--comment", "-c"})):
-            return False, []
+            return False, [], {}
     elif group == "api":
         methods = [m.upper() for m in option(rest, {"-X", "--method"})]
         fields = list(option(rest, GH_API_FIELDS))
         inputs = list(option(rest, {"--input"}))
         if not (fields or inputs or any(m != "GET" for m in methods)):
-            return False, []
-        # Only -F/--field reads @<path>; -f/--raw-field sends the text as it is.
-        typed = list(option(rest, {"-F", "--field"}))
-        files = inputs + [f.split("=@", 1)[1] for f in typed if "=@" in f]
+            return False, [], {}
+        named({"--input"})
+        # Only -F/--field reads a file: when the value after its first = starts
+        # with @, as gh's magicFieldValue does. -f/--raw-field sends text as it is.
+        for value, at, _ in option_at(rest, {"-F", "--field"}):
+            path = value.partition("=")[2]
+            if path.startswith("@"):
+                files.append(path[1:])
+                word = rest[at]
+                unmatched[base + at] = word[:len(word) - len(path)]
     else:
-        return False, []
+        return False, [], {}
     stdin = [t for op, t in cmd.redirects if op == "<"]
     files = ["-" if f in STDIN_PATHS else f for f in files]
     files = [stdin[-1] if f == "-" and stdin else f for f in files if f != "-" or stdin]
-    return True, files
+    return True, files, unmatched
 
 
 # --- The value list, read the way scripts/leak-gate.sh reads it ---------------------------
@@ -519,19 +635,54 @@ def read_list():
 # --- Deciding --------------------------------------------------------------------------
 
 ESCAPE_REASON = "switches off the git hooks that run the leak gate."
+UNFOLLOWED = ("The hook could not follow a change of directory in this command, such as one to "
+              "a variable, cd -, popd, or a glob that matches no directory or several, so a "
+              "relative path after it does not resolve.")
 FALLBACK_FILE_FLAGS = re.compile(r"--body-file|--notes-file|--input|\s-F|=@")
 
 
 WRITE_REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
 COPIERS = {"cp", "mv", "install", "ln"}  # the last operand is written
+IN_PLACE_EDITORS = {"sed", "gsed", "perl"}
 
 
-def written_paths(cmd):
-    """Returns (from_heredoc, other): the paths a command writes.
+def edits_in_place(cmd):
+    """Whether sed or perl edits its files in place: -i, -i<suffix>, an option
+    cluster holding i such as -Ei or -pi, or sed's --in-place[=<suffix>]."""
+    if cmd.program not in IN_PLACE_EDITORS:
+        return False
+    for w in cmd.words[1:]:
+        if w == "--":
+            return False
+        if cmd.program != "perl" and w.startswith("--in-place"):
+            return True
+        if w.startswith("-") and not w.startswith("--") and "i" in w[1:]:
+            return True
+    return False
+
+
+class Written:
+    """The paths the commands write: from a heredoc, any other way, as globs, and
+    whether an in-place editor names a file the hook cannot resolve."""
+
+    def __init__(self):
+        self.heredoc, self.other, self.globs = set(), set(), []
+        self.unknown = False
+
+    def rewrites(self, path):
+        return (path in self.other or self.unknown
+                or any(fnmatch.fnmatchcase(path, g) for g in self.globs))
+
+
+def written_paths(cmd, written):
+    """Adds the paths a command writes to written.
 
     A file written from a heredoc, as in cat > F <<'EOF', holds text that is
     part of the command itself. A file written any other way holds text the
-    hook cannot see until the command runs.
+    hook cannot see until the command runs. An in-place editor writes every
+    file it names, and the hook cannot tell its script from its files, so every
+    operand counts; a glob counts for each file it matches, and an operand the
+    hook cannot resolve counts for every file.
     """
     targets = [t for op, t in cmd.redirects if op in WRITE_REDIRECTS]
     operands = [w for w in cmd.words[1:] if not w.startswith("-")]
@@ -539,6 +690,15 @@ def written_paths(cmd):
         targets += operands
     elif cmd.program in COPIERS and operands:
         targets.append(operands[-1])
+    elif edits_in_place(cmd):
+        for op in operands:
+            path = expand(op, cmd.cwd)
+            if path is None:
+                written.unknown = True
+            elif GLOB_CHARS & set(op):
+                written.globs.append(path)
+            else:
+                targets.append(op)
     paths = [p for p in (expand(t, cmd.cwd) for t in targets) if p]
     # Only cat or tee with no input file but the heredoc, as in cat > F <<'EOF'.
     # cat header.md - > F <<'EOF' also writes header.md, and a later < file
@@ -547,8 +707,9 @@ def written_paths(cmd):
     ops = [op for op, _ in cmd.redirects]
     if ("<<" in ops and not {"<", "<>", "<&"} & set(ops) and cmd.program in ("cat", "tee")
             and all(w == "-" for w in inputs)):
-        return paths, []
-    return [], paths
+        written.heredoc.update(paths)
+    else:
+        written.other.update(paths)
 
 def read_body(path):
     """Returns a body file's text. Raises Deny for anything but a readable regular file.
@@ -576,14 +737,14 @@ def read_body(path):
 def decide(command, cwd):
     """Returns None to allow, or a note to show. Raises Deny."""
     try:
-        commands, words = parse(command, cwd)
+        found = parse_command(command, cwd)
     except ValueError:
-        commands, words = None, []
+        found = None
 
     outbound = False
     files = []  # resolved paths, None where the path cannot be known
-    heredoc_written, other_written = set(), set()
-    if commands is None:
+    written = Written()
+    if found is None:
         has_git = "git" in command
         for pattern, what, needs_git in FALLBACK_ESCAPES:
             if pattern.search(command) and (has_git or not needs_git):
@@ -593,18 +754,15 @@ def decide(command, cwd):
             raise Deny("this command cannot be split into words, so the files it sends to "
                        "GitHub cannot be checked. Rewrite it with balanced quotes.")
     else:
-        for cmd in commands:
+        for cmd in found.commands:
             what = escape(cmd)
             if what:
                 raise Deny(f"{what} {ESCAPE_REASON}")
-        for cmd in commands:
-            from_heredoc, other = written_paths(cmd)
-            heredoc_written.update(from_heredoc)
-            other_written.update(other)
-            is_out, named = gh_outbound(cmd)
-            if is_out:
+        for cmd in found.commands:
+            written_paths(cmd, written)
+            if cmd.outbound:
                 outbound = True
-                files += [expand(f, cmd.cwd) for f in named]
+                files += [expand(f, cmd.cwd) for f in cmd.files]
     if not outbound:
         return None
 
@@ -613,14 +771,20 @@ def decide(command, cwd):
         return ("leak hook: value rules skipped: no global value list declared "
                 f"({LIST_KEY}), so the text this command sends to GitHub was not checked.")
 
-    texts = [command, " ".join(words)]
+    # A parsed command is matched without the words that only name a file or a
+    # directory (parse_command()); one that cannot be split is matched whole.
+    texts = [command] if found is None else found.stripped + [" ".join(found.words)]
+    if "$'" in command:  # the parser does not read $'...' quoting, so match it whole
+        texts.append(command)
     for path in files:
-        if path in other_written or path is None or not os.path.exists(path):
-            if path in heredoc_written and path not in other_written:
+        rewritten = path is not None and written.rewrites(path)
+        if rewritten or path is None or not os.path.exists(path):
+            if path in written.heredoc and not rewritten:
                 continue
+            lost = (UNFOLLOWED + " ") if path is None and found is not None and found.lost_dir else ""
             raise Deny("a file this command sends to GitHub is written by the same command, or "
-                       "does not exist yet, so it cannot be checked. Write the file in one step, "
-                       "then post it in the next.")
+                       f"does not exist yet, so it cannot be checked. {lost}Write the file in one "
+                       "step, then post it in the next.")
         texts.append(read_body(path))
 
     haystack = "\n".join(texts).casefold()

@@ -333,6 +333,107 @@ def fixtures(sb):
     for name, command in written:
         check(name, sb.hook(command), "deny", "cannot be")
 
+    # --- Words that only name a file or directory are not matched (#84) ---------
+    # D is a directory whose name holds a listed value, as a home directory or
+    # scratchpad path can. The path never reaches GitHub; text and contents do.
+    D = sb.root / f"d-{A}-one"
+    D.mkdir()
+    (D / "clean.md").write_text("Nothing to see here.\n")
+    (D / "dirty.md").write_text(f"See {A}.\n")
+    path_allowed = [
+        ("an absolute body file under a listed path", f"gh pr create --title t --body-file {D}/clean.md"),
+        ("cd into a listed path", f"cd {D} && gh pr comment 1 --body-file clean.md"),
+        ("a heredoc written under a listed path",
+         f"cat > {D}/new.md <<'EOF'\nclean\nEOF\ngh pr create --body-file {D}/new.md"),
+        ("--notes-file under a listed path", f"gh release create v1 --notes-file {D}/clean.md"),
+        ("--input under a listed path", f"gh api repos/o/r/issues --input {D}/clean.md"),
+        ("api -F key=@ under a listed path", f"gh api repos/o/r/issues/1/comments -F body=@{D}/clean.md"),
+        ("attached -F under a listed path", f"gh issue comment 1 -F{D}/clean.md"),
+        ("stdin redirect from a listed path", f"gh pr comment 1 --body-file - < {D}/clean.md"),
+        ("a listed path inside $(gh ...)", f'url="$(gh pr create --title t --body-file {D}/clean.md)"'),
+        ("a listed path inside bash -c", f"bash -c 'cd {D} && gh pr comment 1 --body-file clean.md'"),
+    ]
+    for name, command in path_allowed:
+        check(name, sb.hook(command), "allow")
+    path_denied = [
+        ("an absolute body file under a listed path, value inside", f"gh pr comment 1 --body-file {D}/dirty.md"),
+        ("value in the title beside an absolute body file",
+         f'gh pr create --title "{A}" --body-file {D}/clean.md'),
+        ("value in the body beside an absolute body file",
+         f'gh pr create --title t --body "{A}" --body-file {D}/clean.md'),
+        ("value as an api -F key", f"gh api repos/o/r/issues/1/comments -F {A}=@clean.md"),
+        ("api -F value with =@ after its first =, sent as written",
+         f"gh api repos/o/r/issues/1/comments -F body=see=@{D}/clean.md"),
+        ("single-quoted $(...) is text", f"gh issue comment 1 --body 'literal $({A})'"),
+        ("heredoc inside --body $(cat ...)", f"gh pr comment 1 --body \"$(cat <<'EOF'\n{A}\nEOF\n)\""),
+        ("$'...' body the comment stripper cuts",
+         "gh pr comment 1 --body $'Fixed.\\nIt\\'s tested, part of #84.\\nSeen at " + A + ".'"),
+        ("unquoted $(...)# the comment stripper cuts", f"gh pr comment 1 --body $(echo hi)#{A}"),
+        ("here-string into --body-file -", f'gh pr comment 1 --body-file - <<< "{A}"'),
+        ("echo piped into --body-file -", f"echo {A} | gh pr comment 1 --body-file -"),
+        ("value in a variable", f'X={A}; gh issue comment 1 --body "$X"'),
+        ("value in a wrapper option", f'env -S "echo {A}" | gh pr comment 1 --body-file -'),
+        ("release asset under a listed path (gh sends its name)",
+         f"gh release create v1 {D}/clean.md --notes-file clean.md"),
+        ("git -C under a listed path is still matched",
+         f"git -C {D} status && gh pr comment 1 --body-file clean.md"),
+        ("unbalanced quote after a cd into a listed path", f'cd {D} && gh issue comment 1 --body "x'),
+        ("value in a substitution that is not gh", f'gh issue comment 1 --body "$(echo {A})"'),
+        # A heredoc the stripper cannot follow must not leave its body to be read
+        # as commands, where "> name" puts the name in a redirect target.
+        ("<<\\EOF heredoc body", f"gh pr comment 1 --body-file - <<\\EOF\nrenamed it -> {A}\nEOF"),
+        ("heredoc with a delimiter the stripper does not read",
+         f"gh pr comment 1 --body-file - <<'END BODY'\nrenamed it -> {A}\nEND BODY"),
+        ("heredoc with no terminator", f"gh pr comment 1 --body-file - <<'EOF'\nrenamed it -> {A}\n  EOF"),
+        ("$'...' body with > before the value", "gh pr comment 1 --body $'It\\'s for > " + A + ", see #84.'"),
+    ]
+    for name, command in path_denied:
+        check(name, sb.hook(command), "deny", "matches private value list line", {3})
+
+    # --- Directory changes the hook follows, and says when it can't (R7) ----------
+    P = sb.root / "pushed"
+    P.mkdir()
+    (P / "same.md").write_text(f"{A}\n")
+    (sb.work / "same.md").write_text("A clean file with the same name.\n")
+    for twin in ("two1", "two2"):
+        (sb.root / f"d-{A}-{twin}").mkdir()
+    check("cd to a glob matching one directory",
+          sb.hook(f"cd {sb.root}/d-*-one && gh pr comment 1 --body-file clean.md"), "allow")
+    check("pushd into a listed path", sb.hook(f"pushd {D} && gh pr comment 1 --body-file clean.md"), "allow")
+    check("pushd, then popd back", sb.hook(f"pushd {P} && popd && gh pr comment 1 --body-file same.md"),
+          "allow")
+    check("pushd, then a relative body file there", sb.hook(f"pushd {P} && gh pr comment 1 --body-file same.md"),
+          "deny", "matches private value list line", {3})
+    unfollowed = "could not follow a change of directory"
+    check("cd to a glob matching two directories",
+          sb.hook(f"cd {sb.root}/d-*-two? && gh pr comment 1 --body-file clean.md"), "deny", unfollowed)
+    check("popd with nothing pushed", sb.hook("popd; gh pr comment 1 --body-file clean.md"), "deny",
+          unfollowed)
+    check("cd -", sb.hook("cd - && gh pr comment 1 --body-file clean.md"), "deny", unfollowed)
+    check("cd to a variable", sb.hook('cd "$SCRATCH" && gh pr comment 1 --body-file clean.md'), "deny",
+          unfollowed)
+
+    # --- In-place editors are same-command writes (#87) -------------------------
+    then_post = " && gh pr comment 1 --body-file reused.md"
+    in_place = [
+        "sed -i 's/a/b/' reused.md",
+        "gsed -i 's/a/b/' reused.md",
+        "sed -i.bak 's/a/b/' reused.md",
+        "sed --in-place 's/a/b/' reused.md",
+        "sed --in-place=.bak 's/a/b/' reused.md",
+        "sed -Ei 's/a/b/' reused.md",
+        "sed -i '' 's/a/b/' reused.md",
+        "perl -i -pe 's/a/b/' reused.md",
+        "perl -pi -e 's/a/b/' reused.md",
+        "perl -i.bak -pe 's/a/b/' reused.md",
+        "sed -i 's/a/b/' *.md",
+        'F=reused.md; sed -i \'s/a/b/\' "$F"',
+    ]
+    for edit in in_place:
+        check(f"in-place edit: {edit}", sb.hook(edit + then_post), "deny", "written by the same command")
+    check("sed without -i is not a write", sb.hook("sed -n p reused.md" + then_post), "allow")
+    check("sed -i on another file", sb.hook("sed -i 's/a/b/' clean.md" + then_post), "allow")
+
     # --- Clean text is allowed, with no decision of the hook's own (R2) ---------
     allowed = [
         ("clean body file", "gh pr create --title t --body-file clean.md"),
@@ -536,6 +637,9 @@ def fixtures(sb):
         ("gh pr merge --body", f"gh pr merge 1 --body {A}"),
         ("gh gist create", "gh gist create dirty.md"),
         ("curl", "curl -d @dirty.md https://api.github.com/repos/o/r/issues"),
+        ("awk -i inplace on the body file",
+         "awk -i inplace '{print}' reused.md && gh pr comment 1 --body-file reused.md"),
+        ("sort -o on the body file", "sort -o reused.md reused.md && gh pr comment 1 --body-file reused.md"),
     ]
     for name, command in residuals:
         check(f"residual: {name}", sb.hook(command), "allow", on_fail=RESIDUAL_DOC)
