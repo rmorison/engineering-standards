@@ -390,7 +390,7 @@ decides that; read its trigger table before copying.
 |------|---------|------------|
 | `SECURITY.md` | project root | Security policy with a public and a private variant; keep one |
 | `CONTRIBUTING.md` | project root | Contributing guide, with the DCO choice to make |
-| `.github/pull_request_template.md` | `.github/` | PR description fields, and a maintainer checkbox for the pre-merge leak gate run |
+| `.github/pull_request_template.md` | `.github/` | PR description fields, opening with an At a glance for non-contributors, and a maintainer checkbox for the pre-merge leak gate run |
 | `.github/ISSUE_TEMPLATE/config.yml` | `.github/ISSUE_TEMPLATE/` | Issue chooser whose contact link sends security reports away from public issues |
 
 Each skeleton links to the standard by absolute URL, for the same reason

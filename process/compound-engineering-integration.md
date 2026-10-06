@@ -11,7 +11,7 @@
 
 ## Scope
 
-This document describes how compound-engineering ([CE](https://github.com/EveryInc/compound-engineering-plugin), v3.x) realizes the six-layer AI architecture in the engineering-standards repository, and resolves the operational details that surface when CE coexists with these standards: artifact path conventions, issue-tracking ceremony scaling, branch-naming reconciliation, AI-review discipline, and ticket-tracking modes.
+This document describes how compound-engineering ([CE](https://github.com/EveryInc/compound-engineering-plugin), v3.x) realizes the six-layer AI architecture in the engineering-standards repository, and resolves the operational details that surface when CE coexists with these standards: artifact path conventions, issue-tracking ceremony scaling, branch-naming reconciliation, AI-review discipline and the ready-to-merge comment, and ticket-tracking modes.
 
 For the architecture itself, see [`ai/claude-code/README.md`](../ai/claude-code/README.md). This doc is the operational complement.
 
@@ -152,6 +152,42 @@ For solo + AI work, the human-reviewer slot in branch protection is replaced by 
 Where a human reviewer is available, these classes take human approval and the additions above do not substitute for it. Adopters who follow the discipline understand they are trading the remaining failure modes for the speed of solo work. When a human reviewer onboards, the standards' "Require at least 1 approval" rule re-engages and AI review becomes complementary.
 
 [`process/git-branching-strategy.md`](./git-branching-strategy.md) carries a one-line note in its branch protection block pointing at this discipline.
+
+### The ready-to-merge comment
+
+When the merge decision belongs to someone other than the author, as with an [operator](./repository-standards.md#guarding-repository-authority) who merges what agent sessions build, the last thing posted before the merge is a ready-to-merge comment on the pull request. It is for contributors and carries the Done-gate record only. The plain-language summary for everyone else is the [At a glance](./git-branching-strategy.md#at-a-glance) that opens the pull request description; it is not repeated here. Like the discipline above, the comment is a record, not something that blocks the merge.
+
+**Who and when.** The lead, meaning the session that coordinates the implementers and checks their work ([#49](https://github.com/rmorison/engineering-standards/issues/49)), posts it; at solo scale, the author does. It names the head commit being merged and is posted only after every gate has passed on that head. A push after it makes it stale, so a fresh comment is posted on the new head.
+
+**The Done-gate record.** One bullet per gate that applies, each stated on the head:
+
+- **At a glance:** the description's [At a glance](./git-branching-strategy.md#at-a-glance) is current on the head, within the word limits (Spec drift may be exactly "None.").
+- **CI:** the conclusions of every check on the head, not only that the checks ran.
+- **Review:** each round, with a one-line summary, and where its answers are recorded: the PR body's disposition record or an answer comment. The per-finding detail lives there, not here, so the two records cannot disagree.
+- **Acceptance:** where the pull request closes an issue, each of its criteria, MET or not, with the evidence. Otherwise the plan's criteria, or omit.
+- **closingIssuesReferences:** the issues GitHub will close on merge, as intended. **Names:** where the project names people by role, none are named.
+- **Private-value scan:** where the project keeps a private value list, the scan over the pull request's commits, run from the default branch's checkout.
+- **Residuals:** what is left, and where it is filed, or none.
+- **ce-compound:** the decision: done, deferred to when, or not needed.
+- **Other gates:** any gate this change needed, such as an adopter's test, an importer's suite or an overlap check, each with its result on the head.
+- **After the merge:** any step someone must take, such as re-installing a hook.
+
+**Skeleton** to copy:
+
+```markdown
+**Ready for <who merges> to merge (Done gate, head <sha>).**
+
+- **At a glance:** <current on <sha>; Problem <n>, Spec drift <n, or None.>, Solution <n> words>
+- **CI:** <every check's conclusion on <sha>>
+- **Review:** <each round in one line, and where its answers are recorded>
+- **Acceptance (#<n>):** <each criterion: MET or not, with the evidence, or omit>
+- **closingIssuesReferences:** <[n]>. **Names:** <none>
+- **Private-value scan:** <command and range: exit code, or omit>
+- **Residuals:** <what is left, and where it is filed, or none>
+- **ce-compound:** <done, deferred to when, or not needed>
+- **Other gates:** <each gate this change needed, with its result, or omit>
+- **After the merge:** <any step someone must take, or omit>
+```
 
 ---
 

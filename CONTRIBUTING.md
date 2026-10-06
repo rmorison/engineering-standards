@@ -8,6 +8,8 @@ Contributions are accepted under the repository's [MIT license](LICENSE): inboun
 
 ## Before You Open a Pull Request
 
+Open the description with At a glance; see [Git Branching Strategy § PR Description](process/git-branching-strategy.md#pr-description).
+
 Every pull request runs the checks below in CI. Running them first saves a round trip. They need Node 22, Python 3.10 or later, and the pinned gitleaks, which `sh scripts/install-gitleaks.sh` installs as [Adopting the Gate](process/repository-standards.md#adopting-the-gate) describes.
 
 ```bash

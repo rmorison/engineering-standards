@@ -97,7 +97,7 @@ Bugs fall into categories that determine the level of process needed:
 #### Simple Bugs (1-2 points)
 **Process**: Fix and PR, no separate documentation needed
 
-**PR Description must include:**
+**PR Description must include** these sections after the [At a glance](./git-branching-strategy.md#at-a-glance) every pull request opens with. At a glance's Problem is for someone who uses the repository; the one here is the technical account, with the root cause and fix that follow it.
 - **Problem**: What was broken?
 - **Root cause**: Why did it happen?
 - **Fix**: What changed?
