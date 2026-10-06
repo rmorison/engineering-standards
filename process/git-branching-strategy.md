@@ -73,7 +73,7 @@ gitGraph
 1. Create issue, assign labels
 2. Create branch from issue (GitHub auto-names it)
 3. Develop and commit iteratively
-4. Open pull request when ready (auto-links to issue)
+4. Open pull request when ready, naming the issue in the body (`Closes #<n>` or `Part of #<n>`, see step 6)
 5. Merge to `main` when approved and CI passes
 6. GitHub closes the issue only through one of these routes, and none is automatic:
    - **PR body**: a closing keyword for the issue (`Closes #<n>`) in the body of a pull request that targets the default branch, acting when it merges. A pull request that is only part of an issue says `Part of #<n>` and carries no closing keyword before the issue number anywhere, quoted text included.
@@ -113,13 +113,13 @@ Choose rebase (cleaner history) or merge (preserves history) and use consistentl
 
 ### Merging to Main
 
-1. Open pull request (links to issue automatically)
+1. Open pull request, naming the issue in the body (`Closes #<n>` or `Part of #<n>`)
 2. Get review approval and passing CI
 3. **Squash and merge** (recommended) - creates clean single commit per issue
 4. The issue closes only if a pull request into the default branch carries a closing keyword for it or is linked to it, or a commit message on `main` does, and the branch is deleted only with the auto-delete setting on (see [Feature Branches](#feature-branches), Lifecycle step 6)
 
 **Note on squash merging**: When you squash and merge, all individual commits on the branch are combined into a single commit. This means:
-- Individual commit messages are preserved in the squashed commit body
+- Individual commit messages are preserved in the squashed commit body under GitHub's default squash-message setting; another setting, or an edit at merge time, can drop them (and any closing keywords in them, see [Lifecycle](#feature-branches) step 6)
 - The PR title is what GitHub builds the final commit message summary from (see [PR Title](#pr-title))
 - Write clear, incremental commits during development for your own tracking
 - Write the PR title to the format in [Commit Messages](#commit-messages); [PR Title](#pr-title) covers exactly how it reaches `main`
