@@ -103,6 +103,12 @@ Operational reference for adopting [compound-engineering](https://github.com/Eve
 
 An opt-in operating model for one human directing several AI agent sessions: the operator signs off and merges, a lead coordinates, and one worker runs each ticket. Covers roles, the sprint loop, traffic between parallel tickets, a worker handoff template, the lead's Done-gate checklist, operator interaction (quiet mode), and how to adopt or decline it.
 
+**Quick start**, for a new or existing project:
+
+1. Install both hooks: [the leak hook](./process/repository-standards.md#guarding-agent-sessions) and [the policy hook](./process/repository-standards.md#guarding-repository-authority).
+2. Add [the adoption line](./process/agent-team-workflow.md#8-adopting-and-declining) to the project's `CLAUDE.md` or `AGENTS.md`.
+3. Open a session with [the opening prompt](./process/agent-team-workflow.md#starting-a-team); it becomes the lead and proposes a first sprint.
+
 ### [Agent Transcripts](./agent-transcripts/)
 
 Conversation logs documenting the development and evolution of these standards through AI agent collaboration.
@@ -187,6 +193,7 @@ Modern development increasingly involves AI coding assistants. These standards w
 3. Add architecture decisions to `docs/engineering/adr/` as you make them
 4. Follow the feature development workflow for new features
 5. If adopting compound-engineering, see [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for path mapping (CE adds `docs/plans/`, `docs/solutions/`, `docs/ideation/` to the documentation tree) and review discipline.
+6. To run an agent team, follow the [Agent Team Workflow quick start](#agent-team-workflow).
 
 ### For Existing Projects
 
@@ -194,6 +201,7 @@ Modern development increasingly involves AI coding assistants. These standards w
 2. Start with ADRs to document new decisions going forward
 3. Write specs for next features to validate the approach
 4. Update standards based on what works and what doesn't
+5. To run an agent team, follow the [Agent Team Workflow quick start](#agent-team-workflow)
 
 ### When to Deviate
 
