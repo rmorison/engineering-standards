@@ -249,12 +249,13 @@ first sprint. Stop for my sign-off before starting any worker.
 
 **The lead's first moves, in order:**
 
-1. **Set up its board, log and handoffs** in the private, untracked location, as in [Lead hygiene](#7-lead-hygiene).
-2. **Check the [prerequisites](#9-prerequisites):** both hooks installed, and whether it can start and message sessions. If it can't start them, it says so: the operator will start workers by hand.
+1. **Set up its board, log and handoffs** in the private, untracked location, as in [Lead hygiene](#7-lead-hygiene), and check that its session is reachable as `<project>-lead`, renaming itself if the name didn't take ([Roles](#1-roles)).
+2. **Check each [prerequisite](#9-prerequisites)** and report any that is missing, with § 9's fallback where there is one. If it can't start sessions, the operator starts workers by hand. If sessions can't message each other, it says so and stops: pings depend on messaging.
 3. **Read the open issues and pull requests** on GitHub.
-4. **Propose a first sprint:** the tickets, their lanes by file overlap, the merge order and one worker per lane ([Traffic](#3-traffic)). Then it stops for the operator's sign-off.
+4. **Propose a first sprint:** the tickets, their lanes by file overlap and the merge order ([Traffic](#3-traffic)), with one worker per ticket. Then it stops for the operator's sign-off.
+5. **After sign-off,** it records the approved sprint on its board, writes each ticket's handoff from [the template](#4-the-worker-handoff), checks the usage window, and starts the workers, checking each is reachable by name. If it can't start sessions, it gives the handoffs to the operator.
 
-**What the operator does next.** Sign off the sprint, or edit it and sign off the edit. If the lead can't start sessions, start each worker by hand with the handoff the lead wrote. From then on [quiet mode](#6-operator-interaction) applies: the lead messages the operator only for a pull request ready to merge, a decision, a blocker or a leak.
+**What the operator does next.** Sign off the sprint, or edit it and sign off the edit. If the lead can't start sessions, start each worker by hand with the handoff the lead wrote. Each worker then posts a plan, and the lead brings it to the operator for sign-off ([the sprint loop](#2-the-sprint-loop)). [Quiet mode](#6-operator-interaction) is on throughout: the lead messages the operator only for a pull request ready to merge, a decision, a blocker or a leak.
 
 ---
 
