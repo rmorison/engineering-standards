@@ -261,7 +261,7 @@ first sprint. Stop for my sign-off before starting any worker.
 **The lead's first moves, in order:**
 
 1. **Set up its board, log and handoffs** in the private, untracked location, as in [Lead hygiene](#7-lead-hygiene), and check that its session is reachable as `<project>-lead`, renaming itself if the name didn't take ([Roles](#1-roles)).
-2. **Check each [prerequisite](#9-prerequisites)** and report any that is missing, with § 9's fallback where there is one. If it can't start sessions, the operator starts workers by hand. If sessions can't message each other, it says so and stops: pings depend on messaging.
+2. **Check each [prerequisite](#9-prerequisites)** and report any that is missing, with § 9's fallback where there is one. If it can't start sessions, the operator starts workers by hand. If sessions can't message each other, it says so and stops: pings depend on messaging. The one exception is a lead the operator chose to start on a host where messages reach sessions but replies can't come back, such as a cloud session started from a local one; there the lead relies on its scheduled GitHub check (§ 3) instead of pings, and says so.
 3. **Read the open issues and pull requests** on GitHub.
 4. **Propose a first sprint:** the tickets, their lanes by file overlap and the merge order ([Traffic](#3-traffic)), with one worker per ticket. Then it stops for the operator's sign-off.
 5. **After sign-off,** it records the approved sprint on its board, writes each ticket's handoff from [the template](#4-the-worker-handoff), checks the usage window, and starts the workers, checking each is reachable by name. If it can't start sessions, it gives the handoffs to the operator.

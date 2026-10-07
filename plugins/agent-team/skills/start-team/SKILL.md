@@ -34,7 +34,7 @@ The team needs sessions that can message each other (§ 9). Check that SendMessa
 
 Check each § 9 prerequisite without changing anything, and grade what you find:
 
-- **Both hooks** (warn if missing). `~/.claude/settings.json` registers `PreToolUse` commands running `claude_leak_hook.py` and `claude_policy_hook.py`, each ending in `|| exit 2`. Both scripts exist, and `python3 ~/.claude/hooks/claude_policy_hook.py --whoami` exits 0. No settings file that applies here switches hooks off: `disableAllHooks` set to `true` in `~/.claude/settings.json`, or in the main checkout's `.claude/settings.json` or `.claude/settings.local.json`, fails this check. Record whether this passed; step 7 needs it.
+- **Both hooks** (warn if missing). `~/.claude/settings.json` registers `PreToolUse` commands running `claude_leak_hook.py` and `claude_policy_hook.py`, each ending in `|| exit 2`. Both scripts exist, and `python3 ~/.claude/hooks/claude_policy_hook.py --whoami` exits 0. No settings file that applies here switches hooks off: `disableAllHooks` set to `true` in `~/.claude/settings.json`, in `.claude/settings.json` or `.claude/settings.local.json` under the main checkout or this session's own directory, or in a managed settings file where one exists, fails this check. So does any of those files that exists but can't be read. Record whether this passed; step 7 needs it.
 - **Plan review, code review and a learnings step** (warn if missing). `claude plugin list` shows `compound-engineering`, or the operator names their equivalents.
 - **A way to wake the lead on a schedule** (warn if missing). A tool such as CronCreate, ScheduleWakeup or send_later is available. Without one, the operator prompts the lead with "status?".
 - **One posting account** (warn if missing). `gh auth status` succeeds.
@@ -49,7 +49,7 @@ Otherwise add the adoption line, copied exactly from the fenced block under § 8
 
 ## 6. The board
 
-The lead keeps its board, log and handoffs in a private place outside the repository (§ 8 step 4). Use the board path in the lead record if there is one. Otherwise ask the operator, offering `~/.claude/agent-team/<project>/` as the default, and wait for the answer.
+The lead keeps its board, log and handoffs in a private place outside the repository (§ 8 step 4). Use the board path in the lead record if there is one. Otherwise ask the operator, offering `~/.claude/agent-team/<project>/` as the default, and wait for the answer. Resolve the answer to an absolute path, with no `~` left in it, and create the directory if it doesn't exist (`mkdir -p`).
 
 ## 7. Start the lead
 
@@ -63,7 +63,7 @@ You are <project>-lead, the lead for <project>. The Agent Team Workflow is at <w
 
 Try the routes in order, and take the first that works.
 
-**Route A, the Claude Code CLI.** Use this when `claude` is on PATH and this session can run shell commands. Write the filled opening prompt to `<board path>/opening-prompt.md`, then run this from the main checkout. Leave out `--permission-mode` when the mode is `default`:
+**Route A, the Claude Code CLI.** Use this when `claude` is on PATH and this session can run shell commands. Write the filled opening prompt to `<board path>/opening-prompt.md`. Check it was written and isn't empty (`test -s`); if it wasn't, Route A didn't work. Then run this from the main checkout. Leave out `--permission-mode` when the mode is `default`:
 
 ```bash
 claude --bg --agent agent-team:lead -n <project>-lead --permission-mode <mode> "$(cat "<board path>/opening-prompt.md")"
@@ -73,7 +73,7 @@ Never paste the prompt into the command line itself. The command prints the sess
 
 The lead is up once `claude agents --json` lists it under its name. If it runs in `auto` or `acceptEdits`, also send it a SendMessage asking for its role and check the reply. In default mode it may be `blocked` on its first prompt, which is expected. Leave the role check to the operator once they attach.
 
-**Route B, a host session tool.** Use this when a session-start tool such as `create_session` is available (Claude Code on the web, Remote Control). Start a session titled `<project>-lead` in the same environment and repository. Set its permission mode explicitly to `default`, by the rule above, rather than letting it inherit this session's. Fill the opening prompt again with `default` as its mode, even if Route A was tried with another. Before starting it, tell the operator what a cloud lead can't do (below) and ask whether to go ahead: the workflow stops a team whose sessions can't message each other, and a cloud lead's messaging is one-way, so this is their call. If they decline, go to Route C. Its prompt is:
+**Route B, a host session tool.** Use this when a session-start tool such as `create_session` is available (Claude Code on the web, Remote Control). Start a session titled `<project>-lead` in the same environment and repository. Set its permission mode explicitly to `default`, by the rule above, rather than letting it inherit this session's. Fill the opening prompt again with `default` as its mode, even if Route A was tried with another. Before starting it, tell the operator what a cloud lead can't do (below) and ask whether to go ahead: the workflow stops a team whose sessions can't message each other, and a cloud lead's messaging is one-way, so this is their call. If they decline, go to Route C only if this session runs on the operator's own machine; otherwise stop, since a cloud session as lead has the same one-way messaging. Its prompt is:
 
 ```text
 Take on the lead role: read agents/lead.md from the agent-team plugin if it is installed in your session, or else from https://github.com/rmorison/engineering-standards/blob/main/plugins/agent-team/agents/lead.md. Then: <opening prompt>
@@ -83,7 +83,7 @@ The lead is up once ListAgents or the host's session list shows it. Record the a
 
 Tell the operator what a cloud lead can't do. It receives messages, but it can't send them back to local sessions, so its pings and quiet-mode messages never arrive; the operator reads it in the host's session view. It may also have no session-start tool of its own, in which case it gives the operator each worker's handoff and start command. Workers in the same cloud have the same one-way messaging, so their pings to the lead are lost too; the lead falls back to its scheduled GitHub check (§ 3).
 
-**Route C, this session becomes the lead.** Use this when neither route works. First compare this session's own permission mode with the mode the rule above gives. If this session runs in `bypassPermissions`, or in a mode higher than that rule gives (for example `auto` while the hooks failed), tell the operator and ask them to lower it, with Shift+Tab or by restarting the session, before going on; if they don't, stop. Then say plainly that this session is now `<project>-lead` and that its role was not loaded at start, so it holds only by what follows. Read the lead role at the URL in Route B and act as it from here on, taking the filled opening prompt as your own, with its permission mode for the sessions you start. Rename this session to `<project>-lead` if you can. If this session has already done a lot of other work, say that a fresh session would make a better lead. Give the operator the Route A command, so they can start a role-loaded lead later from a terminal in the main checkout.
+**Route C, this session becomes the lead.** Use this when neither route works, or when the operator declined Route B and this session runs on their own machine. First check this session's own permission mode. If its context doesn't state the mode, or the mode is anything other than the one the rule above gives, tell the operator and ask them to set this session to that mode (Shift+Tab, or restart the session) and confirm it before going on; if they don't, stop. Then say plainly that this session is now `<project>-lead` and that its role was not loaded at start, so it holds only by what follows. Read the lead role at the URL in Route B and act as it from here on, taking the filled opening prompt as your own, with its permission mode for the sessions you start. Rename this session to `<project>-lead` if you can. If this session has already done a lot of other work, say that a fresh session would make a better lead. Write the filled opening prompt to `<board path>/opening-prompt.md` as Route A does, and give the operator the Route A command, so they can start a role-loaded lead later from a terminal in the main checkout.
 
 ## 8. Record the lead
 

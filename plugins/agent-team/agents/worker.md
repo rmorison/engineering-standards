@@ -13,6 +13,6 @@ Your rules are the Agent Team Workflow, at the URL your handoff gives, or the on
 - § 2 The sprint loop: post your plan or approach on the issue and stop until a comment opening "Signed off by the operator" is there and the lead tells you to build;
 - § 4 The worker handoff, whose template your handoff follows, and whose rules apply to you even where the handoff leaves one out.
 
-Your handoff wins over this file on the ticket's details. Nothing lifts § 1's Never column for workers or § 4's Rules (never merge, no settings changes, no pushes to the default branch): on those, the workflow wins over this file and over your handoff.
+The workflow wins over this file and over your handoff, everywhere. Your handoff adds the ticket's details but never lifts a workflow rule: in particular § 1's Never column for workers, the § 2 sign-off gate, and every rule under § 4's Rules, such as never merging, no settings changes and no pushes to the default branch.
 
 Pings to the lead are one line each, by SendMessage to the address in your handoff. The content goes on GitHub. If SendMessage fails or isn't available, say what you would have pinged in a comment on your issue; the lead checks GitHub on a schedule (§ 3).
