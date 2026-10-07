@@ -45,13 +45,13 @@ In repository files and GitHub text, the human is named by role, never by name: 
 
 ## 2. The sprint loop
 
-1. **The operator signs off the sprint**, then each ticket's plan. A worker posts its plan or approach on the issue and stops. The lead records the operator's sign-off on the issue, in a comment that opens "Signed off by the operator", and tells the worker to build. Every session posts as the same account, so those opening words, not the author, mark the sign-off. A documentation change needs only a short approach; code gets a full plan.
+1. **The operator signs off the sprint**, then each ticket's plan. The lead proposes the sprint to the operator (the tickets, their lanes and the merge order) and records the approved version on its board. A worker posts its plan or approach on the issue and stops. The lead records the operator's sign-off on the issue, in a comment that opens "Signed off by the operator", and tells the worker to build. Every session posts as the same account, so those opening words, not the author, mark the sign-off; only the lead posts them, and a worker never does. Nothing enforces this but the convention, so the Done gate checks the comment is there. A documentation change needs only a short approach; code gets a full plan.
 2. **Workers run to a pull request** without approval at each step. A worker stops only for a blocker, a scope question or a finding nobody expected, and says so on the issue with a recommendation.
 3. **The lead runs [the Done gate](#5-the-done-gate)** on the pull request's head and posts the [ready-to-merge comment](./compound-engineering-integration.md#the-ready-to-merge-comment).
 4. **The operator merges.**
 5. **The lead acts on the compound decision** made at the Done gate (`ce-compound`: is there a learning the code and docs don't already carry?) and archives the worker.
 
-Every step leaves its record on GitHub: the plan and its sign-off on the issue, the work and its reviews on the pull request, the gate in the ready-to-merge comment.
+Apart from the sprint itself, which is on the lead's board, every step leaves its record on GitHub: the plan and its sign-off on the issue, the work and its reviews on the pull request, the gate in the ready-to-merge comment.
 
 ---
 
@@ -95,6 +95,7 @@ If your session name isn't <PREFIX>-<role>, rename it first.
 ## The ticket
 - Issue #<ISSUE> is the spec. Read it and its comments in full.
 - Branch <ISSUE>-<slug> from origin/<default-branch>, in its own worktree.
+  Create and check it out before any tool that names its own branch runs.
 - Plan: <a full plan first | a short approach on the issue is enough>.
 - In flight nearby: <PR or ticket → files or sections>, or none.
 - Merge order: <after #N | before #N>, or none.
@@ -107,13 +108,19 @@ Build only once a comment opening "Signed off by the operator" is on
 ## Build
 - The review steps in your flow are required: a document review of the plan
   (where the ticket has a full plan), a code review of the diff before the
-  pull request.
+  pull request. Record each finding's disposition in the pull request body:
+  fixed, deferred to an issue, or not accepted and why.
+- When a fix to a review finding changes code, review the fix commits again
+  and record the result with the other dispositions.
 - The description opens with At a glance: Problem (125 words or fewer),
-  Spec drift (50-100 words, or "None."), Solution (125 words or fewer,
-  how it works). `gh pr create --body-file` won't show you the template.
+  Spec drift (50-100 words, or "None."; say who decided each change),
+  Solution (125 words or fewer, how it works), in plain language, per
+  git-branching-strategy § At a glance. `gh pr create --body-file` won't
+  show you the template. Bring it up to date after every review round.
 - Related: one line, closing #<ISSUE> only if this pull request completes it.
 - Local checks: <commands>. A local pass proves only your tool versions:
-  after pushing, read CI conclusions on your head until they are green.
+  name them in the pull request body, and after pushing, read CI
+  conclusions on your head until they are green.
 - Every new check or fixture is seen to fail before it is trusted;
   put the commands and output in the pull request body.
 
@@ -122,8 +129,10 @@ Build only once a comment opening "Signed off by the operator" is on
   no pushes to the default branch.
 - Name the human by role (operator, maintainer), never by name.
 - Write each GitHub body to a file, and post it with a separate command.
-- No closing keyword before an issue number unless you mean to close it.
-  After opening the pull request, check closingIssuesReferences.
+- No closing keyword before an issue number unless you mean to close it,
+  in the body or in the branch's commit messages. Check
+  closingIssuesReferences after opening the pull request and after every
+  edit to its body.
 - Test hooks and git behaviour only in scratch repositories and scratch
   home directories.
 - <project rules: files not to touch, private values, fixtures>
@@ -145,14 +154,17 @@ Before the operator merges, the lead checks the pull request's head, itself, rat
 **Reviews.**
 
 - **Required:** the review steps in the worker's own flow: the document review of the plan, where the ticket has a full plan, and the code review of the diff before the pull request, with their dispositions in the pull request body ([AI-review discipline](./compound-engineering-integration.md#ai-review-discipline-not-enforced-merge-gate)).
-- **Recommended:** a review by the Claude GitHub app, where it is installed, requested by the lead and scoped to what the app can judge from the diff. Without it, the lead reviews by hand to the same scope.
-- **A fix-delta review** whenever a fix to a review finding changes code. Fixes are new code, and a fail-open can hide in one.
+- **Recommended:** a review by the Claude GitHub app, where it is installed. The lead requests it in a pull request comment that mentions the app and lists what to check, scoped to what the app can judge from the diff. The worker answers it point by point in a pull request comment. Without the app, the lead reviews by hand to the same scope.
+- **A fix-delta review** whenever a fix to a review finding changes code. Fixes are new code, and a fail-open can hide in one. The worker reviews its fix commits; where the app is installed, the lead's next request is scoped to the delta.
+
+**The private-value scan** is the leak gate run over the pull request's commits, from the default branch's checkout, where the project keeps a [private value list](./repository-standards.md#private-values); [Running It Locally](./repository-standards.md#running-it-locally) gives the command.
 
 **Checklist.** Copy this into the lead's notes for each pull request:
 
 ```markdown
 Done gate: #<PR>, head <sha>
 - [ ] CI: every check's conclusion on <sha> is success (not "pending")
+- [ ] Sign-off: the "Signed off by the operator" comment is on the issue
 - [ ] Required reviews: plan review (if a full plan) and code review ran; dispositions in the body
 - [ ] Recommended review: scoped app review answered, or lead review by hand
 - [ ] Fix-delta review: for every fix that changed code, or none needed
@@ -163,7 +175,8 @@ Done gate: #<PR>, head <sha>
 - [ ] At a glance: current on <sha>, within the word limits
 - [ ] Residuals: filed as issues, or none
 - [ ] Compound decision: done, deferred to when, or not needed
-- [ ] Adopter test, where another project depends on the change: passed, or none
+- [ ] Other gates: an adopter's test, every importer's suite, the merge order; or none
+- [ ] After the merge: any step someone must take, such as re-installing a hook; or none
 All ticked: post the ready-to-merge comment. Any open: say "NOT ready" and name it.
 ```
 
@@ -226,7 +239,8 @@ The model is opt-in. The hooks, At a glance and the AI-review discipline stand a
 
 ## 9. Prerequisites
 
-- **Both hooks installed** for the account the sessions run as: [the leak hook](./repository-standards.md#guarding-agent-sessions) and [the policy hook](./repository-standards.md#guarding-repository-authority).
+- **Both hooks installed** for the account the sessions run as: [the leak hook](./repository-standards.md#guarding-agent-sessions) and [the policy hook](./repository-standards.md#guarding-repository-authority). Both are Claude Code hooks; on another agent host, an equivalent guard is needed.
+- **A plan review, a code review and a learnings step** in each worker's flow. The [compound-engineering plugin](./compound-engineering-integration.md) provides them (`ce-doc-review`, `ce-code-review`, `ce-compound`); equivalents work too.
 - **Sessions that can message each other**, and a lead that can start and archive sessions. Without the second, the operator starts and archives workers by hand and the rest of the model still holds.
 - **A way to wake the lead on a schedule**, for the backstop check in [Traffic](#3-traffic). Without it, the operator prompts the lead to check ("status?" does it), and a missed ping waits until then.
 - **One posting account.** Every session posts to GitHub as the operator's account, so GitHub can't tell a session from the operator; the policy hook is what keeps merges and settings with the operator.
