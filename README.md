@@ -6,6 +6,51 @@ Lightweight development practices and standards for software projects.
 
 This repository defines engineering standards for building software. The standards are intentionally lightweight to support early-stage agile development while providing enough structure to maintain quality and enable effective collaboration—both human-to-human and human-to-AI.
 
+## Quickstart
+
+Each step is one line here, and its link holds the detail.
+
+### New Project
+
+1. **Starter kit.** Copy `templates/.claude/` and `templates/CLAUDE.md` into the project root, then fill `CLAUDE.md` in: [Project Templates](#project-templates). The `SECURITY.md`, `CONTRIBUTING.md` and `.github/` skeletons are optional: [Repository baseline files](./templates/README.md#repository-baseline-files).
+2. **Docs tree.** Create `docs/product/` and `docs/engineering/adr/`, and write a strategic vision in `docs/product/strategic-vision.md`: [Documentation Standards](./process/documentation-standards.md#directory-structure).
+3. **Leak gate in CI.** Copy the files listed in [Adopting the Gate](./process/repository-standards.md#adopting-the-gate), `.github/workflows/leaks.yml` included.
+4. **Leak gate on each machine.** From the project root, install the pinned gitleaks:
+
+   ```bash
+   sh scripts/install-gitleaks.sh
+   ```
+
+   Then add the commit-time and push-time hooks from [Running It Locally](./process/repository-standards.md#running-it-locally).
+5. **Agent-session hooks**, if agents work on the project. Once per OS account, from the default branch's checkout of this repository, copy the leak hook and the policy hook:
+
+   ```bash
+   mkdir -p ~/.claude/hooks && install -m 755 scripts/claude_leak_hook.py scripts/claude_policy_hook.py ~/.claude/hooks/
+   ```
+
+   Then register both in `~/.claude/settings.json`: [Guarding Agent Sessions](./process/repository-standards.md#guarding-agent-sessions) and [Guarding Repository Authority](./process/repository-standards.md#guarding-repository-authority).
+6. **Pull requests.** Branch from issues, use conventional commits, and open every pull request description with At a glance: [PR Description](./process/git-branching-strategy.md#pr-description).
+7. **Feature work.** Follow the [Feature Development Workflow](#feature-development-workflow). If you adopt compound-engineering, see [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for its paths (`docs/plans/`, `docs/solutions/`, `docs/ideation/`) and review discipline.
+8. **Run an agent team** (optional). Add the adoption line to `CLAUDE.md` or `AGENTS.md`, and start a lead with the opening prompt: [Starting a team](./process/agent-team-workflow.md#starting-a-team). Steps 5 and 6 are its prerequisites.
+
+### Existing Project
+
+Each step stands alone, so adopt one at a time, in this order. Don't retrofit everything at once.
+
+1. **Pull requests.** Open every pull request description with At a glance: [PR Description](./process/git-branching-strategy.md#pr-description). It changes no files; to back out, stop.
+2. **Agent-session hooks.** Run the copy command in new-project step 5 and register both hooks. They change only the account's `~/.claude/`, never the repository; to back out, remove their entries from `~/.claude/settings.json`.
+3. **Leak gate in CI.** Copy the files as in new-project step 3, install gitleaks with new-project step 4's command, and scan the existing history once before the first push. CI scans the whole tree, and this also finds what earlier commits already published:
+
+   ```bash
+   sh scripts/leak-gate.sh history
+   ```
+
+   Fix what it finds: [When a Leak Is Found](./process/repository-standards.md#when-a-leak-is-found). The step adds the copied files and a workflow; to back out, delete them.
+4. **Leak gate on each machine.** Add the commit-time and push-time hooks from [Running It Locally](./process/repository-standards.md#running-it-locally), or its pre-commit framework entries if the project already uses that framework. To back out, delete the hook files or the entries.
+5. **Starter kit.** Merge `templates/.claude/` and `templates/CLAUDE.md` into the project's own rather than overwriting them: [Project Templates](#project-templates). To back out, revert the commit.
+6. **Docs, going forward.** Record new decisions as ADRs, and write specs for the next features to validate the approach: [Documentation Standards](./process/documentation-standards.md). Update the standards based on what works.
+7. **Run an agent team** (optional), as in new-project step 8. To stop, remove the adoption line and archive the lead.
+
 ## Repository Structure
 
 - **[process/](./process/)** - Software process and SDLC standards (workflows, git, planning, documentation)
@@ -103,11 +148,7 @@ Operational reference for adopting [compound-engineering](https://github.com/Eve
 
 An opt-in operating model for one human directing several AI agent sessions: the operator signs off and merges, a lead coordinates, and one worker runs each ticket. Covers roles, the sprint loop, traffic between parallel tickets, a worker handoff template, the lead's Done-gate checklist, operator interaction (quiet mode), and how to adopt or decline it.
 
-**Quick start**, for a new or existing project:
-
-1. Install both hooks: [the leak hook](./process/repository-standards.md#guarding-agent-sessions) and [the policy hook](./process/repository-standards.md#guarding-repository-authority).
-2. Add [the adoption line](./process/agent-team-workflow.md#8-adopting-and-declining) to the project's `CLAUDE.md` or `AGENTS.md`.
-3. Open a session with [the opening prompt](./process/agent-team-workflow.md#starting-a-team); it becomes the lead and proposes a first sprint.
+To start one, see [Quickstart](#quickstart).
 
 ### [Agent Transcripts](./agent-transcripts/)
 
@@ -183,25 +224,6 @@ Modern development increasingly involves AI coding assistants. These standards w
 - Small scopes reduce AI errors
 - Validation catches AI-generated bugs
 - Iteration is cheaper with AI assistance
-
-## Applying These Standards
-
-### For New Projects
-
-1. Create `docs/` directory with `product/` and `engineering/` subdirectories
-2. Write a strategic vision in `docs/product/strategic-vision.md`
-3. Add architecture decisions to `docs/engineering/adr/` as you make them
-4. Follow the feature development workflow for new features
-5. If adopting compound-engineering, see [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for path mapping (CE adds `docs/plans/`, `docs/solutions/`, `docs/ideation/` to the documentation tree) and review discipline.
-6. To run an agent team, follow the [Agent Team Workflow quick start](#agent-team-workflow).
-
-### For Existing Projects
-
-1. Introduce standards gradually—don't retrofit everything at once
-2. Start with ADRs to document new decisions going forward
-3. Write specs for next features to validate the approach
-4. Update standards based on what works and what doesn't
-5. To run an agent team, follow the [Agent Team Workflow quick start](#agent-team-workflow)
 
 ### When to Deviate
 
