@@ -228,12 +228,34 @@ The model is opt-in. The hooks, At a glance and the AI-review discipline stand a
    This project runs an agent team (see [Agent Team Workflow](https://github.com/rmorison/engineering-standards/blob/main/process/agent-team-workflow.md)): the operator starts one lead session with that document, and the lead starts each worker with a handoff.
    ```
 
-3. Start a lead session and point it at this document.
+3. Start a lead session and point it at this document, as in [Starting a team](#starting-a-team).
 4. Give the lead a private, untracked place for its board, log and handoffs.
 
 **Partial adoption is fine:** the guardrails and At a glance without a lead, or a lead with one worker at a time.
 
 **To decline or stop:** remove the line and archive the lead. Nothing in the repository depends on the model.
+
+### Starting a team
+
+**The opening prompt.** The operator starts a new session and types something like:
+
+```text
+You are <project>-lead, the lead for <project>. This project runs an agent team:
+read the adoption line in CLAUDE.md (or AGENTS.md) and the Agent Team Workflow
+it links to, and act as the lead it describes. Keep your board, log and handoffs in <private path>.
+Check the prerequisites, read the open issues and pull requests, and propose a
+first sprint. Stop for my sign-off before starting any worker.
+```
+
+**The lead's first moves, in order:**
+
+1. **Set up its board, log and handoffs** in the private, untracked location, as in [Lead hygiene](#7-lead-hygiene), and check that its session is reachable as `<project>-lead`, renaming itself if the name didn't take ([Roles](#1-roles)).
+2. **Check each [prerequisite](#9-prerequisites)** and report any that is missing, with § 9's fallback where there is one. If it can't start sessions, the operator starts workers by hand. If sessions can't message each other, it says so and stops: pings depend on messaging.
+3. **Read the open issues and pull requests** on GitHub.
+4. **Propose a first sprint:** the tickets, their lanes by file overlap and the merge order ([Traffic](#3-traffic)), with one worker per ticket. Then it stops for the operator's sign-off.
+5. **After sign-off,** it records the approved sprint on its board, writes each ticket's handoff from [the template](#4-the-worker-handoff), checks the usage window, and starts the workers, checking each is reachable by name. If it can't start sessions, it gives the handoffs to the operator.
+
+**What the operator does next.** Sign off the sprint, or edit it and sign off the edit. If the lead can't start sessions, start each worker by hand with the handoff the lead wrote. Each worker then posts a plan, and the lead brings it to the operator for sign-off ([the sprint loop](#2-the-sprint-loop)). [Quiet mode](#6-operator-interaction) is on throughout: the lead messages the operator only for a pull request ready to merge, a decision, a blocker or a leak.
 
 ---
 
