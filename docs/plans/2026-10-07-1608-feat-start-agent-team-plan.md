@@ -112,7 +112,7 @@ Each decision cites the scratch runs in the Appendix. All runs used Claude Code 
 | Route | Detect | Start | Confirm |
 |---|---|---|---|
 | A. Local CLI | `claude` on PATH and `claude agents --json` succeeds | `claude --bg --agent agent-team:lead -n <project>-lead "<opening prompt>"` from the project root | the name appears in `claude agents --json` and in ListAgents; the lead answers a SendMessage with its role |
-| B. Host session tool | a `create_session` tool is in the session's tool list (Claude Code on the web, Remote Control) | `create_session` titled `<project>-lead`, prompt telling it to load the lead role from its URL (KTD4) | ListAgents shows it; record its address, since the title may not become its ListAgents name (E6) |
+| B. Host session tool | a `create_session` tool is in the session's tool list (Claude Code on the web, Remote Control) | `create_session` titled `<project>-lead`, prompt telling it to load the lead role from its URL (KTD4) | ListAgents shows it; record its address, since the title becomes its ListAgents name only after a delay (E6) |
 | C. Fallback | neither route works | the current session reads the lead role and acts as the lead for the rest of the session | it says so, renames itself if it can, and prints the Route A command for a role-loaded lead later |
 
 Messaging is checked first: without SendMessage and ListAgents, the skill reports § 9's "sessions can't message each other" and stops, as § 8's walkthrough already does. Route A refuses in an untrusted workspace (E3); the skill reports why and moves to the next route rather than retrying. Evidence: E3, E5, E6.
@@ -135,7 +135,7 @@ Subagent nesting matters only if workers ran as subagents, which they don't. For
 
 ### Key Technical Decisions
 
-- KTD1. **Re-run safety.** Before anything else, start-team reads the lead record (KTD9) and looks up `<project>-lead` in `claude agents --json --all` and ListAgents. The record matters because a Route B or C lead may not be listed under that name (E6). A live lead is reported, with the command to reach it; nothing starts (R5). An exited one is named, and start-team starts a fresh lead that resumes from the board path in the record.
+- KTD1. **Re-run safety.** Before anything else, start-team reads the lead record (KTD9) and looks up `<project>-lead` in `claude agents --json --all` and ListAgents. The record matters because a Route B lead may be listed under another name for a while (E6), and a Route C lead may not have renamed itself. A live lead is reported, with the command to reach it; nothing starts (R5). An exited one is named, and start-team starts a fresh lead that resumes from the board path in the record.
 - KTD2. **Project name.** The repository name from `gh repo view --json name`, else the basename of the main checkout (`git rev-parse --git-common-dir`'s parent), never the worktree directory. Route A starts the lead from that main checkout. A found session counts as this project's lead when its directory is the main checkout or one of its worktrees; a session of that name anywhere else is a collision: report and stop.
 - KTD3. **Permission mode of a started session.** A background session in manual mode blocks on its first prompt with no one attached (E5). The starting session passes its own permission mode when it is `auto` or `acceptEdits` and the hook prerequisite passed; otherwise it passes the default mode and tells the operator `claude attach <id>`. It never passes `bypassPermissions`. The rule covers every start: the lead by Route A (`--permission-mode`) and Route B (`create_session`'s `permission_mode`, set explicitly rather than inherited), and each worker the lead starts (KTD7). A session started in the default mode counts as up once it is listed, even if `blocked`; its in-role check waits until the operator attaches. When the starting session can't tell its own mode, it uses the default.
 - KTD4. **By reference.** The role files say what the role is and link to the workflow document's sections; they quote no rule. The workflow URL is read from the project's adoption line, so a pinned commit is honoured; the plugin's default URL applies only when there is no line. start-team passes the resolved URL in the opening prompt and in every worker start. Route B and C sessions load the role by reading `agents/lead.md` from the installed plugin, else from its GitHub URL at the plugin's own ref (its `plugin.json` version tag or marketplace ref), never the adoption line's ref, which may predate the plugin.
@@ -187,7 +187,7 @@ docs/engineering/adr/0002-agent-team-roles.md
 ### Risks & Dependencies
 
 - `--bg`, `claude agents` and plugin `--agent` names are recent CLI surfaces; flags can move between versions. Each claim names the version it was seen on (`docs/solutions/best-practices/a-local-pass-proves-only-the-tool-versions-it-ran-on.md`).
-- A bridge or cloud session's title may not be its ListAgents name (E6). Workers' pings must reach the lead, so the lead records its own address on its board and puts it in every handoff.
+- A bridge or cloud session's title becomes its ListAgents name only after a delay (E6), and other hosts may not apply it at all. Workers' pings must reach the lead, so the lead records its own address on its board and puts it in every handoff.
 - #106 restructures `README.md`; U7 waits for its merge and a rebase.
 
 ---
@@ -337,6 +337,6 @@ docs/engineering/adr/0002-agent-team-roles.md
 - E3. `claude --bg` in a directory that was never trusted: "Workspace not trusted. Run `claude` in <dir> once and accept the trust prompt, then retry." Inside a trusted tree it started.
 - E4. `--plugin-dir` with a scratch `agent-team` plugin: `--agent agent-team:lead` gave the plugin role's canary; `/agent-team:start-team` ran the plugin skill.
 - E5. `claude --bg --agent team-lead -n scratchproj-lead`: listed by `claude agents --json` (kind background) and by ListAgents; banner showed `@team-lead`; it printed its canary. Under a model without auto mode it fell to manual mode and showed state `blocked` while idle.
-- E6. A SendMessage from this session reached `scratchproj-lead`, which replied with its canary by SendMessage. This session was started by `create_session` with title ES-roles, but its ListAgents name is the bridge-generated one.
+- E6. A SendMessage from this session reached `scratchproj-lead`, which replied with its canary by SendMessage. This session was started by `create_session` with title ES-roles. About a minute in, ListAgents still gave it the bridge-generated name; about an hour later it listed it as ES-roles.
 - E7. `--agent team-lead --permission-mode bypassPermissions` asked to run `gh pr merge` on a canary repository: the user-scope policy hook blocked it.
 - E8. In a scratch HOME: `claude plugin marketplace add <dir>` and `claude plugin install agent-team@es-scratch --scope user` succeeded; the settings written were the scratch HOME's.
