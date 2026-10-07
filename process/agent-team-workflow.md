@@ -71,7 +71,7 @@ A handoff is everything a worker needs that the issue doesn't say: where to work
 
 The rules in the template, and why each is there:
 
-- **Write a GitHub body to a file, then post it in a separate step.** The [leak hook](./repository-standards.md#guarding-agent-sessions) reads a body file before it is posted, and denies one that the same command writes, since it can't read that file ahead of time.
+- **Write a GitHub body to a file, then post it in a separate step.** The [leak hook](./repository-standards.md#guarding-agent-sessions) reads a body file before it is posted, and denies one that the same command writes (other than from a heredoc), since it can't read that file ahead of time.
 - **No closing keyword before an issue number unless it is meant**, and check `closingIssuesReferences` after opening the pull request. GitHub closes an issue named after a closing keyword anywhere in the body, quoted text included ([learning](../docs/solutions/best-practices/a-closing-keyword-anywhere-in-a-pr-body-closes-the-issue.md)).
 - **Open the description with At a glance.** `gh pr create --body-file` never shows the pull request template, so the handoff states the format.
 - **Read CI conclusions on the head.** A check that ran is not a check that passed, and "pending" is not a result.
