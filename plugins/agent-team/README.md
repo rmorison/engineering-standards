@@ -21,7 +21,7 @@ To stop using it, follow the workflow's "To decline or stop", then run `claude p
 `start-team` takes the first of these that works and tells you which it used:
 
 1. **The Claude Code CLI:** `claude --bg --agent agent-team:lead -n <project>-lead`, run from the project's main checkout. Reach the lead with `claude attach <id>`. The project must be one where Claude Code's trust prompt was accepted.
-2. **A host session tool**, such as `create_session` in Claude Code on the web: a new session titled `<project>-lead`, which loads the lead role from this plugin or from its URL.
+2. **A host session tool**, such as `create_session` in Claude Code on the web: a new session titled `<project>-lead`, which loads the lead role from this plugin or from its URL. A cloud session can receive messages but can't send them to local sessions, so you read the lead in the host's session view, and it falls back to its scheduled GitHub check for workers' news.
 3. **The current session**, which becomes the lead and says so. It also prints the command for starting a role-loaded lead later.
 
 A background session started in manual mode waits on its first permission prompt until you attach. So a started session gets the starting session's `auto` or `acceptEdits` mode, and only when both hooks are installed; otherwise it gets the default mode and you attach. Never `bypassPermissions`.

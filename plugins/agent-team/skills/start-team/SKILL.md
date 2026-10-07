@@ -80,6 +80,8 @@ Take on the lead role: read agents/lead.md from the agent-team plugin if it is i
 
 The lead is up once ListAgents or the host's session list shows it. Record the address ListAgents gives it, since a title can take a while to become its listed name.
 
+Tell the operator what a cloud lead can't do. It receives messages, but it can't send them back to local sessions, so its pings and quiet-mode messages never arrive; the operator reads it in the host's session view. It may also have no session-start tool of its own, in which case it gives the operator each worker's handoff and start command. Workers in the same cloud have the same one-way messaging, so their pings to the lead are lost too; the lead falls back to its scheduled GitHub check (§ 3).
+
 **Route C, this session becomes the lead.** Use this when neither route works. Say plainly that this session is now `<project>-lead` and that its role was not loaded at start, so it holds only by what follows. Read the lead role at the URL in Route B and act as it from here on. Rename this session to `<project>-lead` if you can. If this session has already done a lot of other work, say that a fresh session would make a better lead. Give the operator the Route A command, so they can start a role-loaded lead later from a terminal in the main checkout.
 
 ## 8. Record the lead
