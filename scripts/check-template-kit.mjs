@@ -60,7 +60,9 @@
  *      cannot read as a subagent is skipped without a word, so Layer 3 was
  *      dead the same quiet way Layer 6 once was (#102). Like checks 1-8 this
  *      is textual, and it reads only the two required keys rather than parsing
- *      YAML — enough to catch a missing or emptied block, not a malformed one.
+ *      YAML. It catches a missing, unclosed or emptied block, and a value that
+ *      is empty only once YAML reads it (`""`, `~`, a bare `|`), but not a
+ *      malformed one.
  *
  * Deliberately NOT a validation against the published Claude Code settings
  * schema (https://json.schemastore.org/claude-code-settings.json). That schema
@@ -971,10 +973,34 @@ const KIT_AGENTS = join(REPO_ROOT, 'templates', '.claude', 'agents');
  */
 const AGENT_REQUIRED_KEYS = ['name', 'description'];
 
+/**
+ * Whether a top-level frontmatter value is empty as YAML would read it.
+ *
+ * `name: ""`, `name: ~` and a `description: |` with no indented lines under it
+ * are all non-empty text but empty or null values, and each would otherwise
+ * pass. Not a YAML parser: anything it does not recognise counts as a value.
+ */
+function isEmptyScalar(raw, following) {
+  const value = raw.replace(/\s+#.*$/, '').replace(/^#.*$/, '').trim();
+  if (/^[|>][+-]?$/.test(value)) {
+    const body = [];
+    for (const line of following) {
+      if (line !== '' && !/^\s/.test(line)) break;
+      body.push(line);
+    }
+    return body.every((line) => line.trim() === '');
+  }
+  return ['', '""', "''", '~', 'null', 'Null', 'NULL'].includes(value);
+}
+
 /** Checks every kit subagent file and returns how many it read. */
 function checkKitAgents() {
+  // Recursive, because Claude Code scans `.claude/agents/` recursively: an
+  // agent the kit later files in a subfolder would otherwise go unchecked.
   const files = existsSync(KIT_AGENTS)
-    ? readdirSync(KIT_AGENTS).filter((name) => name.endsWith('.md')).map((name) => join(KIT_AGENTS, name))
+    ? readdirSync(KIT_AGENTS, { recursive: true })
+      .filter((name) => name.endsWith('.md'))
+      .map((name) => join(KIT_AGENTS, name))
     : [];
   if (files.length === 0) {
     fail(KIT_AGENTS, null, 'agents',
@@ -984,20 +1010,36 @@ function checkKitAgents() {
 
   for (const file of files) {
     const lines = readFileSync(file, 'utf8').split(/\r?\n/);
-    const close = lines.indexOf('---', 1);
-    if (lines[0] !== '---' || close === -1) {
+    if (lines[0] !== '---') {
       fail(file, 1, 'agents',
         'does not open with a `---` frontmatter block, so Claude Code does not ' +
         'register it as a subagent and says nothing about it');
       continue;
     }
+    // The first `---` after line 1 closes the block. An unclosed block with a
+    // `---` horizontal rule further down is taken as closed there — a false
+    // pass this check accepts rather than parse YAML (see the header).
+    const close = lines.indexOf('---', 1);
+    if (close === -1) {
+      fail(file, 1, 'agents',
+        'opens a `---` frontmatter block that is never closed, so Claude Code ' +
+        'does not register it as a subagent');
+      continue;
+    }
+    const block = lines.slice(1, close);
     const keys = new Map();
-    lines.slice(1, close).forEach((line, index) => {
+    block.forEach((line, index) => {
       const match = /^([A-Za-z][\w-]*):(.*)$/.exec(line);
-      if (match) keys.set(match[1], { value: match[2].trim(), line: index + 2 });
+      if (match) {
+        keys.set(match[1], {
+          value: match[2].trim(),
+          empty: isEmptyScalar(match[2], block.slice(index + 1)),
+          line: index + 2,
+        });
+      }
     });
     for (const key of AGENT_REQUIRED_KEYS) {
-      if (!keys.get(key)?.value) {
+      if (!keys.has(key) || keys.get(key).empty) {
         fail(file, keys.get(key)?.line ?? 1, 'agents',
           `frontmatter has no non-empty \`${key}\`, which Claude Code requires to register a subagent`);
       }
