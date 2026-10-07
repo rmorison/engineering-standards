@@ -13,6 +13,7 @@
  *   5. Every code fence is closed.
  *   7. The gitleaks version and hashes are written only in
  *      scripts/install-gitleaks.sh. (6 was retired in #31; see below.)
+ *   8. A code block marked as a copy of a standard's block matches it.
  *
  * Checks 2 through 4 skip fenced code blocks, and check 2 also ignores inline
  * code spans: an example of a defect is not a defect, which is what lets the
@@ -167,6 +168,7 @@ function readMarkdown(file) {
         // A delimiter belongs to its own block, so an info string like
         // ```mermaid is not prose either.
         fenced: open !== null || isDelimiter,
+        delimiter: isDelimiter,
       };
     });
 
@@ -486,6 +488,97 @@ function checkGitleaksPins() {
   }
 }
 
+/**
+ * Check 8 — a marked copy of a standard's code block matches its source.
+ *
+ * QUICKSTART.md repeats commands, hook installers and settings JSON that a
+ * standard owns, so a reader can copy them in one place. A copy drifts the
+ * first time the standard changes and the copy doesn't. So each copy carries a
+ * marker on the line before its fence, naming the source file and a string that
+ * only one fenced block there contains:
+ *
+ *   <!-- copy-of: process/repository-standards.md | hooks)/pre-commit" -->
+ *
+ * The copy's info string and content, each block taken without the indentation
+ * of its own fence, must equal the source block's byte for byte.
+ *
+ *   <!-- copy-of-line: process/repository-standards.md | leak-gate.sh history -->
+ *
+ * copies one line of a source block instead. The copy must be that one line,
+ * without the line's trailing `# comment`: zsh, the default macOS shell, reads a
+ * pasted `#` as a command by default. Everything before the comment must be
+ * identical.
+ *
+ * A marker with no fence after it, a source that is missing, and a string that
+ * matches no block, or more than one, fail too, so a renamed section cannot
+ * turn the check off quietly.
+ */
+const COPY_MARKER = /^\s*<!-- copy-of(-line)?: (\S+) \| (.+?) -->\s*$/;
+
+/**
+ * Every fenced block in a file: its info string, its content lines with the
+ * fence's own indentation removed, and the line number of its opener. Which
+ * lines are fenced comes from readMarkdown, so this agrees with checks 2 to 5.
+ */
+function fencedBlocks(file) {
+  const blocks = [];
+  let open = null;
+  for (const { raw, number, delimiter } of readMarkdown(file).lines) {
+    const indent = raw.length - raw.trimStart().length;
+    if (delimiter && open === null) {
+      open = { info: FENCE_DELIMITER.exec(raw.trim())[2].trim(), indent, line: number, content: [] };
+      blocks.push(open);
+    } else if (delimiter) {
+      open = null;
+    } else if (open !== null) {
+      open.content.push(raw.slice(Math.min(open.indent, indent)));
+    }
+  }
+  return blocks;
+}
+
+function checkMarkedCopies(files) {
+  let copies = 0;
+  for (const file of files) {
+    const { lines } = readMarkdown(file);
+    lines.forEach(({ raw, fenced, number }) => {
+      if (fenced) return;
+      const m = COPY_MARKER.exec(raw);
+      if (!m) return;
+      const [, lineMode, sourcePath, needle] = m;
+      const copy = fencedBlocks(file).find(b => b.line === number + 1);
+      if (!copy) {
+        fail(file, number, 'copy', 'copy-of marker is not on the line before a code fence');
+        return;
+      }
+      const source = join(REPO_ROOT, sourcePath);
+      if (!existsSync(source)) {
+        fail(file, number, 'copy', `copy-of names ${sourcePath}, which does not exist`);
+        return;
+      }
+      const found = fencedBlocks(source).filter(b => b.content.some(l => l.includes(needle)));
+      if (found.length !== 1) {
+        fail(file, number, 'copy',
+          `\`${needle}\` is in ${found.length} code blocks of ${sourcePath}; it must name exactly one`);
+        return;
+      }
+      const [src] = found;
+      copies++;
+      if (lineMode) {
+        const srcLine = src.content.find(l => l.includes(needle)).replace(/\s+#.*$/, '');
+        if (copy.content.length !== 1 || copy.content[0] !== srcLine) {
+          fail(file, copy.line, 'copy',
+            `differs from its source line at ${sourcePath}:${src.line}; copy that line without its comment`);
+        }
+      } else if (copy.info !== src.info || copy.content.join('\n') !== src.content.join('\n')) {
+        fail(file, copy.line, 'copy',
+          `differs from its source block at ${sourcePath}:${src.line}; copy the block again`);
+      }
+    });
+  }
+  return copies;
+}
+
 const files = await markdownFiles();
 const diagrams = await checkMermaid(files);
 const links = checkLinks(files);
@@ -493,11 +586,13 @@ checkAccidentalBlockquotes(files);
 checkUnmarkedLists(files);
 checkFencesClosed(files);
 checkGitleaksPins();
+const copies = checkMarkedCopies(files);
 
 if (VERBOSE || failures.length === 0) {
   console.log(
     `Checked ${files.length} Markdown files: ${diagrams} Mermaid diagram(s) and ` +
-    `${links.checked} relative link(s), ${links.anchors} of them carrying a verified anchor.`);
+    `${links.checked} relative link(s), ${links.anchors} of them carrying a verified anchor, ` +
+    `and ${copies} marked copy block(s).`);
 }
 
 if (failures.length > 0) {
