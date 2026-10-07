@@ -219,7 +219,16 @@ The model is opt-in. The hooks, At a glance and the AI-review discipline stand a
 
 **When it doesn't:** one session at a time, or a team of human reviewers. The overhead of a lead buys nothing when there is no board to coordinate, and human reviewers bring their own process.
 
-**To adopt:**
+**Quick start.** With Claude Code, install the [`agent-team` plugin](../plugins/agent-team/README.md) and run its `start-team` skill from a session in your project:
+
+```bash
+claude plugin marketplace add rmorison/engineering-standards
+claude plugin install agent-team@engineering-standards
+```
+
+Then, in the session, run `/agent-team:start-team`, or ask for an agent team. It checks the [prerequisites](#9-prerequisites), adds the line in step 2 below if it is missing, and starts `<project>-lead` in the lead role. It starts the lead as a background session, or through the host's session tool, or, where neither works, makes the current session the lead. It then tells you where the lead is and what it does next, as in [Starting a team](#starting-a-team). The lead and worker roles it loads link to this document rather than copying it.
+
+**To adopt by hand,** or without Claude Code:
 
 1. Meet the [prerequisites](#9-prerequisites).
 2. Add this line to the project's `CLAUDE.md` or `AGENTS.md`, so every session knows its context. You may pin the link to a commit, as you pin the hooks.
@@ -233,11 +242,13 @@ The model is opt-in. The hooks, At a glance and the AI-review discipline stand a
 
 **Partial adoption is fine:** the guardrails and At a glance without a lead, or a lead with one worker at a time.
 
-**To decline or stop:** remove the line and archive the lead. Nothing in the repository depends on the model.
+**To decline or stop:** remove the line and archive the lead, and uninstall the plugin if you installed it. Nothing in the repository depends on the model.
 
 ### Starting a team
 
-**The opening prompt.** The operator starts a new session and types something like:
+**With the plugin,** `start-team` does the operator's part: it starts the lead with an opening prompt like the one below, filled in, and the lead's role is loaded from the start. It asks once where the lead keeps its board, records how it started the lead, and on a second run reports the running lead instead of starting another. Background sessions get the starting session's `auto` or `acceptEdits` permission mode only when both hooks are installed, and never `bypassPermissions`. Otherwise they start in the default mode, and the operator answers their prompts after `claude attach <id>`.
+
+**By hand,** the operator starts a new session and types something like this opening prompt:
 
 ```text
 You are <project>-lead, the lead for <project>. This project runs an agent team:
@@ -275,7 +286,6 @@ Each is a separate ticket, not built here:
 
 - **Done-gate checks as code:** a script that runs the gate's mechanical checks (CI conclusions, closing references, the private-value scan, At a glance word counts) instead of the lead doing them by hand.
 - **A budget and health monitor:** watches the shared usage window and each worker's context size, and warns or archives before a worker degrades.
-- **A packaged lead role:** a ready-made lead definition, for example under `ai/claude-code/`, that carries the lead's rules, quiet mode included.
 
 ---
 
@@ -285,3 +295,4 @@ Each is a separate ticket, not built here:
 - [`process/repository-standards.md`](./repository-standards.md) — the leak gate and both hooks
 - [`process/git-branching-strategy.md`](./git-branching-strategy.md) — the pull request description and At a glance
 - [`ai/claude-code/README.md`](../ai/claude-code/README.md) — the six-layer AI architecture
+- [`plugins/agent-team/`](../plugins/agent-team/README.md) — the `start-team` skill and the lead and worker roles; [ADR-0002](../docs/engineering/adr/0002-agent-team-roles.md) records where the roles sit in the six layers

@@ -62,7 +62,18 @@
  *      is textual, and it reads only the two required keys rather than parsing
  *      YAML. It catches a missing, unclosed or emptied block, and a value that
  *      is empty only once YAML reads it (`""`, `~`, a bare `|`), but not a
- *      malformed one.
+ *      malformed one. It reads the agents of every plugin under `plugins/`
+ *      too (the agent-team roles of #101), each `agents/` folder failing on an
+ *      empty walk of its own.
+ *  11. The plugins this repository ships are well-formed: the root
+ *      `.claude-plugin/marketplace.json` and each plugin's
+ *      `.claude-plugin/plugin.json` parse; every marketplace entry names a plugin directory
+ *      that exists, holds a manifest whose `name` matches it, and every plugin
+ *      directory is listed; and every `SKILL.md` under a plugin's `skills/`
+ *      carries a non-empty `name` and `description`. A skill without them is
+ *      skipped as quietly as a subagent is (check 10), and a plugin the
+ *      marketplace does not list, or lists under a path that moved, cannot be
+ *      installed at all; neither failure shows until an adopter tries.
  *
  * Deliberately NOT a validation against the published Claude Code settings
  * schema (https://json.schemastore.org/claude-code-settings.json). That schema
@@ -966,6 +977,8 @@ function checkSettings(file) {
 // ---------------------------------------------------------------------------
 
 const KIT_AGENTS = join(REPO_ROOT, 'templates', '.claude', 'agents');
+const PLUGINS = join(REPO_ROOT, 'plugins');
+const MARKETPLACE = join(REPO_ROOT, '.claude-plugin', 'marketplace.json');
 
 /**
  * Required keys, from the frontmatter table of
@@ -993,68 +1006,163 @@ function isEmptyScalar(raw, following) {
   return ['', '""', "''", '~', 'null', 'Null', 'NULL'].includes(value);
 }
 
-/** Checks every kit subagent file and returns how many it read. */
-function checkKitAgents() {
+/** Markdown files under `dir`, recursively, or none when it does not exist. */
+function markdownUnder(dir, basename = null) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { recursive: true })
+    .filter((name) => (basename ? name.split(sep).pop() === basename : name.endsWith('.md')))
+    .map((name) => join(dir, name));
+}
+
+/**
+ * Checks one file's frontmatter for `name` and `description`, as Claude Code
+ * needs them to register a subagent or a skill. `what` names the thing the
+ * file defines, for the message; `check` is the failure's label.
+ */
+function checkFrontmatter(file, check, what) {
+  const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+  if (lines[0] !== '---') {
+    fail(file, 1, check,
+      `does not open with a \`---\` frontmatter block, so Claude Code does not ` +
+      `register it as a ${what} and says nothing about it`);
+    return;
+  }
+  // The first `---` after line 1 closes the block. An unclosed block with a
+  // `---` horizontal rule further down is taken as closed there — a false
+  // pass this check accepts rather than parse YAML (see the header).
+  const close = lines.indexOf('---', 1);
+  if (close === -1) {
+    fail(file, 1, check,
+      `opens a \`---\` frontmatter block that is never closed, so Claude Code ` +
+      `does not register it as a ${what}`);
+    return;
+  }
+  const block = lines.slice(1, close);
+  const keys = new Map();
+  block.forEach((line, index) => {
+    const match = /^([A-Za-z][\w-]*):(.*)$/.exec(line);
+    if (match) {
+      keys.set(match[1], {
+        value: match[2].trim(),
+        empty: isEmptyScalar(match[2], block.slice(index + 1)),
+        line: index + 2,
+      });
+    }
+  });
+  for (const key of AGENT_REQUIRED_KEYS) {
+    if (!keys.has(key) || keys.get(key).empty) {
+      fail(file, keys.get(key)?.line ?? 1, check,
+        `frontmatter has no non-empty \`${key}\`, which Claude Code requires to register a ${what}`);
+    }
+  }
+  const name = keys.get('name')?.value ?? '';
+  if (name.includes(':')) {
+    fail(file, keys.get('name').line, check,
+      `\`name\` "${name}" contains ':', which Claude Code reserves for plugin-scoped names`);
+  }
+}
+
+/** Plugin directories under `plugins/`. */
+function pluginDirs() {
+  if (!existsSync(PLUGINS)) return [];
+  return readdirSync(PLUGINS, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(PLUGINS, entry.name));
+}
+
+/** Checks every kit and plugin subagent file and returns how many it read. */
+function checkAgents() {
   // Recursive, because Claude Code scans `.claude/agents/` recursively: an
   // agent the kit later files in a subfolder would otherwise go unchecked.
-  const files = existsSync(KIT_AGENTS)
-    ? readdirSync(KIT_AGENTS, { recursive: true })
-      .filter((name) => name.endsWith('.md'))
-      .map((name) => join(KIT_AGENTS, name))
-    : [];
-  if (files.length === 0) {
-    fail(KIT_AGENTS, null, 'agents',
-      'no subagent files found under templates/.claude/agents/ — the kit ships ' +
-      'Layer 3 as two of them, so an empty walk is a failure, not a pass');
+  const roots = [KIT_AGENTS, ...pluginDirs().map((dir) => join(dir, 'agents'))
+    .filter((dir) => existsSync(dir))];
+  let count = 0;
+  for (const root of roots) {
+    const files = markdownUnder(root);
+    if (files.length === 0) {
+      fail(root, null, 'agents',
+        `no subagent files found under ${relative(REPO_ROOT, root)}/ — an agents ` +
+        'folder that ships none is a failure, not a pass');
+    }
+    for (const file of files) checkFrontmatter(file, 'agents', 'subagent');
+    count += files.length;
+  }
+  return count;
+}
+
+/** Reads a JSON file, reporting a missing or unparseable one. */
+function readJson(file, check) {
+  if (!existsSync(file)) {
+    fail(file, null, check, 'is missing');
+    return null;
+  }
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    fail(file, null, check, `does not parse as JSON: ${error.message}`);
+    return null;
+  }
+}
+
+/** Checks the marketplace, each plugin's manifest and its skills. Returns counts. */
+function checkPlugins() {
+  const dirs = pluginDirs();
+  if (dirs.length === 0 && !existsSync(MARKETPLACE)) return { plugins: 0, skills: 0 };
+
+  const listed = new Set();
+  const market = readJson(MARKETPLACE, 'plugins');
+  if (market) {
+    if (typeof market.name !== 'string' || market.name === '') {
+      fail(MARKETPLACE, null, 'plugins', 'has no `name`, so it cannot be added as a marketplace');
+    }
+    const entries = Array.isArray(market.plugins) ? market.plugins : [];
+    if (entries.length === 0) {
+      fail(MARKETPLACE, null, 'plugins', 'lists no plugins — an empty marketplace is a failure, not a pass');
+    }
+    for (const entry of entries) {
+      const source = typeof entry?.source === 'string' ? entry.source : null;
+      if (!source || !source.startsWith('./')) {
+        fail(MARKETPLACE, null, 'plugins',
+          `plugin "${entry?.name}" has no \`source\` path in this repository (./...)`);
+        continue;
+      }
+      const dir = resolve(REPO_ROOT, source);
+      listed.add(dir);
+      if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+        fail(MARKETPLACE, null, 'plugins',
+          `plugin "${entry.name}" names source ${source}, which is not a directory`);
+      } else if (entry.name !== dir.split(sep).pop()) {
+        fail(MARKETPLACE, null, 'plugins',
+          `plugin "${entry.name}" names source ${source}, a directory of another name`);
+      }
+    }
   }
 
-  for (const file of files) {
-    const lines = readFileSync(file, 'utf8').split(/\r?\n/);
-    if (lines[0] !== '---') {
-      fail(file, 1, 'agents',
-        'does not open with a `---` frontmatter block, so Claude Code does not ' +
-        'register it as a subagent and says nothing about it');
-      continue;
+  let skills = 0;
+  for (const dir of dirs) {
+    const base = dir.split(sep).pop();
+    if (!listed.has(dir)) {
+      fail(dir, null, 'plugins',
+        `plugins/${base} is not listed in .claude-plugin/marketplace.json, so it cannot be installed`);
     }
-    // The first `---` after line 1 closes the block. An unclosed block with a
-    // `---` horizontal rule further down is taken as closed there — a false
-    // pass this check accepts rather than parse YAML (see the header).
-    const close = lines.indexOf('---', 1);
-    if (close === -1) {
-      fail(file, 1, 'agents',
-        'opens a `---` frontmatter block that is never closed, so Claude Code ' +
-        'does not register it as a subagent');
-      continue;
+    const manifestFile = join(dir, '.claude-plugin', 'plugin.json');
+    const manifest = readJson(manifestFile, 'plugins');
+    if (manifest && manifest.name !== base) {
+      fail(manifestFile, null, 'plugins',
+        `\`name\` is "${manifest.name}", but the plugin directory is ${base}; ` +
+        'the marketplace entry, the directory and the manifest must agree');
     }
-    const block = lines.slice(1, close);
-    const keys = new Map();
-    block.forEach((line, index) => {
-      const match = /^([A-Za-z][\w-]*):(.*)$/.exec(line);
-      if (match) {
-        keys.set(match[1], {
-          value: match[2].trim(),
-          empty: isEmptyScalar(match[2], block.slice(index + 1)),
-          line: index + 2,
-        });
-      }
-    });
-    for (const key of AGENT_REQUIRED_KEYS) {
-      if (!keys.has(key) || keys.get(key).empty) {
-        fail(file, keys.get(key)?.line ?? 1, 'agents',
-          `frontmatter has no non-empty \`${key}\`, which Claude Code requires to register a subagent`);
-      }
-    }
-    const name = keys.get('name')?.value ?? '';
-    if (name.includes(':')) {
-      fail(file, keys.get('name').line, 'agents',
-        `\`name\` "${name}" contains ':', which Claude Code reserves for plugin-scoped names`);
+    for (const file of markdownUnder(join(dir, 'skills'), 'SKILL.md')) {
+      checkFrontmatter(file, 'plugins', 'skill');
+      skills += 1;
     }
   }
-  return files.length;
+  return { plugins: dirs.length, skills };
 }
 
 checkRuleSyntaxFixtures();
-const agentFiles = checkKitAgents();
+const agentFiles = checkAgents();
+const pluginCounts = checkPlugins();
 
 const files = settingsFiles();
 if (files.length === 0) {
@@ -1078,7 +1186,7 @@ if (VERBOSE || failures.length === 0) {
     `command(s); ${RULE_SYNTAX_FIXTURES.length} rule-syntax fixtures, ` +
     `${ALLOW_POSITIVE.length} allow-list positive, ${ALLOW_NEGATIVE.length} negative and ` +
     `${ALLOW_ACCEPTED_RISK.length} accepted-risk cases. ${pathsSkipped} command path(s) skipped as not statically resolvable. ` +
-    `${agentFiles} kit subagent file(s).`);
+    `${agentFiles} subagent file(s); ${pluginCounts.plugins} plugin(s) with ${pluginCounts.skills} skill(s).`);
 }
 
 if (failures.length > 0) {

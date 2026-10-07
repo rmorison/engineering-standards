@@ -12,7 +12,7 @@ This repository follows a **six-layer AI architecture** (see [`ai/claude-code/RE
 - **Layers 2 (Skills) and 3 (Agents)** have vendor-neutral baselines in [`templates/.claude/`](../templates/.claude/) for projects that don't run a specific toolkit. When [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) (CE) is installed, CE skills and persona reviewers are the canonical realization of those layers.
 - **Layers 4 (References) and 5 (Compound)** are realized by CE today; non-CE projects may leave them empty or fill them with hand-rolled implementations.
 
-This file holds Layer 1-style quick-reference guidance. Multi-mode rules (standards-mode default and CE-mode addendum) are noted inline below; for the CE-mode operational details, see [`process/compound-engineering-integration.md`](../process/compound-engineering-integration.md). For the architectural decision, see [ADR-0001](../docs/engineering/adr/0001-six-layer-ai-architecture.md).
+This file holds Layer 1-style quick-reference guidance. Multi-mode rules (standards-mode default and CE-mode addendum) are noted inline below; for the CE-mode operational details, see [`process/compound-engineering-integration.md`](../process/compound-engineering-integration.md). For the architectural decision, see [ADR-0001](../docs/engineering/adr/0001-six-layer-ai-architecture.md). The agent team's lead and worker roles are an orchestration pattern over the layers, not a layer of their own ([ADR-0002](../docs/engineering/adr/0002-agent-team-roles.md)).
 
 ---
 
@@ -185,6 +185,7 @@ Full operational details: [`process/compound-engineering-integration.md`](../pro
 
 - [AI Architecture (six-layer model)](./claude-code/README.md)
 - [ADR-0001: Six-Layer AI Architecture](../docs/engineering/adr/0001-six-layer-ai-architecture.md)
+- [ADR-0002: Agent-Team Roles](../docs/engineering/adr/0002-agent-team-roles.md)
 - [Compound Engineering Integration](../process/compound-engineering-integration.md)
 - [Documentation Standards](../process/documentation-standards.md)
 - [Feature Development Workflow](../process/feature-development-workflow.md)

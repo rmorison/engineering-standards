@@ -1,0 +1,14 @@
+{
+  "name": "engineering-standards",
+  "description": "Plugins that go with the engineering standards in this repository",
+  "owner": {
+    "name": "rmorison"
+  },
+  "plugins": [
+    {
+      "name": "agent-team",
+      "source": "./plugins/agent-team",
+      "description": "Start an agent team in one step: a start-team skill and the lead and worker roles of the Agent Team Workflow"
+    }
+  ]
+}
