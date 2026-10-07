@@ -10,14 +10,23 @@ Run the snippets from your project's root unless a step says otherwise. A snippe
 
 Clone this repository outside your project. The snippets below read it from `~/engineering-standards`; if you keep it somewhere else, change that path in them.
 
+<!-- own -->
 ```bash
 git clone https://github.com/rmorison/engineering-standards.git ~/engineering-standards
+```
+
+If you already have a clone, bring it up to date on `main` instead, then `cd` back to your project. The snippets copy from whatever branch the clone has checked out.
+
+<!-- own -->
+```bash
+cd ~/engineering-standards && git switch main && git pull --ff-only
 ```
 
 ## New Project
 
 **To have an agent do it,** paste this into a Claude Code session in the project:
 
+<!-- own -->
 ```text
 Set up this project with the engineering standards. Follow the New Project path in
 ~/engineering-standards/QUICKSTART.md one step at a time, reading each step's
@@ -28,18 +37,23 @@ linked section before you act on it.
 - Ask me before doing a step marked "Optional".
 - After each step, tell me what you created or changed, file by file.
 - Before any commit, show me the files and the message, and wait for my go.
+- Don't push, open a pull request, or change repository settings unless I ask.
+- Never add disableAllHooks, a broad permissions.allow entry, or anything else that
+  loosens a hook or the leak gate. If the project already has one, point it out.
 ```
 
 ### 1. Copy the Starter Kit
 
 Copy the Claude Code configuration and the project instruction file into the project root. The snippet is for a project with no `.claude/` yet; otherwise merge, as in [existing-project step 5](#5-merge-in-the-starter-kit). Then fill in every placeholder in `CLAUDE.md`: [Project Templates](./README.md#project-templates).
 
+<!-- own -->
 ```bash
 cp -R ~/engineering-standards/templates/.claude . && cp ~/engineering-standards/templates/CLAUDE.md .
 ```
 
 **Optional:** skeletons of `SECURITY.md`, `CONTRIBUTING.md` and the issue and pull request templates: [Repository baseline files](./templates/README.md#repository-baseline-files).
 
+<!-- own -->
 ```bash
 cp ~/engineering-standards/templates/SECURITY.md ~/engineering-standards/templates/CONTRIBUTING.md . && cp -R ~/engineering-standards/templates/.github .
 ```
@@ -48,14 +62,16 @@ cp ~/engineering-standards/templates/SECURITY.md ~/engineering-standards/templat
 
 Product specs go in `docs/product/` and architecture decisions in `docs/engineering/adr/`. Write a strategic vision in `docs/product/strategic-vision.md`, and add an ADR each time you make an architecture decision: [Documentation Standards](./process/documentation-standards.md#directory-structure).
 
+<!-- own -->
 ```bash
 mkdir -p docs/product docs/engineering/adr
 ```
 
 ### 3. Add the Leak Gate to CI
 
-Copy the gate's rules, wrapper, installer, workflow and tests: [Adopting the Gate](./process/repository-standards.md#adopting-the-gate). The copied workflow's test step also runs this repository's own tests of the agent-session hooks, which read this repository's standards and fail anywhere else, so the snippet drops those two lines from the copy.
+Copy the gate's rules, wrapper, installer, workflow and tests: [Adopting the Gate](./process/repository-standards.md#adopting-the-gate). The copied workflow's test step also runs this repository's own tests of the agent-session hooks, which read this repository's standards and fail anywhere else, so the snippet drops those two lines from the copy. The step's comment still mentions them. Issue #109 tracks fixing this in the standard.
 
+<!-- own -->
 ```bash
 es=~/engineering-standards && mkdir -p scripts .github/workflows &&
 cp "$es/.gitleaks.toml" . &&
@@ -65,7 +81,7 @@ grep -v 'python3 scripts/test_claude_' "$es/.github/workflows/leaks.yml" > leaks
 mv leaks.yml.tmp .github/workflows/leaks.yml
 ```
 
-Give `.gitleaks.toml`, `.gitleaksignore`, `.gitattributes`, `scripts/install-gitleaks.sh` and the workflow required review, as the section explains.
+Give `.gitleaks.toml`, `.gitleaksignore`, `.gitattributes`, `scripts/install-gitleaks.sh` and the workflow required review, as the section explains. A `CODEOWNERS` file names the reviewers. **You do this** for the rest: requiring that review is a repository setting.
 
 ### 4. Set Up the Leak Gate on Your Machine
 
@@ -127,6 +143,7 @@ chmod +x "$hook"
 
 Copy them from the standards clone on `main`, never from your project or a pull request's branch:
 
+<!-- own -->
 ```bash
 cd ~/engineering-standards && git switch main && git pull --ff-only
 ```
@@ -170,7 +187,7 @@ Then `cd` back to your project, and make the `hooks` entry in `~/.claude/setting
 }
 ```
 
-The leak hook reads the value list from step 4. Without one, it only stops sessions from switching the git-side gate off. A project whose agents push straight to its default branch needs [the exemption](./process/repository-standards.md#guarding-repository-authority).
+The leak hook reads the value list from step 4. Without one, it only stops sessions from switching the git-side gate off. A project whose agents push straight to its default branch needs [the exemption](./process/repository-standards.md#guarding-repository-authority). You set it yourself, outside any agent session.
 
 ### 6. Write Pull Requests with At a Glance
 
@@ -241,6 +258,7 @@ Adopt one step at a time, in this order. Each step stands alone, says what it ch
 
 **To have an agent do it,** paste this into a Claude Code session in the project:
 
+<!-- own -->
 ```text
 Adopt the engineering standards in this project. Follow the Existing Project path
 in ~/engineering-standards/QUICKSTART.md, reading each step's linked section
@@ -253,6 +271,9 @@ before you act on it. Do one step, then stop and ask me before the next.
   standards' copy and propose a merge.
 - After each step, tell me what you created or changed, file by file.
 - Before any commit, show me the files and the message, and wait for my go.
+- Don't push, open a pull request, or change repository settings unless I ask.
+- Never add disableAllHooks, a broad permissions.allow entry, or anything else that
+  loosens a hook or the leak gate. If the project already has one, point it out.
 ```
 
 ### 1. Start with Pull Requests
@@ -263,7 +284,7 @@ Open every pull request description with At a glance, using the template in [new
 
 **Optional:** if AI agents work on the project. **You do this.** Declare your value list first, if you hold private values, with the `git config --global` snippet in [new-project step 4](#4-set-up-the-leak-gate-on-your-machine). Then install the hooks and the settings entry from [new-project step 5](#5-install-the-agent-session-hooks).
 
-The hooks write only to your account's `~/.claude/`, but they apply to every Claude Code session on the account, in every repository. If the project's agents push straight to its default branch, set up [the exemption](./process/repository-standards.md#guarding-repository-authority) first. To back out, remove the hook entries from `~/.claude/settings.json`.
+The hooks write only to your account's `~/.claude/`, but they apply to every Claude Code session on the account, in every repository. If the project's agents push straight to its default branch, set up [the exemption](./process/repository-standards.md#guarding-repository-authority) first. You set it yourself, outside any agent session. To back out, remove the hook entries from `~/.claude/settings.json`.
 
 ### 3. Add the Leak Gate to CI
 
@@ -274,16 +295,17 @@ Copy the files with the snippet in [new-project step 3](#3-add-the-leak-gate-to-
 sh scripts/leak-gate.sh history
 ```
 
-It prints each finding as file, line and rule, never the matched text. Fix what it finds: [When a Leak Is Found](./process/repository-standards.md#when-a-leak-is-found). The step adds the copied files; to back out, delete them.
+It prints each finding as file, line and rule, never the matched text. Fix what it finds: [When a Leak Is Found](./process/repository-standards.md#when-a-leak-is-found). To back out, delete the files the step added, and revert what it merged into files the project already had.
 
 ### 4. Add the Leak Gate Hooks
 
-**You do this,** on each machine that commits to the project. Install the commit-time and push-time hooks with the snippets in [new-project step 4](#4-set-up-the-leak-gate-on-your-machine), or the pre-commit framework entries from [Running It Locally](./process/repository-standards.md#running-it-locally) if the project already uses that framework. They change only the clone's hooks, and refuse a commit or a push that would publish a leak. To back out, delete the hook files or the entries.
+**You do this,** on each machine that commits to the project. Install the commit-time and push-time hooks with the snippets in [new-project step 4](#4-set-up-the-leak-gate-on-your-machine), or the pre-commit framework entries from [Running It Locally](./process/repository-standards.md#running-it-locally) if the project already uses that framework. The snippets replace any `pre-commit` or `pre-push` hook already in the clone, so if there is one, merge the two by hand instead. They change only the clone's hooks, and refuse a commit or a push that would publish a leak. To back out, delete the hook files or the entries.
 
 ### 5. Merge in the Starter Kit
 
 Merge the starter kit into the project's own `.claude/` and `CLAUDE.md` rather than overwriting them: [Project Templates](./README.md#project-templates). Compare first:
 
+<!-- own -->
 ```bash
 diff -ru ~/engineering-standards/templates/.claude .claude; diff -u ~/engineering-standards/templates/CLAUDE.md CLAUDE.md
 ```

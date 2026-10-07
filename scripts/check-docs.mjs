@@ -512,15 +512,25 @@ function checkGitleaksPins() {
  * A marker with no fence after it, a source that is missing, and a string that
  * matches no block, or more than one, fail too, so a renamed section cannot
  * turn the check off quietly.
+ *
+ * A copy without a marker would go unchecked. So in the files listed in
+ * MARKED_FILES, every fenced block must carry a marker: a copy-of marker, or
+ * `<!-- own -->` for text no standard holds. A new block then has to say which
+ * it is, and review sees the choice.
  */
 const COPY_MARKER = /^\s*<!-- copy-of(-line)?: (\S+) \| (.+?) -->\s*$/;
+const OWN_MARKER = /^\s*<!-- own -->\s*$/;
+const MARKED_FILES = new Set(['QUICKSTART.md']);
 
 /**
  * Every fenced block in a file: its info string, its content lines with the
  * fence's own indentation removed, and the line number of its opener. Which
  * lines are fenced comes from readMarkdown, so this agrees with checks 2 to 5.
  */
+const blocksCache = new Map();
+
 function fencedBlocks(file) {
+  if (blocksCache.has(file)) return blocksCache.get(file);
   const blocks = [];
   let open = null;
   for (const { raw, number, delimiter } of readMarkdown(file).lines) {
@@ -534,6 +544,7 @@ function fencedBlocks(file) {
       open.content.push(raw.slice(Math.min(open.indent, indent)));
     }
   }
+  blocksCache.set(file, blocks);
   return blocks;
 }
 
@@ -541,6 +552,15 @@ function checkMarkedCopies(files) {
   let copies = 0;
   for (const file of files) {
     const { lines } = readMarkdown(file);
+    if (MARKED_FILES.has(relative(REPO_ROOT, file))) {
+      for (const block of fencedBlocks(file)) {
+        const before = lines[block.line - 2]?.raw ?? '';
+        if (!COPY_MARKER.test(before) && !OWN_MARKER.test(before)) {
+          fail(file, block.line, 'copy',
+            'code block has no marker: put <!-- copy-of: <file> | <string> --> or <!-- own --> on the line before it');
+        }
+      }
+    }
     lines.forEach(({ raw, fenced, number }) => {
       if (fenced) return;
       const m = COPY_MARKER.exec(raw);
