@@ -99,6 +99,10 @@ Operational reference for adopting [compound-engineering](https://github.com/Eve
 
 **Key principle**: The architecture is the abstraction; CE is one canonical realization. Vendor-neutral baselines remain in place for projects that don't adopt the plugin.
 
+### [Agent Team Workflow](./process/agent-team-workflow.md)
+
+An opt-in operating model for one human directing several AI agent sessions: the operator signs off and merges, a lead coordinates, and one worker runs each ticket. Covers roles, the sprint loop, traffic between parallel tickets, a worker handoff template, the lead's Done-gate checklist, operator interaction (quiet mode), and how to adopt or decline it.
+
 ### [Agent Transcripts](./agent-transcripts/)
 
 Conversation logs documenting the development and evolution of these standards through AI agent collaboration.

@@ -157,7 +157,7 @@ Where a human reviewer is available, these classes take human approval and the a
 
 When the merge decision belongs to someone other than the author, as with an [operator](./repository-standards.md#guarding-repository-authority) who merges what agent sessions build, the last thing posted before the merge is a ready-to-merge comment on the pull request. It is for contributors and carries the Done-gate record only. The plain-language summary for everyone else is the [At a glance](./git-branching-strategy.md#at-a-glance) that opens the pull request description; it is not repeated here. Like the discipline above, the comment is a record, not something that blocks the merge.
 
-**Who and when.** The lead, meaning the session that coordinates the implementers and checks their work ([#49](https://github.com/rmorison/engineering-standards/issues/49)), posts it; at solo scale, the author does. It names the head commit being merged and is posted only after every gate has passed on that head. A push after it makes it stale, so a fresh comment is posted on the new head.
+**Who and when.** The lead, meaning the session that coordinates the implementers and checks their work ([Agent Team Workflow](./agent-team-workflow.md#1-roles)), posts it; at solo scale, the author does. It names the head commit being merged and is posted only after every gate has passed on that head. A push after it makes it stale, so a fresh comment is posted on the new head.
 
 **The Done-gate record.** One bullet per gate that applies, each stated on the head:
 
