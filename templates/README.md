@@ -22,7 +22,7 @@ describes what is in the directory and what the configuration actually does.
 |------|--------------------|------------|
 | `.claude/settings.json` | - | Permission rules and the two example hook registrations |
 | `.claude/skills/` | Layer 2 (Skills) | Vendor-neutral `plan`, `spec` and `review` skills |
-| `.claude/agents/` | Layer 3 (Agents) | `code-reviewer` and `spec-writer` subagents |
+| `.claude/agents/` | Layer 3 (Agents) | Two subagents: `code-reviewer` reviews a change against your standards and its spec (tools limited to Read, Grep, Glob and Bash), and `spec-writer` drafts a product spec, design or ADR. Each file opens with the `name` and `description` frontmatter Claude Code needs to register it |
 | `.claude/hooks/` | Layer 6 (Hooks) | One `PreToolUse` and one `PostToolUse` example, wired and working |
 | `CLAUDE.md` | Layer 1 (Rules) | Project instruction template with the sections to fill in |
 
