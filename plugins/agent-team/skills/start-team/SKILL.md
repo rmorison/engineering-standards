@@ -34,7 +34,7 @@ The team needs sessions that can message each other (§ 9). Check that SendMessa
 
 Check each § 9 prerequisite without changing anything, and grade what you find:
 
-- **Both hooks** (warn if missing). `~/.claude/settings.json` registers `PreToolUse` commands running `claude_leak_hook.py` and `claude_policy_hook.py`, each ending in `|| exit 2`. Both scripts exist, and `python3 ~/.claude/hooks/claude_policy_hook.py --whoami` exits 0. Record whether this passed; step 7 needs it.
+- **Both hooks** (warn if missing). `~/.claude/settings.json` registers `PreToolUse` commands running `claude_leak_hook.py` and `claude_policy_hook.py`, each ending in `|| exit 2`. Both scripts exist, and `python3 ~/.claude/hooks/claude_policy_hook.py --whoami` exits 0. No settings file that applies here switches hooks off: `disableAllHooks` set to `true` in `~/.claude/settings.json`, or in the main checkout's `.claude/settings.json` or `.claude/settings.local.json`, fails this check. Record whether this passed; step 7 needs it.
 - **Plan review, code review and a learnings step** (warn if missing). `claude plugin list` shows `compound-engineering`, or the operator names their equivalents.
 - **A way to wake the lead on a schedule** (warn if missing). A tool such as CronCreate, ScheduleWakeup or send_later is available. Without one, the operator prompts the lead with "status?".
 - **One posting account** (warn if missing). `gh auth status` succeeds.
@@ -63,17 +63,17 @@ You are <project>-lead, the lead for <project>. The Agent Team Workflow is at <w
 
 Try the routes in order, and take the first that works.
 
-**Route A, the Claude Code CLI.** Use this when `claude` is on PATH and this session can run shell commands. Write the filled opening prompt to a file outside the repository, then run this from the main checkout. Leave out `--permission-mode` when the mode is `default`:
+**Route A, the Claude Code CLI.** Use this when `claude` is on PATH and this session can run shell commands. Write the filled opening prompt to `<board path>/opening-prompt.md`, then run this from the main checkout. Leave out `--permission-mode` when the mode is `default`:
 
 ```bash
-claude --bg --agent agent-team:lead -n <project>-lead --permission-mode <mode> "$(cat "<opening prompt file>")"
+claude --bg --agent agent-team:lead -n <project>-lead --permission-mode <mode> "$(cat "<board path>/opening-prompt.md")"
 ```
 
 Never paste the prompt into the command line itself. The command prints the session's id. Any failure means Route A didn't work: a non-zero exit, a refusal such as "Workspace not trusted" in a directory that never accepted the trust prompt, or a lead that `claude agents --json` doesn't list within a minute. Tell the operator what happened, stop any session it did start (`claude stop <id>`), and go to Route B. Don't retry.
 
 The lead is up once `claude agents --json` lists it under its name. If it runs in `auto` or `acceptEdits`, also send it a SendMessage asking for its role and check the reply. In default mode it may be `blocked` on its first prompt, which is expected. Leave the role check to the operator once they attach.
 
-**Route B, a host session tool.** Use this when a session-start tool such as `create_session` is available (Claude Code on the web, Remote Control). Start a session titled `<project>-lead` in the same environment and repository. Set its permission mode explicitly to `default`, by the rule above, rather than letting it inherit this session's. Fill the opening prompt again with `default` as its mode, even if Route A was tried with another. Its prompt is:
+**Route B, a host session tool.** Use this when a session-start tool such as `create_session` is available (Claude Code on the web, Remote Control). Start a session titled `<project>-lead` in the same environment and repository. Set its permission mode explicitly to `default`, by the rule above, rather than letting it inherit this session's. Fill the opening prompt again with `default` as its mode, even if Route A was tried with another. Before starting it, tell the operator what a cloud lead can't do (below) and ask whether to go ahead: the workflow stops a team whose sessions can't message each other, and a cloud lead's messaging is one-way, so this is their call. If they decline, go to Route C. Its prompt is:
 
 ```text
 Take on the lead role: read agents/lead.md from the agent-team plugin if it is installed in your session, or else from https://github.com/rmorison/engineering-standards/blob/main/plugins/agent-team/agents/lead.md. Then: <opening prompt>
@@ -83,7 +83,7 @@ The lead is up once ListAgents or the host's session list shows it. Record the a
 
 Tell the operator what a cloud lead can't do. It receives messages, but it can't send them back to local sessions, so its pings and quiet-mode messages never arrive; the operator reads it in the host's session view. It may also have no session-start tool of its own, in which case it gives the operator each worker's handoff and start command. Workers in the same cloud have the same one-way messaging, so their pings to the lead are lost too; the lead falls back to its scheduled GitHub check (§ 3).
 
-**Route C, this session becomes the lead.** Use this when neither route works. Say plainly that this session is now `<project>-lead` and that its role was not loaded at start, so it holds only by what follows. Read the lead role at the URL in Route B and act as it from here on, taking the filled opening prompt as your own, with its permission mode for the sessions you start. Rename this session to `<project>-lead` if you can. If this session has already done a lot of other work, say that a fresh session would make a better lead. Give the operator the Route A command, so they can start a role-loaded lead later from a terminal in the main checkout.
+**Route C, this session becomes the lead.** Use this when neither route works. First compare this session's own permission mode with the mode the rule above gives. If this session runs in `bypassPermissions`, or in a mode higher than that rule gives (for example `auto` while the hooks failed), tell the operator and ask them to lower it, with Shift+Tab or by restarting the session, before going on; if they don't, stop. Then say plainly that this session is now `<project>-lead` and that its role was not loaded at start, so it holds only by what follows. Read the lead role at the URL in Route B and act as it from here on, taking the filled opening prompt as your own, with its permission mode for the sessions you start. Rename this session to `<project>-lead` if you can. If this session has already done a lot of other work, say that a fresh session would make a better lead. Give the operator the Route A command, so they can start a role-loaded lead later from a terminal in the main checkout.
 
 ## 8. Record the lead
 
@@ -94,5 +94,5 @@ Write `<git common dir>/agent-team/lead.json` as one JSON object with these keys
 In a few lines:
 
 - where the lead is (name, route, state), and how to reach it: `claude attach <id>` for Route A, the session link for Route B, this session for Route C;
-- what start-team changed (the adoption line, the record) and what it left for the operator (committing the line, prerequisites marked missing);
+- what start-team changed (the adoption line, the record) and what it left for the operator: committing the line, naming the branch the main checkout is on so it isn't committed into an unrelated pull request, and any prerequisites marked missing;
 - what happens next, from § 8 "Starting a team": the lead proposes a first sprint and stops for their sign-off. If it can't start sessions, they start each worker by hand from the handoff it writes. Quiet mode is on: the lead messages them only for a pull request ready to merge, a decision, a blocker or a leak.
