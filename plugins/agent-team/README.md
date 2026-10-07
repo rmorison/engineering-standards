@@ -24,6 +24,6 @@ To stop using it, follow the workflow's "To decline or stop", then run `claude p
 2. **A host session tool**, such as `create_session` in Claude Code on the web: a new session titled `<project>-lead`, which loads the lead role from this plugin or from its URL. A cloud session can receive messages but can't send them to local sessions, so you read the lead in the host's session view, and it falls back to its scheduled GitHub check for workers' news.
 3. **The current session**, which becomes the lead and says so. It also prints the command for starting a role-loaded lead later.
 
-A background session started in manual mode waits on its first permission prompt until you attach. So a started session gets the starting session's `auto` or `acceptEdits` mode, and only when both hooks are installed; otherwise it gets the default mode and you attach. Never `bypassPermissions`.
+A background session started in the default mode waits on its first permission prompt until you attach. The skill's step 7 holds the one rule for which mode started sessions get; in short, never `bypassPermissions`, and `auto` or `acceptEdits` only when both hooks are installed.
 
 Proved on Claude Code 2.1.293; see [#101](https://github.com/rmorison/engineering-standards/issues/101) for the runs.

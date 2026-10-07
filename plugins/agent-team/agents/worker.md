@@ -15,4 +15,4 @@ Your rules are the Agent Team Workflow, at the URL your handoff gives, or the on
 
 Where this file and the workflow or your handoff differ, the workflow and the handoff win.
 
-Pings to the lead are one line each, by SendMessage to the address in your handoff. The content goes on GitHub.
+Pings to the lead are one line each, by SendMessage to the address in your handoff. The content goes on GitHub. If SendMessage fails or isn't available, say what you would have pinged in a comment on your issue; the lead checks GitHub on a schedule (§ 3).

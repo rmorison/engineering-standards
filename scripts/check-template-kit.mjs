@@ -983,8 +983,12 @@ const MARKETPLACE = join(REPO_ROOT, '.claude-plugin', 'marketplace.json');
 /**
  * Required keys, from the frontmatter table of
  * https://code.claude.com/docs/en/sub-agents (retrieved 2026-10-07, v2.1.288).
+ * Check 11 holds plugin skills to the same two: a skill's `description` is
+ * what Claude Code lists it by, and the plugin's own skill sets both. A skill
+ * may omit `name` (Claude Code 2.1.293 then uses its folder's), so requiring it is a
+ * house rule for the skills this repository ships, not Claude Code's.
  */
-const AGENT_REQUIRED_KEYS = ['name', 'description'];
+const FRONTMATTER_REQUIRED_KEYS = ['name', 'description'];
 
 /**
  * Whether a top-level frontmatter value is empty as YAML would read it.
@@ -1049,7 +1053,7 @@ function checkFrontmatter(file, check, what) {
       });
     }
   });
-  for (const key of AGENT_REQUIRED_KEYS) {
+  for (const key of FRONTMATTER_REQUIRED_KEYS) {
     if (!keys.has(key) || keys.get(key).empty) {
       fail(file, keys.get(key)?.line ?? 1, check,
         `frontmatter has no non-empty \`${key}\`, which Claude Code requires to register a ${what}`);
@@ -1152,7 +1156,14 @@ function checkPlugins() {
         `\`name\` is "${manifest.name}", but the plugin directory is ${base}; ` +
         'the marketplace entry, the directory and the manifest must agree');
     }
-    for (const file of markdownUnder(join(dir, 'skills'), 'SKILL.md')) {
+    const skillsDir = join(dir, 'skills');
+    const skillFiles = markdownUnder(skillsDir, 'SKILL.md');
+    if (existsSync(skillsDir) && skillFiles.length === 0) {
+      fail(skillsDir, null, 'plugins',
+        `no SKILL.md found under plugins/${base}/skills/ — a skills folder that ` +
+        'ships none, or ships one under another spelling, is a failure, not a pass');
+    }
+    for (const file of skillFiles) {
       checkFrontmatter(file, 'plugins', 'skill');
       skills += 1;
     }
