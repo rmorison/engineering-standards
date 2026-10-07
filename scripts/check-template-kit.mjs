@@ -53,6 +53,16 @@
  *      Edit in the session the moment CLAUDE_PROJECT_DIR is unset, because
  *      python3 exits 2 on a file it cannot open and PreToolUse reads 2 as
  *      "block". Nothing short of running it catches that, so this check runs it.
+ *  10. Every subagent file under `templates/.claude/agents/` opens with YAML
+ *      frontmatter carrying a non-empty `name` and `description`. The kit's
+ *      `code-reviewer` and `spec-writer` shipped as plain Markdown with no
+ *      frontmatter, and Claude Code 2.1.288 registered neither: a file it
+ *      cannot read as a subagent is skipped without a word, so Layer 3 was
+ *      dead the same quiet way Layer 6 once was (#102). Like checks 1-8 this
+ *      is textual, and it reads only the two required keys rather than parsing
+ *      YAML. It catches a missing, unclosed or emptied block, and a value that
+ *      is empty only once YAML reads it (`""`, `~`, a bare `|`), but not a
+ *      malformed one.
  *
  * Deliberately NOT a validation against the published Claude Code settings
  * schema (https://json.schemastore.org/claude-code-settings.json). That schema
@@ -951,7 +961,100 @@ function checkSettings(file) {
   return entries;
 }
 
+// ---------------------------------------------------------------------------
+// Check 10 — subagent frontmatter
+// ---------------------------------------------------------------------------
+
+const KIT_AGENTS = join(REPO_ROOT, 'templates', '.claude', 'agents');
+
+/**
+ * Required keys, from the frontmatter table of
+ * https://code.claude.com/docs/en/sub-agents (retrieved 2026-10-07, v2.1.288).
+ */
+const AGENT_REQUIRED_KEYS = ['name', 'description'];
+
+/**
+ * Whether a top-level frontmatter value is empty as YAML would read it.
+ *
+ * `name: ""`, `name: ~` and a `description: |` with no indented lines under it
+ * are all non-empty text but empty or null values, and each would otherwise
+ * pass. Not a YAML parser: anything it does not recognise counts as a value.
+ */
+function isEmptyScalar(raw, following) {
+  const value = raw.replace(/\s+#.*$/, '').replace(/^#.*$/, '').trim();
+  if (/^[|>][+-]?$/.test(value)) {
+    const body = [];
+    for (const line of following) {
+      if (line !== '' && !/^\s/.test(line)) break;
+      body.push(line);
+    }
+    return body.every((line) => line.trim() === '');
+  }
+  return ['', '""', "''", '~', 'null', 'Null', 'NULL'].includes(value);
+}
+
+/** Checks every kit subagent file and returns how many it read. */
+function checkKitAgents() {
+  // Recursive, because Claude Code scans `.claude/agents/` recursively: an
+  // agent the kit later files in a subfolder would otherwise go unchecked.
+  const files = existsSync(KIT_AGENTS)
+    ? readdirSync(KIT_AGENTS, { recursive: true })
+      .filter((name) => name.endsWith('.md'))
+      .map((name) => join(KIT_AGENTS, name))
+    : [];
+  if (files.length === 0) {
+    fail(KIT_AGENTS, null, 'agents',
+      'no subagent files found under templates/.claude/agents/ — the kit ships ' +
+      'Layer 3 as two of them, so an empty walk is a failure, not a pass');
+  }
+
+  for (const file of files) {
+    const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+    if (lines[0] !== '---') {
+      fail(file, 1, 'agents',
+        'does not open with a `---` frontmatter block, so Claude Code does not ' +
+        'register it as a subagent and says nothing about it');
+      continue;
+    }
+    // The first `---` after line 1 closes the block. An unclosed block with a
+    // `---` horizontal rule further down is taken as closed there — a false
+    // pass this check accepts rather than parse YAML (see the header).
+    const close = lines.indexOf('---', 1);
+    if (close === -1) {
+      fail(file, 1, 'agents',
+        'opens a `---` frontmatter block that is never closed, so Claude Code ' +
+        'does not register it as a subagent');
+      continue;
+    }
+    const block = lines.slice(1, close);
+    const keys = new Map();
+    block.forEach((line, index) => {
+      const match = /^([A-Za-z][\w-]*):(.*)$/.exec(line);
+      if (match) {
+        keys.set(match[1], {
+          value: match[2].trim(),
+          empty: isEmptyScalar(match[2], block.slice(index + 1)),
+          line: index + 2,
+        });
+      }
+    });
+    for (const key of AGENT_REQUIRED_KEYS) {
+      if (!keys.has(key) || keys.get(key).empty) {
+        fail(file, keys.get(key)?.line ?? 1, 'agents',
+          `frontmatter has no non-empty \`${key}\`, which Claude Code requires to register a subagent`);
+      }
+    }
+    const name = keys.get('name')?.value ?? '';
+    if (name.includes(':')) {
+      fail(file, keys.get('name').line, 'agents',
+        `\`name\` "${name}" contains ':', which Claude Code reserves for plugin-scoped names`);
+    }
+  }
+  return files.length;
+}
+
 checkRuleSyntaxFixtures();
+const agentFiles = checkKitAgents();
 
 const files = settingsFiles();
 if (files.length === 0) {
@@ -974,7 +1077,8 @@ if (VERBOSE || failures.length === 0) {
     `Checked ${files.length} .claude/settings.json file(s) and ${hookEntries} hook ` +
     `command(s); ${RULE_SYNTAX_FIXTURES.length} rule-syntax fixtures, ` +
     `${ALLOW_POSITIVE.length} allow-list positive, ${ALLOW_NEGATIVE.length} negative and ` +
-    `${ALLOW_ACCEPTED_RISK.length} accepted-risk cases. ${pathsSkipped} command path(s) skipped as not statically resolvable.`);
+    `${ALLOW_ACCEPTED_RISK.length} accepted-risk cases. ${pathsSkipped} command path(s) skipped as not statically resolvable. ` +
+    `${agentFiles} kit subagent file(s).`);
 }
 
 if (failures.length > 0) {

@@ -1,3 +1,8 @@
+---
+name: spec-writer
+description: Drafts a product spec, technical design or ADR in the project's documentation format from what the user says about a feature or decision, and writes it to the standard path once approved. Use it when work needs a spec before code.
+---
+
 # Spec Writer Agent
 
 Spec drafting subagent. Interviews the user about a feature and produces a
