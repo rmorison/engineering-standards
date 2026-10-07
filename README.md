@@ -13,7 +13,7 @@ Each step is one line here, and its link holds the detail.
 ### New Project
 
 1. **Starter kit.** Copy `templates/.claude/` and `templates/CLAUDE.md` into the project root, then fill `CLAUDE.md` in: [Project Templates](#project-templates). The `SECURITY.md`, `CONTRIBUTING.md` and `.github/` skeletons are optional: [Repository baseline files](./templates/README.md#repository-baseline-files).
-2. **Docs tree.** Create `docs/product/` and `docs/engineering/adr/`, and write a strategic vision in `docs/product/strategic-vision.md`: [Documentation Standards](./process/documentation-standards.md#directory-structure).
+2. **Docs tree.** Create `docs/product/` and `docs/engineering/adr/`, and write a strategic vision in `docs/product/strategic-vision.md`. Add an ADR to `docs/engineering/adr/` as you make each architecture decision: [Documentation Standards](./process/documentation-standards.md#directory-structure).
 3. **Leak gate in CI.** Copy the files listed in [Adopting the Gate](./process/repository-standards.md#adopting-the-gate), `.github/workflows/leaks.yml` included.
 4. **Leak gate on each machine.** From the project root, install the pinned gitleaks:
 
@@ -21,8 +21,8 @@ Each step is one line here, and its link holds the detail.
    sh scripts/install-gitleaks.sh
    ```
 
-   Then add the commit-time and push-time hooks from [Running It Locally](./process/repository-standards.md#running-it-locally).
-5. **Agent-session hooks**, if agents work on the project. Once per OS account, from the default branch's checkout of this repository, copy the leak hook and the policy hook:
+   Put the directory it prints on `PATH`, or set `GITLEAKS` to the path it prints: [Adopting the Gate](./process/repository-standards.md#adopting-the-gate). If you hold private values, such as private repository names or internal hostnames, declare your value list once per machine: [Private Values](./process/repository-standards.md#private-values). A public repository requires it. Then add the commit-time and push-time hooks from [Running It Locally](./process/repository-standards.md#running-it-locally).
+5. **Agent-session hooks**, if agents work on the project. Once per OS account, copy the leak hook and the policy hook. Run this from a clone of `rmorison/engineering-standards` checked out on `main`, not from your project:
 
    ```bash
    mkdir -p ~/.claude/hooks && install -m 755 scripts/claude_leak_hook.py scripts/claude_policy_hook.py ~/.claude/hooks/
@@ -31,24 +31,24 @@ Each step is one line here, and its link holds the detail.
    Then register both in `~/.claude/settings.json`: [Guarding Agent Sessions](./process/repository-standards.md#guarding-agent-sessions) and [Guarding Repository Authority](./process/repository-standards.md#guarding-repository-authority).
 6. **Pull requests.** Branch from issues, use conventional commits, and open every pull request description with At a glance: [PR Description](./process/git-branching-strategy.md#pr-description).
 7. **Feature work.** Follow the [Feature Development Workflow](#feature-development-workflow). If you adopt compound-engineering, see [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for its paths (`docs/plans/`, `docs/solutions/`, `docs/ideation/`) and review discipline.
-8. **Run an agent team** (optional). Add the adoption line to `CLAUDE.md` or `AGENTS.md`, and start a lead with the opening prompt: [Starting a team](./process/agent-team-workflow.md#starting-a-team). Steps 5 and 6 are its prerequisites.
+8. **Run an agent team** (optional). Add [the adoption line](./process/agent-team-workflow.md#8-adopting-and-declining) to `CLAUDE.md` or `AGENTS.md`, and start a lead with the opening prompt: [Starting a team](./process/agent-team-workflow.md#starting-a-team). The agent-session hooks are a prerequisite; the rest are in [Prerequisites](./process/agent-team-workflow.md#9-prerequisites).
 
 ### Existing Project
 
 Each step stands alone, so adopt one at a time, in this order. Don't retrofit everything at once.
 
 1. **Pull requests.** Open every pull request description with At a glance: [PR Description](./process/git-branching-strategy.md#pr-description). It changes no files; to back out, stop.
-2. **Agent-session hooks.** Run the copy command in new-project step 5 and register both hooks. They change only the account's `~/.claude/`, never the repository; to back out, remove their entries from `~/.claude/settings.json`.
-3. **Leak gate in CI.** Copy the files as in new-project step 3, install gitleaks with new-project step 4's command, and scan the existing history once before the first push. CI scans the whole tree, and this also finds what earlier commits already published:
+2. **Agent-session hooks.** From a clone of `rmorison/engineering-standards` on `main`, run the copy command in new-project step 5 and register both hooks. Declare your value list first, if you hold one, as in new-project step 4. Without it, the leak hook only stops sessions from switching the git-side gate off. The hooks write only to the account's `~/.claude/`, but they apply to every Claude Code session on the account, in every repository. A project whose agents push straight to its default branch needs [the exemption](./process/repository-standards.md#guarding-repository-authority). To back out, remove their entries from `~/.claude/settings.json`.
+3. **Leak gate in CI.** Copy the files as in new-project step 3, install gitleaks and put it on `PATH` as in new-project step 4, and scan the existing history once before the first push. CI scans the whole tree, and this also finds what earlier commits already published:
 
    ```bash
    sh scripts/leak-gate.sh history
    ```
 
-   Fix what it finds: [When a Leak Is Found](./process/repository-standards.md#when-a-leak-is-found). The step adds the copied files and a workflow; to back out, delete them.
-4. **Leak gate on each machine.** Add the commit-time and push-time hooks from [Running It Locally](./process/repository-standards.md#running-it-locally), or its pre-commit framework entries if the project already uses that framework. To back out, delete the hook files or the entries.
+   Fix what it finds: [When a Leak Is Found](./process/repository-standards.md#when-a-leak-is-found). The step adds the copied files, `leaks.yml` among them; to back out, delete them.
+4. **Leak gate on each machine.** Add the commit-time and push-time hooks from [Running It Locally](./process/repository-standards.md#running-it-locally), or its pre-commit framework entries if the project already uses that framework. They change only the clone's hooks, and refuse a commit or push that leaks. To back out, delete the hook files or the entries.
 5. **Starter kit.** Merge `templates/.claude/` and `templates/CLAUDE.md` into the project's own rather than overwriting them: [Project Templates](#project-templates). To back out, revert the commit.
-6. **Docs, going forward.** Record new decisions as ADRs, and write specs for the next features to validate the approach: [Documentation Standards](./process/documentation-standards.md). Update the standards based on what works.
+6. **Docs, going forward.** Record new decisions as ADRs, and write specs for the next features to validate the approach: [Documentation Standards](./process/documentation-standards.md). Update the standards based on what works and what doesn't. There is nothing to back out.
 7. **Run an agent team** (optional), as in new-project step 8. To stop, remove the adoption line and archive the lead.
 
 ## Repository Structure
