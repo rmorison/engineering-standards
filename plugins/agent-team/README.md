@@ -14,6 +14,8 @@ claude plugin install agent-team@engineering-standards
 
 To pin a version, add the marketplace at a ref, as you pin the hooks: `claude plugin marketplace add rmorison/engineering-standards@<ref>`. The adoption line can pin the workflow document too. Each role reads the workflow at the URL in that line, so a pin holds.
 
+To pick up a newer version, run `claude plugin marketplace update engineering-standards` and then `claude plugin update agent-team@engineering-standards`. Claude Code caches an installed plugin by its version, so whoever changes anything in `plugins/agent-team/` also raises the version in its `.claude-plugin/plugin.json`; otherwise the update reports the plugin current and keeps the old copy (observed on 2.1.293).
+
 To stop using it, follow the workflow's "To decline or stop", then run `claude plugin uninstall agent-team@engineering-standards`. Nothing in your repository depends on the plugin.
 
 ## How the lead is started
