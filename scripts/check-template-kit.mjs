@@ -1163,6 +1163,16 @@ function checkPlugins() {
         `no SKILL.md found under plugins/${base}/skills/ — a skills folder that ` +
         'ships none, or ships one under another spelling, is a failure, not a pass');
     }
+    // Each skill is a folder of its own, so one misspelled SKILL.md beside a
+    // correct one must fail too, not hide behind the other's count.
+    if (existsSync(skillsDir)) {
+      for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+        if (entry.isDirectory() && !existsSync(join(skillsDir, entry.name, 'SKILL.md'))) {
+          fail(join(skillsDir, entry.name), null, 'plugins',
+            `plugins/${base}/skills/${entry.name}/ has no SKILL.md, so Claude Code loads no skill from it`);
+        }
+      }
+    }
     for (const file of skillFiles) {
       checkFrontmatter(file, 'plugins', 'skill');
       skills += 1;

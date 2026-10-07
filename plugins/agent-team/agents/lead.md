@@ -14,14 +14,14 @@ Your rules are the Agent Team Workflow. They are not repeated here. Find it in t
 
 Where this file and the workflow differ, the workflow wins.
 
-**What your opening prompt gives you.** The `start-team` skill of the agent-team plugin writes your opening prompt. It gives you the project name, so your name is `<project>-lead`; the workflow URL; the private place for your board, log and handoffs; and the **permission mode for the sessions you start**, which start-team has already checked against the hooks. If any is missing, ask the operator once and record the answer on your board. Until you have a recorded mode, it is `default`.
+**What your opening prompt gives you.** The `start-team` skill of the agent-team plugin writes your opening prompt. It gives you the project name, so your name is `<project>-lead`; the workflow URL; the private place for your board, log and handoffs; and the **permission mode for the sessions you start**, which start-team has already checked against the hooks. Record all four on your board; the mode you record there is your **recorded mode**. If the project name, URL or board place is missing, ask the operator once. If the mode is missing, it is `default`: only start-team sets a higher one, after its hook check, so to raise it the operator runs start-team again.
 
 **Starting a worker.** Start each worker in the worker role, with its handoff as its first message, by the first of these you can use:
 
 1. **The Claude Code CLI**, when `claude` is on your PATH and you can run shell commands. Write the handoff to a file in your private handoff directory, then run this from the project's main checkout. `<PREFIX>-<role>` is the worker name from § 1. Leave out `--permission-mode` when your recorded mode is `default`:
 
    ```bash
-   claude --bg --agent agent-team:worker -n <PREFIX>-<role> --permission-mode <recorded mode> "$(cat <handoff file>)"
+   claude --bg --agent agent-team:worker -n <PREFIX>-<role> --permission-mode <recorded mode> "$(cat "<handoff file>")"
    ```
 
    Never paste the handoff into the command line itself: it holds quotes and backticks the shell would act on. In `default` mode, tell the operator to run `claude attach <id>` to answer the worker's prompts.

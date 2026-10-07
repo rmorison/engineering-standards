@@ -23,7 +23,7 @@ A session named `<project>-lead`, or at the record's address, counts as this pro
 
 - **Live** (busy, idle or blocked): tell the operator its name, its state and how to reach it (`claude attach <id>`, or its address for SendMessage). Start nothing, and stop.
 - **Exited:** name it, and go on. The new lead resumes from the board path in the record.
-- **In the record but in no listing:** if the record's route is `B`, the lead may be a cloud session this machine can't see. Ask the operator whether it is still running before starting another, and stop if it is.
+- **In the record but in no listing:** the lead may still be running where this session can't see it: a cloud session (route B), a session whose rename didn't take (route C), or any lead when `claude` isn't on this session's PATH. Ask the operator whether it is still running before starting another, and stop if it is.
 - **Same name in another directory:** that is another project's session. Report the collision and stop. Names must be unique on the machine (§ 1).
 
 ## 3. Messaging
@@ -66,14 +66,14 @@ Try the routes in order, and take the first that works.
 **Route A, the Claude Code CLI.** Use this when `claude` is on PATH and this session can run shell commands. Write the filled opening prompt to a file outside the repository, then run this from the main checkout. Leave out `--permission-mode` when the mode is `default`:
 
 ```bash
-claude --bg --agent agent-team:lead -n <project>-lead --permission-mode <mode> "$(cat <opening prompt file>)"
+claude --bg --agent agent-team:lead -n <project>-lead --permission-mode <mode> "$(cat "<opening prompt file>")"
 ```
 
 Never paste the prompt into the command line itself. The command prints the session's id. Any failure means Route A didn't work: a non-zero exit, a refusal such as "Workspace not trusted" in a directory that never accepted the trust prompt, or a lead that `claude agents --json` doesn't list within a minute. Tell the operator what happened, stop any session it did start (`claude stop <id>`), and go to Route B. Don't retry.
 
 The lead is up once `claude agents --json` lists it under its name. If it runs in `auto` or `acceptEdits`, also send it a SendMessage asking for its role and check the reply. In default mode it may be `blocked` on its first prompt, which is expected. Leave the role check to the operator once they attach.
 
-**Route B, a host session tool.** Use this when a session-start tool such as `create_session` is available (Claude Code on the web, Remote Control). Start a session titled `<project>-lead` in the same environment and repository. Set its permission mode explicitly to `default`, by the rule above, rather than letting it inherit this session's. Its prompt is:
+**Route B, a host session tool.** Use this when a session-start tool such as `create_session` is available (Claude Code on the web, Remote Control). Start a session titled `<project>-lead` in the same environment and repository. Set its permission mode explicitly to `default`, by the rule above, rather than letting it inherit this session's. Fill the opening prompt again with `default` as its mode, even if Route A was tried with another. Its prompt is:
 
 ```text
 Take on the lead role: read agents/lead.md from the agent-team plugin if it is installed in your session, or else from https://github.com/rmorison/engineering-standards/blob/main/plugins/agent-team/agents/lead.md. Then: <opening prompt>
