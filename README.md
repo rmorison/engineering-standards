@@ -2,6 +2,8 @@
 
 Lightweight development practices and standards for software projects.
 
+**To adopt them in a new or existing project, start with [QUICKSTART.md](./QUICKSTART.md):** the steps in order, with snippets to copy and a prompt that has a Claude Code session carry them out.
+
 ## Purpose
 
 This repository defines engineering standards for building software. The standards are intentionally lightweight to support early-stage agile development while providing enough structure to maintain quality and enable effective collaboration—both human-to-human and human-to-AI.
@@ -14,6 +16,7 @@ This repository defines engineering standards for building software. The standar
 - **[templates/](./templates/)** - Project starter kit with Claude Code configuration (`.claude/` directory template)
 - **[agent-transcripts/](./agent-transcripts/)** - Historical development logs
 - **[scripts/](./scripts/)** - Documentation checks and the leak gate, run in CI ([how to run them locally](./process/documentation-standards.md#automated-checks))
+- **[QUICKSTART.md](./QUICKSTART.md)** - How to adopt these standards in a new or existing project, step by step
 - **[SECURITY.md](./SECURITY.md)** and **[CONTRIBUTING.md](./CONTRIBUTING.md)** - How to report a vulnerability privately, and how to contribute
 
 ## Process Standards
@@ -103,11 +106,7 @@ Operational reference for adopting [compound-engineering](https://github.com/Eve
 
 An opt-in operating model for one human directing several AI agent sessions: the operator signs off and merges, a lead coordinates, and one worker runs each ticket. Covers roles, the sprint loop, traffic between parallel tickets, a worker handoff template, the lead's Done-gate checklist, operator interaction (quiet mode), and how to adopt or decline it.
 
-**Quick start**, for a new or existing project:
-
-1. Install both hooks: [the leak hook](./process/repository-standards.md#guarding-agent-sessions) and [the policy hook](./process/repository-standards.md#guarding-repository-authority).
-2. Add [the adoption line](./process/agent-team-workflow.md#8-adopting-and-declining) to the project's `CLAUDE.md` or `AGENTS.md`.
-3. Open a session with [the opening prompt](./process/agent-team-workflow.md#starting-a-team); it becomes the lead and proposes a first sprint.
+To start one, see [the Quickstart](./QUICKSTART.md#7-run-an-agent-team).
 
 ### [Agent Transcripts](./agent-transcripts/)
 
@@ -183,25 +182,6 @@ Modern development increasingly involves AI coding assistants. These standards w
 - Small scopes reduce AI errors
 - Validation catches AI-generated bugs
 - Iteration is cheaper with AI assistance
-
-## Applying These Standards
-
-### For New Projects
-
-1. Create `docs/` directory with `product/` and `engineering/` subdirectories
-2. Write a strategic vision in `docs/product/strategic-vision.md`
-3. Add architecture decisions to `docs/engineering/adr/` as you make them
-4. Follow the feature development workflow for new features
-5. If adopting compound-engineering, see [`process/compound-engineering-integration.md`](./process/compound-engineering-integration.md) for path mapping (CE adds `docs/plans/`, `docs/solutions/`, `docs/ideation/` to the documentation tree) and review discipline.
-6. To run an agent team, follow the [Agent Team Workflow quick start](#agent-team-workflow).
-
-### For Existing Projects
-
-1. Introduce standards gradually—don't retrofit everything at once
-2. Start with ADRs to document new decisions going forward
-3. Write specs for next features to validate the approach
-4. Update standards based on what works and what doesn't
-5. To run an agent team, follow the [Agent Team Workflow quick start](#agent-team-workflow)
 
 ### When to Deviate
 
