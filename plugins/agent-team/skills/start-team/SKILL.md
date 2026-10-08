@@ -95,4 +95,5 @@ In a few lines:
 
 - where the lead is (name, route, state), and how to reach it: `claude attach <id>` for Route A, the session link for Route B, this session for Route C;
 - what start-team changed (the adoption line, the record) and what it left for the operator: committing the line, naming the branch the main checkout is on so it isn't committed into an unrelated pull request, and any prerequisites marked missing;
+- if the hooks failed step 4, say plainly what nothing guards until they are installed: a merge, a change to repository settings, a push to the default branch, and a private value posted in GitHub text. Every session the team starts runs in the default mode meanwhile, and the operator's own approval of each prompt is then the only guard;
 - what happens next, from § 8 "Starting a team": the lead proposes a first sprint and stops for their sign-off. If it can't start sessions, they start each worker by hand from the handoff it writes. Quiet mode is on: the lead messages them only for a pull request ready to merge, a decision, a blocker or a leak.
