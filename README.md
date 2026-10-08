@@ -106,7 +106,7 @@ Operational reference for adopting [compound-engineering](https://github.com/Eve
 
 An opt-in operating model for one human directing several AI agent sessions: the operator signs off and merges, a lead coordinates, and one worker runs each ticket. Covers roles, the sprint loop, traffic between parallel tickets, a worker handoff template, the lead's Done-gate checklist, operator interaction (quiet mode), and how to adopt or decline it.
 
-To start one, see [the Quickstart](./QUICKSTART.md#8-run-an-agent-team).
+To start one, see [the Quickstart](./QUICKSTART.md#7-run-an-agent-team).
 
 ### [Agent Transcripts](./agent-transcripts/)
 
