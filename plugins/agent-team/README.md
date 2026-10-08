@@ -7,6 +7,7 @@ A Claude Code plugin that starts an agent team in one step, for projects that fo
 
 ## Install
 
+<!-- copy-of: process/agent-team-workflow.md | claude plugin install agent-team@engineering-standards -->
 ```bash
 claude plugin marketplace add rmorison/engineering-standards
 claude plugin install agent-team@engineering-standards

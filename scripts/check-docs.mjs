@@ -492,7 +492,8 @@ function checkGitleaksPins() {
  * Check 8 — a marked copy of a standard's code block matches its source.
  *
  * QUICKSTART.md repeats commands, hook installers and settings JSON that a
- * standard owns, so a reader can copy them in one place. A copy drifts the
+ * standard owns, so a reader can copy them in one place; the agent-team
+ * plugin's README repeats its install commands. A copy drifts the
  * first time the standard changes and the copy doesn't. So each copy carries a
  * marker on the line before its fence, naming the source file and a string that
  * only one fenced block there contains:
@@ -520,7 +521,7 @@ function checkGitleaksPins() {
  */
 const COPY_MARKER = /^\s*<!-- copy-of(-line)?: (\S+) \| (.+?) -->\s*$/;
 const OWN_MARKER = /^\s*<!-- own -->\s*$/;
-const MARKED_FILES = new Set(['QUICKSTART.md']);
+const MARKED_FILES = new Set(['QUICKSTART.md', 'plugins/agent-team/README.md']);
 
 /**
  * Every fenced block in a file: its info string, its content lines with the
