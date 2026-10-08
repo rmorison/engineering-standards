@@ -17,6 +17,10 @@ on:
       # this repository's own included. Filtering on templates/ alone meant a
       # break in .claude/settings.json ran neither job.
       - '.claude/**'
+      # check-template-kit.mjs checks 10 and 11 read the plugins this
+      # repository ships, whose manifests are JSON that no other filter matches.
+      - 'plugins/**'
+      - '.claude-plugin/**'
   push:
     branches: [main]
     paths:
@@ -31,6 +35,10 @@ on:
       # this repository's own included. Filtering on templates/ alone meant a
       # break in .claude/settings.json ran neither job.
       - '.claude/**'
+      # check-template-kit.mjs checks 10 and 11 read the plugins this
+      # repository ships, whose manifests are JSON that no other filter matches.
+      - 'plugins/**'
+      - '.claude-plugin/**'
   workflow_dispatch:
 
 # Least privilege, stated rather than inherited. Both jobs run code out of the

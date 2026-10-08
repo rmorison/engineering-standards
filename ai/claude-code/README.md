@@ -92,15 +92,17 @@ The Layer 1 rule files in [`rules/`](./rules/) load automatically when working h
 2. Copy [`templates/CLAUDE.md`](../../templates/CLAUDE.md) to your project root and fill in the project-specific sections — that file is the project's Layer 1. The rule files in [`rules/`](./rules/) are this repository's own Layer 1 and are not copied; they are what to draw on when filling it in.
 3. Customize hooks, skills and agents for your project's architecture.
 4. To adopt compound-engineering for Layers 2–5, install the plugin and follow [`process/compound-engineering-integration.md`](../../process/compound-engineering-integration.md) for path mappings, branch naming and review discipline. Layers 1 and 6 stay owned by your project: Layer 1 as its root `CLAUDE.md`, Layer 6 as its `.claude/hooks/`.
-5. Optionally, to run several agent sessions as a team under one human, follow [`process/agent-team-workflow.md`](../../process/agent-team-workflow.md).
+5. Optionally, to run several agent sessions as a team under one human, follow [`process/agent-team-workflow.md`](../../process/agent-team-workflow.md). The [`agent-team` plugin](../../plugins/agent-team/README.md) starts one in a single step.
 
 ## Where things live
 
 | Document | Owns |
 |----------|------|
 | [ADR-0001](../../docs/engineering/adr/0001-six-layer-ai-architecture.md) | The architectural decision and the reasoning behind six layers |
+| [ADR-0002](../../docs/engineering/adr/0002-agent-team-roles.md) | Why the agent team's lead and worker roles are an orchestration pattern over the layers, not a layer |
 | This document | Layer definitions, principles, and how the layers compose |
 | [`process/compound-engineering-integration.md`](../../process/compound-engineering-integration.md) | Everything CE-specific: skill mappings, artifact paths, review discipline, version tracking |
 | [`process/agent-team-workflow.md`](../../process/agent-team-workflow.md) | The opt-in operator, lead and worker model: roles, the sprint loop, the worker handoff template, the lead's Done gate |
+| [`plugins/agent-team/`](../../plugins/agent-team/README.md) | The `start-team` skill and the lead and worker role files, installed as a Claude Code plugin |
 | [`ai/CLAUDE.md`](../CLAUDE.md) | Quick-reference standards guide for AI tools working in this repository |
 | [`templates/.claude/`](../../templates/.claude/) | The vendor-neutral baselines themselves |

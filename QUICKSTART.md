@@ -203,7 +203,17 @@ Build features through the [Feature Development Workflow](./process/feature-deve
 
 **Optional:** one human directing several agent sessions through a lead: [Agent Team Workflow](./process/agent-team-workflow.md). It needs step 5's hooks and the compound-engineering plugin (or equivalent review steps); the rest is in [Prerequisites](./process/agent-team-workflow.md#9-prerequisites).
 
-Add [the adoption line](./process/agent-team-workflow.md#8-adopting-and-declining) to `CLAUDE.md` or `AGENTS.md`:
+**With the plugin.** **You do this:** install the [`agent-team` plugin](./plugins/agent-team/README.md), once per account:
+
+<!-- copy-of: process/agent-team-workflow.md | claude plugin install agent-team@engineering-standards -->
+```bash
+claude plugin marketplace add rmorison/engineering-standards
+claude plugin install agent-team@engineering-standards
+```
+
+Then, in a Claude Code session in the project, run `/agent-team:start-team`, or ask for an agent team. It checks the prerequisites, adds the adoption line, starts `<project>-lead` in the lead role, and tells you where the lead is and what it does next: [Starting a team](./process/agent-team-workflow.md#starting-a-team).
+
+**By hand,** if you don't use the plugin: add [the adoption line](./process/agent-team-workflow.md#8-adopting-and-declining) to `CLAUDE.md` or `AGENTS.md`:
 
 <!-- copy-of: process/agent-team-workflow.md | the operator starts one lead session -->
 ```markdown
@@ -221,7 +231,7 @@ Check the prerequisites, read the open issues and pull requests, and propose a
 first sprint. Stop for my sign-off before starting any worker.
 ```
 
-To stop, remove the line and archive the lead.
+To stop, remove the line and archive the lead, and uninstall the plugin if you installed it.
 
 ## Existing Project
 
@@ -283,7 +293,7 @@ Record new decisions as ADRs and write specs for the next features, without retr
 
 ### 6. Run an Agent Team
 
-**Optional,** as in [new-project step 7](#7-run-an-agent-team), with the hooks and the compound-engineering plugin installed. To stop, remove the adoption line and archive the lead.
+**Optional,** as in [new-project step 7](#7-run-an-agent-team), with the hooks and the compound-engineering plugin installed: install the `agent-team` plugin and run its `start-team` skill, or start the lead by hand. `start-team` adds the adoption line only if neither `CLAUDE.md` nor `AGENTS.md` has it, and leaves it uncommitted. To stop, remove the adoption line and archive the lead, and uninstall the plugin if you installed it.
 
 ## Pull Requests
 

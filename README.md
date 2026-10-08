@@ -14,6 +14,7 @@ This repository defines engineering standards for building software. The standar
 - **[code/](./code/)** - Language and stack-specific code quality standards ([Python](./code/python-standards.md), [Database](./code/database-standards.md), [Web Application](./code/web-application-standards.md))
 - **[ai/](./ai/)** - AI assistant configuration and Claude Code integration ([details](./ai/claude-code/README.md))
 - **[templates/](./templates/)** - Project starter kit with Claude Code configuration (`.claude/` directory template)
+- **[plugins/](./plugins/)** - Claude Code plugins installed from this repository: [`agent-team`](./plugins/agent-team/README.md) starts an agent team in one step
 - **[agent-transcripts/](./agent-transcripts/)** - Historical development logs
 - **[scripts/](./scripts/)** - Documentation checks and the leak gate, run in CI ([how to run them locally](./process/documentation-standards.md#automated-checks))
 - **[QUICKSTART.md](./QUICKSTART.md)** - How to adopt these standards in a new or existing project, step by step
@@ -106,7 +107,7 @@ Operational reference for adopting [compound-engineering](https://github.com/Eve
 
 An opt-in operating model for one human directing several AI agent sessions: the operator signs off and merges, a lead coordinates, and one worker runs each ticket. Covers roles, the sprint loop, traffic between parallel tickets, a worker handoff template, the lead's Done-gate checklist, operator interaction (quiet mode), and how to adopt or decline it.
 
-To start one, see [the Quickstart](./QUICKSTART.md#7-run-an-agent-team).
+To start one, install the [`agent-team` plugin](./plugins/agent-team/README.md) and run its `start-team` skill, or start the lead by hand: see [the Quickstart](./QUICKSTART.md#7-run-an-agent-team).
 
 ### [Agent Transcripts](./agent-transcripts/)
 
