@@ -13,6 +13,7 @@ Run snippets from the project root unless a step says otherwise. Snippets copied
 - `curl`, `tar`, and `sha256sum` or `shasum`, for the gitleaks installer.
 - [Claude Code](https://claude.com/claude-code), for the prompts and the agent-session hooks. The hooks need Python 3.10 or later.
 - The [GitHub CLI](https://cli.github.com) (`gh`), for an agent team.
+- The [compound-engineering plugin](https://github.com/EveryInc/compound-engineering-plugin) for Claude Code: optional for the standards, required for an agent team, whose workers' plan review, code review and learnings steps it provides (or equivalents): [Prerequisites](./process/agent-team-workflow.md#9-prerequisites).
 - A clone of this repository outside your project. The snippets read it from `~/engineering-standards`; change that path if yours is elsewhere.
 
 <!-- own -->
@@ -20,11 +21,11 @@ Run snippets from the project root unless a step says otherwise. Snippets copied
 git clone https://github.com/rmorison/engineering-standards.git ~/engineering-standards
 ```
 
-If you already have a clone, update it on `main` (the snippets copy from whatever it has checked out), then `cd` back to your project:
+If you already have a clone, update it on `main`, since the snippets copy from whatever it has checked out:
 
 <!-- own -->
 ```bash
-cd ~/engineering-standards && git switch main && git pull --ff-only
+(cd ~/engineering-standards && git switch main && git pull --ff-only)
 ```
 
 ## New Project
@@ -200,7 +201,7 @@ Build features through the [Feature Development Workflow](./process/feature-deve
 
 ### 7. Run an Agent Team
 
-**Optional:** one human directing several agent sessions through a lead: [Agent Team Workflow](./process/agent-team-workflow.md). Step 5's hooks are required; the rest is in [Prerequisites](./process/agent-team-workflow.md#9-prerequisites).
+**Optional:** one human directing several agent sessions through a lead: [Agent Team Workflow](./process/agent-team-workflow.md). It needs step 5's hooks and the compound-engineering plugin (or equivalent review steps); the rest is in [Prerequisites](./process/agent-team-workflow.md#9-prerequisites).
 
 Add [the adoption line](./process/agent-team-workflow.md#8-adopting-and-declining) to `CLAUDE.md` or `AGENTS.md`:
 
@@ -282,7 +283,7 @@ Record new decisions as ADRs and write specs for the next features, without retr
 
 ### 6. Run an Agent Team
 
-**Optional,** as in [new-project step 7](#7-run-an-agent-team). To stop, remove the adoption line and archive the lead.
+**Optional,** as in [new-project step 7](#7-run-an-agent-team), with the hooks and the compound-engineering plugin installed. To stop, remove the adoption line and archive the lead.
 
 ## Pull Requests
 
