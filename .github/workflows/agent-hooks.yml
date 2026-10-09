@@ -1,0 +1,39 @@
+name: Agent hooks
+
+# Proves this repository's Claude Code hooks: scripts/claude_leak_hook.py, which
+# applies the value list to text agent sessions post to GitHub, and
+# scripts/claude_policy_hook.py, which keeps merges and settings changes out of
+# agent sessions. Their rules are owned by process/repository-standards.md
+# (Guarding Agent Sessions, Guarding Repository Authority).
+#
+# Its own workflow, not a step in leaks.yml: adopting projects copy leaks.yml
+# whole (Adopting the Gate), and these suites read this repository's files, so
+# they fail anywhere else (#109). Adopters never copy this file.
+#
+# No path filter, so both suites run on every change, as the leak gate does.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# NEVER move this workflow to pull_request_target, give it secrets, or grant it a
+# write token: it runs scripts the pull request can edit, which is safe only
+# because a pull_request run has nothing worth taking.
+permissions:
+  contents: read
+
+jobs:
+  agent-hooks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner's python3; the hooks need 3.10 or later and the standard
+      # library only. Each suite runs the hook against scratch HOMEs and scratch
+      # repositories with invented values; no real value list is read.
+      - name: Prove the leak hook
+        run: python3 scripts/test_claude_leak_hook.py
+
+      - name: Prove the policy hook
+        run: python3 scripts/test_claude_policy_hook.py

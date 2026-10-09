@@ -116,6 +116,17 @@ Copy these files from this repository:
 - `scripts/install-gitleaks.sh`: installs the pinned gitleaks. It is the only file that holds the gitleaks version and tarball hashes.
 - `.github/workflows/leaks.yml`, with `scripts/test-leak-gate.sh` and `scripts/test-install-gitleaks.sh`: the CI job, and the fixtures that prove every rule fires and the install fails closed before any scan is trusted.
 
+Copy them as they are. The one edit a project makes is the allow-comment opt-in described below, which drops a flag from `leaks.yml`. From the project's root, with this repository cloned at `~/engineering-standards`:
+
+```bash
+es=~/engineering-standards && mkdir -p scripts .github/workflows &&
+cp "$es/.gitleaks.toml" . && cp "$es/.github/workflows/leaks.yml" .github/workflows/ &&
+cp "$es/scripts/gitleaks-report.tmpl" "$es/scripts/leak-gate.sh" "$es/scripts/install-gitleaks.sh" \
+  "$es/scripts/test-leak-gate.sh" "$es/scripts/test-install-gitleaks.sh" scripts/
+```
+
+Don't copy `.github/workflows/agent-hooks.yml`. It tests this repository's own agent-session hooks against this repository's files, and fails anywhere else.
+
 Install gitleaks in CI and on every developer machine that runs the hook. Without it on `PATH`, or `GITLEAKS` naming it, the wrapper refuses every commit with one line saying that gitleaks was not found and to run `sh scripts/install-gitleaks.sh`. `scripts/install-gitleaks.sh` installs it. CI's Install gitleaks step in `leaks.yml` runs it, as does the step in [Using gitleaks Instead](../code/python-standards.md#using-gitleaks-instead).
 
 On a developer machine, or from a `make dev` target, run it from the repository root. It installs into `~/.local/bin`, or into the directory given as its argument:
