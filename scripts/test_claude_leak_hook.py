@@ -525,6 +525,11 @@ def fixtures(sb):
         "bash --rcfile fix.sh -i; ",
         "BASH_ENV=fix.sh bash -c 'echo hi' && ",
         "ENV=fix.sh sh -c 'echo hi' && ",
+        # From the third fix-delta review of #117: a startup file set without a prefix.
+        "export BASH_ENV=fix.sh; bash -c 'echo hi'; ",
+        "declare -x BASH_ENV=fix.sh; bash -c 'echo hi'; ",
+        "export ENV=fix.sh; sh -c 'echo hi'; ",
+        "ZDOTDIR=. zsh -c 'echo hi' && ",
     ]
     posts = [
         "gh pr edit 1 --body-file reused.md",
@@ -612,6 +617,11 @@ def fixtures(sb):
         ("a gh write in env --s=", "env --s='gh pr comment 1 --body-file dirty.md'"),
         ("a gh write in env -iS joined", "env -iS'gh pr comment 1 --body-file dirty.md'"),
         ("a gh write in env -uX -S", "env -uX -S 'gh pr comment 1 --body-file dirty.md'"),
+        # A script may start with - or +, and +c runs one too (third fix-delta review of #117).
+        ("a gh write in a -c script starting with -", "bash -c -- '-x; gh pr comment 1 --body-file dirty.md'"),
+        ("a value inline in a sh -c - script starting with +", f"sh -c - '+x; gh pr comment 1 --body {A}'"),
+        ("a value inline in bash +c", f"bash +c 'gh pr comment 1 --body {A}'"),
+        ("a value inline in sh +c", f"sh +c 'gh pr comment 1 --body {A}'"),
     ]
     for name, command in after_substitution:
         check(name, sb.hook(command), "deny", "matches private value list line", {3})

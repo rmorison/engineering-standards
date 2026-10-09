@@ -358,6 +358,11 @@ def fixtures(sb):
         ("env --split='git push origin HEAD:trunk'", sb.feat),
         ("env -iS'git push origin HEAD:trunk'", sb.feat),
         ("env -uX -S 'git push origin HEAD:trunk'", sb.feat),
+        # From the third fix-delta review of #117: a script starting with - or +, and +c.
+        ("bash -c -- '-x; git push origin HEAD:trunk'", sb.feat),
+        ("sh -c - '+x; git push origin HEAD:trunk'", sb.feat),
+        ("bash +c 'git push origin HEAD:trunk'", sb.feat),
+        ("sh +c 'git push origin HEAD:trunk'", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),

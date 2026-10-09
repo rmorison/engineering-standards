@@ -450,25 +450,28 @@ def substitutions(text):
 # fail-open (#117). Every word after the first that could be a -c is parsed as a
 # script, and a shell counts as an interpreter unless plain_shell_script() names
 # its one script, which only removes the false positive of a -c beside a post.
-PLAIN_SHELL_LETTERS = set("ceuxvlo")  # -e -u -x -v -l -o and -c, none a bash long option
+PLAIN_SHELL_LETTERS = set("ceuxvlo")
+STARTUP_VARIABLES = ("BASH_ENV=", "ENV=", "ZDOTDIR=")  # each names a file a shell runs at start
+EXPORTERS = {"export", "declare", "typeset", "readonly", "local"}  # -e -u -x -v -l -o and -c, none a bash long option
 
 
 def shell_candidates(words):
     """Returns the positions of every word a shell could run as a -c script: each
-    word after the first option word that holds a c, unless it looks like an
-    option. Values such as pipefail are parsed too, harmlessly."""
+    word after the first option word, -c or +c in any cluster, that holds a c.
+    Values such as pipefail, and options such as --, are parsed too, harmlessly;
+    a script may itself start with - or +, as in bash -c -- '-x; ...'."""
     first = next((j for j, w in enumerate(words[1:], 1)
-                  if w.startswith("-") and not w.startswith("--") and "c" in w), None)
+                  if w[:1] in ("-", "+") and not w.startswith("--") and "c" in w), None)
     if first is None:
         return []
-    return [k for k in range(first + 1, len(words)) if not words[k].startswith(("-", "+"))]
+    return list(range(first + 1, len(words)))
 
 
 def plain_shell_script(cmd):
     """Whether this shell runs exactly one -c script, with only the options in
     PLAIN_SHELL_LETTERS before it and no startup file: bash -c '...' or
     bash -euo pipefail -c '...'. Anything else counts as an interpreter."""
-    if any(a.startswith(("BASH_ENV=", "ENV=")) for a in cmd.assigns):
+    if any(a.startswith(STARTUP_VARIABLES) for a in cmd.assigns):
         return False
     words, j, run = cmd.words, 1, False
     while j < len(words) and words[j][:1] in ("-", "+"):
@@ -781,6 +784,11 @@ def interprets(cmd):
     script read by source or .; a script run by its path; or a program named
     when the command runs, as in $PY fix.py, which may be any of these."""
     if INTERPRETER.match(cmd.program):
+        return True
+    # A startup file set anywhere, as in export BASH_ENV=f; bash -c '...', runs
+    # in any shell the command starts later.
+    if any(a.startswith(STARTUP_VARIABLES) for a in cmd.assigns) or (
+            cmd.program in EXPORTERS and any(w.startswith(STARTUP_VARIABLES) for w in cmd.words[1:])):
         return True
     if cmd.words and ("$" in cmd.words[0] or "`" in cmd.words[0]):
         return True
