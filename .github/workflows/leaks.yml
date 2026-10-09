@@ -60,8 +60,9 @@ jobs:
       # passes its allowlisted cases, and nothing planted reaches this log. The
       # same script proves scripts/leak-gate.sh, the local wrapper, against
       # invented values in temporary repositories; no real value list is read.
-      # This repository's agent-hook suites run in agent-hooks.yml, not here:
-      # adopting projects copy this file whole, and those suites fail there.
+      # The standards repository's agent-hook suites run in its own
+      # agent-hooks.yml, not here: adopting projects copy this file whole, and
+      # those suites fail there.
       - name: Prove the rules and the wrapper fire
         run: sh scripts/test-leak-gate.sh
 

@@ -802,7 +802,7 @@ make security
 
 #### Using gitleaks Instead
 
-gitleaks meets the same requirement with a different allowlist and no baseline file. It normally runs as the [leak gate](../process/repository-standards.md#leak-gate), so copy the gate's files as [Adopting the Gate](../process/repository-standards.md#adopting-the-gate) lists them. Only these parts change:
+gitleaks meets the same requirement with a different allowlist and no baseline file. It normally runs as the [leak gate](../process/repository-standards.md#leak-gate), so copy the gate's files as [Adopting the Gate](../process/repository-standards.md#adopting-the-gate) lists them. A project without the gate copies the same files except `.github/workflows/leaks.yml` and its fixtures, `scripts/test-leak-gate.sh` and `scripts/test-install-gitleaks.sh`: the pre-commit hook still runs `scripts/leak-gate.sh` with `.gitleaks.toml` and the report template, and the CI step below runs `scripts/install-gitleaks.sh`. Only these parts change:
 
 | Part | detect-secrets (default) | gitleaks |
 |------|--------------------------|----------|
