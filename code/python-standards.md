@@ -802,25 +802,25 @@ make security
 
 #### Using gitleaks Instead
 
-gitleaks meets the same requirement with a different allowlist and no baseline file. It runs as the [leak gate](../process/repository-standards.md#leak-gate), so copy the gate's files as [Adopting the Gate](../process/repository-standards.md#adopting-the-gate) lists them. Only these parts change:
+gitleaks meets the same requirement with a different allowlist and no baseline file. It normally runs as the [leak gate](../process/repository-standards.md#leak-gate), so copy the gate's files as [Adopting the Gate](../process/repository-standards.md#adopting-the-gate) lists them. Only these parts change:
 
 | Part | detect-secrets (default) | gitleaks |
 |------|--------------------------|----------|
-| Install | dev dependency, pinned in `uv.lock` | `sh scripts/install-gitleaks.sh`, copied with the gate's files. It is the only place the version and each tarball's SHA-256 are written. Run it from `make dev` on developer machines; the CI step below runs it too |
+| Install | dev dependency, pinned in `uv.lock` | `sh scripts/install-gitleaks.sh`, copied with the gate's files. It is the only place the version and each tarball's SHA-256 are written. Run it from `make dev` on developer machines. In CI, `leaks.yml` runs it, or the step below in a project without the gate |
 | Pre-commit hook | local hook, `entry: uv run detect-secrets-hook` | the gate's `repo: local` entry, with `language: system`, `pass_filenames: false`, `always_run: true`, `stages: [pre-commit]` and `entry: env LEAKGATE_HONOR_ALLOW=1 sh scripts/leak-gate.sh staged`, as [Running It Locally](../process/repository-standards.md#running-it-locally) describes. `LEAKGATE_HONOR_ALLOW=1` honours the reviewed `gitleaks:allow` comments this section permits under `tests/` |
-| CI scan | `make security` | the step below: `gitleaks dir .` from a binary checked against a pinned SHA-256, as the first step after checkout |
-| `make security` | as written | delete the `detect-secrets-hook` line and the baseline audit check; keep the pragma check and `pip-audit`. The tree scan stays a separate CI step, because run locally `gitleaks dir` also scans `.venv/` |
+| CI scan | `make security` | with the gate, `leaks.yml`, which scans the added commits and the whole tree with the gate's rules: no separate step. A project that permits reviewed allow comments drops `--ignore-gitleaks-allow` from it, as [Adopting the Gate](../process/repository-standards.md#adopting-the-gate) says. Without the gate, the step below: `gitleaks dir .` from a binary checked against a pinned SHA-256, as the first step after checkout |
+| `make security` | as written | delete the `detect-secrets-hook` line and the baseline audit check; keep the pragma check and `pip-audit`. The tree scan stays in CI, in `leaks.yml` or the step below, because run locally `gitleaks dir` also scans `.venv/` |
 | Allowlist | `.secrets.baseline`, audited | `.gitleaksignore`, one finding fingerprint per line, added and reviewed by a person |
 
 - Remove detect-secrets from the dev dependencies and delete `.secrets.baseline`. CI keeps its `make security` step, so `pip-audit` still runs.
 - The hook scans staged changes only, so `pre-commit run --all-files` cannot stand in for the CI scan.
-- `gitleaks dir` does not read `.gitignore`. Run it straight after `actions/checkout` and before `uv sync`, or it scans `.venv/` and any other untracked files as well.
+- `gitleaks dir` does not read `.gitignore`. Without the gate, run the step below straight after `actions/checkout` and before `uv sync`, or it scans `.venv/` and any other untracked files as well.
 - A fingerprint for `gitleaks dir` has the form `path:rule-id:line`, so it stops matching when the line moves.
 - A `gitleaks:allow` comment follows the pragma rule above: under `tests/` only, never a `*.env` file. The `make security` pragma check enforces it.
 - `gitleaks/gitleaks-action` needs a `GITLEAKS_LICENSE` secret for repositories owned by an organization; the binary does not.
 - The CI step checks the tarball against the SHA-256 pinned in `scripts/install-gitleaks.sh`, not against the release's `gitleaks_<V>_checksums.txt`. A replaced release asset would ship with a checksums file that matches it. The script installs nothing on a mismatch and exits non-zero, which fails the step. [Adopting the Gate](../process/repository-standards.md#adopting-the-gate) says how to upgrade the pins.
 
-CI step:
+CI step, for a project that uses gitleaks without the gate. A project that copied the gate leaves it out: `leaks.yml` already scans the tree, with more rules.
 
 ```yaml
       - name: Secret scan

@@ -75,16 +75,14 @@ mkdir -p docs/product docs/engineering/adr
 
 ### 3. Add the Leak Gate to CI
 
-Copy the gate's files: [Adopting the Gate](./process/repository-standards.md#adopting-the-gate). The snippet leaves two lines out of `leaks.yml` that run this repository's own hook tests, which fail anywhere else (#109).
+Copy the gate's files: [Adopting the Gate](./process/repository-standards.md#adopting-the-gate).
 
-<!-- own -->
+<!-- copy-of: process/repository-standards.md | es=~/engineering-standards -->
 ```bash
 es=~/engineering-standards && mkdir -p scripts .github/workflows &&
-cp "$es/.gitleaks.toml" . &&
+cp "$es/.gitleaks.toml" . && cp "$es/.github/workflows/leaks.yml" .github/workflows/ &&
 cp "$es/scripts/gitleaks-report.tmpl" "$es/scripts/leak-gate.sh" "$es/scripts/install-gitleaks.sh" \
-  "$es/scripts/test-leak-gate.sh" "$es/scripts/test-install-gitleaks.sh" scripts/ &&
-grep -v 'python3 scripts/test_claude_' "$es/.github/workflows/leaks.yml" > leaks.yml.tmp &&
-mv leaks.yml.tmp .github/workflows/leaks.yml
+  "$es/scripts/test-leak-gate.sh" "$es/scripts/test-install-gitleaks.sh" scripts/
 ```
 
 Name reviewers for the gate's files in a `CODEOWNERS` file, as the section explains. **You do this:** require that review in the repository's settings.

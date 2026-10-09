@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Proves scripts/claude_leak_hook.py denies what it must and allows the rest.
 
-CI runs this on every pull request (.github/workflows/leaks.yml). Each fixture
+CI runs this on every pull request (.github/workflows/agent-hooks.yml). Each fixture
 feeds the hook one Claude Code PreToolUse input on standard input, as Claude
 Code does, and checks three things: the exit code (2 denies, 0 allows), a
 fragment of the message, and that nothing the hook printed contains a planted
