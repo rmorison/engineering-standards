@@ -266,9 +266,10 @@ def env_split_string(words, i=1):
     or as the next word. A -u or -C in a cluster takes the rest of the word."""
     while i < len(words) and words[i].startswith("-") and words[i] not in ("-", "--"):
         w = words[i]
-        if w.startswith("--split-string="):
-            return w[len("--split-string="):], i
-        if w == "--split-string":
+        name, eq, value = w.partition("=")
+        if len(name) > 2 and "--split-string".startswith(name):  # getopt_long takes --s, --split
+            if eq:
+                return value, i
             return (words[i + 1], i + 1) if i + 1 < len(words) else None
         if not w.startswith("--"):
             for k, letter in enumerate(w[1:], 1):
@@ -445,27 +446,49 @@ def substitutions(text):
     return bodies
 
 
-SHELL_LONG_VALUES = {"--rcfile", "--init-file", "--emulate"}  # long options that take a word
+# A shell's option grammar is not modelled exactly: three attempts each opened a
+# fail-open (#117). Every word after the first that could be a -c is parsed as a
+# script, and a shell counts as an interpreter unless plain_shell_script() names
+# its one script, which only removes the false positive of a -c beside a post.
+PLAIN_SHELL_LETTERS = set("ceuxvlo")  # -e -u -x -v -l -o and -c, none a bash long option
 
 
-def shell_option_values(w):
-    """How many words after a shell option word are its values: one for each o or
-    O in a cluster such as -euo pipefail, and one for --rcfile and its kind."""
-    if w in SHELL_LONG_VALUES:
-        return 1
-    if w.startswith("--"):
-        return 0
-    return w[1:].count("o") + w[1:].count("O")
+def shell_candidates(words):
+    """Returns the positions of every word a shell could run as a -c script: each
+    word after the first option word that holds a c, unless it looks like an
+    option. Values such as pipefail are parsed too, harmlessly."""
+    first = next((j for j, w in enumerate(words[1:], 1)
+                  if w.startswith("-") and not w.startswith("--") and "c" in w), None)
+    if first is None:
+        return []
+    return [k for k in range(first + 1, len(words)) if not words[k].startswith(("-", "+"))]
+
+
+def plain_shell_script(cmd):
+    """Whether this shell runs exactly one -c script, with only the options in
+    PLAIN_SHELL_LETTERS before it and no startup file: bash -c '...' or
+    bash -euo pipefail -c '...'. Anything else counts as an interpreter."""
+    if any(a.startswith(("BASH_ENV=", "ENV=")) for a in cmd.assigns):
+        return False
+    words, j, run = cmd.words, 1, False
+    while j < len(words) and words[j][:1] in ("-", "+"):
+        w = words[j]
+        if w == "--":
+            j += 1
+            break
+        if len(w) < 2 or not set(w[1:]) <= PLAIN_SHELL_LETTERS:
+            return False
+        run = run or (w[0] == "-" and "c" in w)
+        j += 1 + w[1:].count("o")
+    return run and j < len(words)
 
 
 def nested_script(cmd):
     """Returns (script, positions): the script that sh -c, eval or env -S runs, or
     None, and the positions of the words that hold it.
 
-    A shell's options, with their values, end at its first other word or at --.
-    With -c among them, that word is the script; without it, the word names a
-    script file: in bash fix.sh -c x, the -c is the script's argument. env runs
-    its split string with the words after it.
+    For a shell, the script is every word shell_candidates() finds, one per
+    line. env runs its split string with the words after it.
     """
     if cmd.program == "eval" and len(cmd.words) > 1:
         return " ".join(cmd.words[1:]), range(1, len(cmd.words))
@@ -477,18 +500,9 @@ def nested_script(cmd):
         rest = [shlex.quote(w) for w in cmd.words[at + 1:]]
         return " ".join([script] + rest), range(at, len(cmd.words))
     if cmd.program in SHELLS:
-        words = cmd.words
-        j, run = 1, False
-        while j < len(words) and words[j][:1] in ("-", "+") and words[j] != "-":
-            w = words[j]
-            j += 1
-            if w == "--":
-                break
-            if w.startswith("-") and not w.startswith("--") and "c" in w:
-                run = True
-            j += shell_option_values(w)
-        if run:
-            return (words[j], [j]) if j < len(words) else (None, [])
+        at = shell_candidates(cmd.words)
+        if at:
+            return "\n".join(cmd.words[k] for k in at), at
     return None, []
 
 
@@ -763,7 +777,7 @@ SCRIPT_EXTENSIONS = (".py", ".pyw", ".sh", ".bash", ".zsh", ".ksh", ".js", ".mjs
 def interprets(cmd):
     """Whether this command runs code the hook cannot read: an interpreter, with
     its code given inline, in a heredoc or in a file; a shell that runs a script
-    or standard input rather than -c, whose script is parsed on its own; a
+    or standard input, or with options beyond the plain ones (plain_shell_script()); a
     script read by source or .; a script run by its path; or a program named
     when the command runs, as in $PY fix.py, which may be any of these."""
     if INTERPRETER.match(cmd.program):
@@ -773,7 +787,7 @@ def interprets(cmd):
     if cmd.program in ("source", ".") and len(cmd.words) > 1:
         return True
     if cmd.program in SHELLS:
-        return nested_script(cmd)[0] is None
+        return not plain_shell_script(cmd)
     return bool(cmd.words) and "/" in cmd.words[0] and cmd.words[0].lower().endswith(SCRIPT_EXTENSIONS)
 
 

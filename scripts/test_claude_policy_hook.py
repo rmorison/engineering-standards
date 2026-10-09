@@ -346,6 +346,18 @@ def fixtures(sb):
         ("env -S git push origin HEAD:trunk", sb.feat),
         ("env -iS 'git push origin HEAD:trunk'", sb.feat),
         ("coproc P { git push origin HEAD:trunk; }", sb.feat),
+        # From the second fix-delta review of #117: every word after a -c is a candidate script.
+        ("bash -c - 'git push origin HEAD:trunk'", sb.feat),
+        ("sh -c - 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -login -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -noprofile -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -norc -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -rcfile /dev/null -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash +o pipefail -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -c -- 'git push origin HEAD:trunk'", sb.feat),
+        ("env --split='git push origin HEAD:trunk'", sb.feat),
+        ("env -iS'git push origin HEAD:trunk'", sb.feat),
+        ("env -uX -S 'git push origin HEAD:trunk'", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),

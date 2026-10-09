@@ -521,6 +521,10 @@ def fixtures(sb):
         # From the fix-delta review of #117.
         "coproc P { python3 fix.py; }; ",
         "bash -euo pipefail -c 'python3 fix.py' && ",
+        # From the second fix-delta review of #117: a startup file runs too.
+        "bash --rcfile fix.sh -i; ",
+        "BASH_ENV=fix.sh bash -c 'echo hi' && ",
+        "ENV=fix.sh sh -c 'echo hi' && ",
     ]
     posts = [
         "gh pr edit 1 --body-file reused.md",
@@ -553,6 +557,7 @@ def fixtures(sb):
         ("bash -o pipefail -c is parsed, not an interpreter",
          "bash -o pipefail -c 'echo hi' && gh pr comment 1 --body-file clean.md"),
         ("env -S is parsed, not an interpreter", "env -S 'echo hi' && gh pr comment 1 --body-file clean.md"),
+        ("bash -lc is parsed, not an interpreter", "bash -lc 'echo hi' && gh pr comment 1 --body-file clean.md"),
         ("bash -euo pipefail -c is parsed, not an interpreter",
          "bash -euo pipefail -c 'echo hi' && gh pr comment 1 --body-file clean.md"),
         ("interpreter named as a word", "echo python3 && gh pr comment 1 --body-file clean.md"),
@@ -582,14 +587,31 @@ def fixtures(sb):
         ("a gh write in bash -eo pipefail -c", "bash -eo pipefail -c 'gh pr create --body-file dirty.md'"),
         ("a gh write in bash -co pipefail", "bash -co pipefail 'gh pr comment 1 --body-file dirty.md'"),
         ("a gh write in bash -c -o pipefail", "bash -c -o pipefail 'gh pr comment 1 --body-file dirty.md'"),
-        ("a gh write in bash --rcfile f -c", "bash --rcfile /dev/null -c 'gh pr comment 1 --body-file dirty.md'"),
-        ("a gh write in zsh --emulate sh -c", "zsh --emulate sh -c 'gh pr comment 1 --body-file dirty.md'"),
+        # With a startup file or an option the hook does not read, the shell also counts as an
+        # interpreter, so an inline value shows the -c string is still parsed.
+        ("a value inline in bash --rcfile f -c", f"bash --rcfile /dev/null -c 'gh pr comment 1 --body {A}'"),
+        ("a value inline in zsh --emulate sh -c", f"zsh --emulate sh -c 'gh pr comment 1 --body {A}'"),
         ("a value inline in bash -euo pipefail -c", f"bash -euo pipefail -c 'gh pr comment 1 --body {A}'"),
         # env runs its split string with the words after it.
         ("a gh write split across env -S and its operands", "env -S gh pr comment 1 --body-file dirty.md"),
         ("a gh write after a quoted env -S string", "env -S 'gh pr comment 1' --body-file dirty.md"),
         ("a gh write in env -iS", "env -iS 'gh pr comment 1 --body-file dirty.md'"),
         ("a gh write in env -vS", "env -vS 'gh pr comment 1 --body-file dirty.md'"),
+        # Every word after a -c is a candidate script (second fix-delta review of #117).
+        ("a value inline in bash -c -", f"bash -c - 'gh pr comment 1 --body {A}'"),
+        ("a value inline in sh -c -", f"sh -c - 'gh pr comment 1 --body {A}'"),
+        ("a value inline in bash -login -c", f"bash -login -c 'gh pr comment 1 --body {A}'"),
+        ("a value inline in bash -noprofile -c", f"bash -noprofile -c 'gh pr comment 1 --body {A}'"),
+        ("a value inline in bash -norc -c", f"bash -norc -c 'gh pr comment 1 --body {A}'"),
+        ("a value inline in bash -posix -c", f"bash -posix -c 'gh pr comment 1 --body {A}'"),
+        ("a value inline in bash -rcfile f -c", f"bash -rcfile /dev/null -c 'gh pr comment 1 --body {A}'"),
+        ("a value inline in bash -init-file f -c", f"bash -init-file /dev/null -c 'gh pr comment 1 --body {A}'"),
+        ("a gh write in bash +o pipefail -c", "bash +o pipefail -c 'gh pr comment 1 --body-file dirty.md'"),
+        ("a gh write in bash -c --", "bash -c -- 'gh pr comment 1 --body-file dirty.md'"),
+        ("a gh write in env --split=", "env --split='gh pr comment 1 --body-file dirty.md'"),
+        ("a gh write in env --s=", "env --s='gh pr comment 1 --body-file dirty.md'"),
+        ("a gh write in env -iS joined", "env -iS'gh pr comment 1 --body-file dirty.md'"),
+        ("a gh write in env -uX -S", "env -uX -S 'gh pr comment 1 --body-file dirty.md'"),
     ]
     for name, command in after_substitution:
         check(name, sb.hook(command), "deny", "matches private value list line", {3})
