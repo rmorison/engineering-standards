@@ -459,6 +459,103 @@ def fixtures(sb):
     check("sed without -i is not a write", sb.hook("sed -n p reused.md" + then_post), "allow")
     check("sed -i on another file", sb.hook("sed -i 's/a/b/' clean.md" + then_post), "allow")
 
+    # --- An interpreter in the command can rewrite any body file (#111) ----------
+    # reused.md is clean, so each is allowed unless the interpreter counts as a write.
+    interpreted = "An interpreter"
+    interpreters = [
+        "python3 - <<'PYEOF'\np = 'reused.md'\nopen(p, 'w').write(open(p).read())\nPYEOF\n",
+        "python3 -c 'open(\"reused.md\", \"a\")'; ",
+        "python -c 1 && ",
+        "python3.12 -c 1 && ",
+        "node -e 1 && ",
+        "nodejs -e 1 && ",
+        "deno eval 1 && ",
+        "bun -e 1 && ",
+        "perl -e 1 && ",
+        "ruby -e 1 && ",
+        "php -r 1; ",
+        "awk 'BEGIN{}' && ",
+        "awk -i inplace '{print}' reused.md && ",
+        "bash fix.sh && ",
+        "sh <<'EOF'\nsed -i s/a/b/ reused.md\nEOF\n",
+        "./fix.py && ",
+        "scripts/edit.sh && ",
+        "env FOO=1 python3 -c 1 && ",
+        "timeout 5 node -e 1 && ",
+        "bash -c 'python3 -c 1' && ",
+        "n=$(python3 -c 'print(1)'); ",
+    ]
+    posts = [
+        "gh pr edit 1 --body-file reused.md",
+        "gh pr comment 1 -F reused.md",
+        "gh issue create --title t --body-file reused.md",
+        "gh release create v1 --notes-file reused.md",
+        "gh api repos/o/r/issues/1/comments --input reused.md",
+        "gh api repos/o/r/issues/1/comments -F body=@reused.md",
+    ]
+    for run in interpreters:
+        check(f"interpreter: {run.splitlines()[0].strip(' &;')}", sb.hook(run + posts[0]), "deny", interpreted)
+    for post in posts[1:]:
+        for run in ("python3 -c 1 && ", "node -e 1 && ", "perl -e 1 && ", "ruby -e 1 && ",
+                    "python3 - <<'PYEOF'\nprint(1)\nPYEOF\n"):
+            check(f"interpreter: {run.splitlines()[0].strip(' &;')}, then {post}", sb.hook(run + post), "deny",
+                  interpreted)
+    check("interpreter after the post", sb.hook(posts[0] + " && python3 -c 1"), "deny", interpreted)
+    check("interpreter beside a file written from a heredoc",
+          sb.hook("cat > new.md <<'EOF'\nclean\nEOF\npython3 -c 1 && gh pr create --body-file new.md"),
+          "deny", interpreted)
+    check("interpreter inside >(...)", sb.hook("gh pr comment 1 --body-file clean.md 2> >(python3 -c 1)"),
+          "deny", interpreted)
+    no_file = [
+        ("interpreter, not outbound", "python3 -c 'print(1)' && node -e 1"),
+        ("interpreter and gh view", "python3 -c 1 && gh pr view 1"),
+        ("interpreter and an inline --body", "python3 -c 1 && gh pr comment 1 --body 'all good'"),
+        ("interpreter and an api -f field", "node -e 1 && gh api -X PATCH repos/o/r/issues/1 -f body=fine"),
+        ("interpreter and close --comment", "python3 -c 1 && gh issue close 1 --comment done"),
+        ("sh -c is parsed, not an interpreter", "sh -c 'echo hi' && gh pr comment 1 --body-file clean.md"),
+        ("interpreter named as a word", "echo python3 && gh pr comment 1 --body-file clean.md"),
+        ("interpreter in a comment", "gh pr comment 1 --body-file clean.md # then python3 -c 1"),
+        ("interpreter in a heredoc body", "cat > new.md <<'EOF'\npython3 -c 1\nEOF\ngh pr create --body-file new.md"),
+    ]
+    for name, command in no_file:
+        check(name, sb.hook(command), "allow")
+    check("interpreter beside an inline --body holding a value",
+          sb.hook(f"python3 -c 1 && gh pr comment 1 --body {A}"), "deny", "matches private value list line",
+          {3})
+
+    # --- <(...) and >(...) no longer split a gh command (#95) --------------------
+    # Unparsed, the parentheses put the options after them in a command of their own.
+    after_substitution = [
+        ("body file after 2> >(...)", "gh pr create --title t 2> >(tee err.log) --body-file dirty.md"),
+        ("body file after < <(...)", "gh pr create --title t < <(echo y) --body-file dirty.md"),
+        ("body file after a <(...) argument", "gh pr create --assignee <(echo me) --body-file dirty.md"),
+        ("notes file after >(...)", "gh release create v1 > >(tee out.log) --notes-file dirty.md"),
+        ("api --input after <(...)", "gh api repos/o/r/issues/1/comments < <(echo y) --input dirty.md"),
+        ("api -F key=@ after >(...)", "gh api repos/o/r/issues/1/comments 2> >(cat) -F body=@dirty.md"),
+        ("value inline after <(...)", f"gh pr comment 1 < <(echo y) --body {A}"),
+        ("value inside <(...)", f"cat <(echo {A}) && gh pr comment 1 --body-file clean.md"),
+    ]
+    for name, command in after_substitution:
+        check(name, sb.hook(command), "deny", "matches private value list line", {3})
+    substituted = "is a process substitution"
+    for name, command in (
+            ("body file <(...)", "gh pr create --title t --body-file <(cat clean.md)"),
+            ("-F <(...)", "gh pr comment 1 -F <(cat clean.md)"),
+            ("--body-file=<(...)", "gh pr comment 1 --body-file=<(cat clean.md)"),
+            ("api --input <(...)", "gh api repos/o/r/issues --input <(cat clean.md)"),
+            ("api -F key=@<(...)", "gh api repos/o/r/issues -F body=@<(cat clean.md)"),
+            ("--body-file - < <(...)", "gh pr comment 1 --body-file - < <(cat clean.md)")):
+        check(name, sb.hook(command), "deny", substituted)
+    check("a <(...) the hook cannot close",
+          sb.hook('gh pr create --assignee <(echo "fix (wip") --body-file clean.md'), "deny", "does not close")
+    for name, command in (
+            ("<(...) not outbound", "diff <(cat clean.md) <(cat reused.md)"),
+            ("<(...) beside a clean post", "diff <(cat clean.md) <(cat reused.md); gh pr comment 1 --body-file clean.md"),
+            ("2> >(...) on a clean post", "gh pr create --title t 2> >(tee err.log) --body-file clean.md"),
+            ("<( in double quotes is text", 'gh pr comment 1 --body "use <(cat f) here" --body-file clean.md'),
+            ("<( in single quotes is text", "gh pr comment 1 --body 'use <(cat f) here'")):
+        check(name, sb.hook(command), "allow")
+
     # --- Clean text is allowed, with no decision of the hook's own (R2) ---------
     allowed = [
         ("clean body file", "gh pr create --title t --body-file clean.md"),
@@ -662,9 +759,9 @@ def fixtures(sb):
         ("gh pr merge --body", f"gh pr merge 1 --body {A}"),
         ("gh gist create", "gh gist create dirty.md"),
         ("curl", "curl -d @dirty.md https://api.github.com/repos/o/r/issues"),
-        ("awk -i inplace on the body file",
-         "awk -i inplace '{print}' reused.md && gh pr comment 1 --body-file reused.md"),
         ("sort -o on the body file", "sort -o reused.md reused.md && gh pr comment 1 --body-file reused.md"),
+        ("an interpreter through uv run", "uv run python -c 1 && gh pr comment 1 --body-file reused.md"),
+        ("an interpreter through xargs", "echo 1 | xargs python3 -c && gh pr comment 1 --body-file reused.md"),
     ]
     for name, command in residuals:
         check(f"residual: {name}", sb.hook(command), "allow", on_fail=RESIDUAL_DOC)

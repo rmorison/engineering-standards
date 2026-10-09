@@ -246,6 +246,7 @@ def fixtures(sb):
         ("gh api -X POST https://api.github.com/repos/o/r/rulesets --input r.json", "rulesets"),
         ("gh api -X PUT repos/o/r/rulesets/7 --input r.json", "rulesets"),
         ("gh api -X DELETE orgs/o/rulesets/7", "rulesets"),
+        ("gh api repos/o/r/rulesets < <(echo y) --input r.json", "rulesets"),  # #95
         ("gh api -X PUT repos/o/r/branches/trunk/protection --input p.json", "branch protection"),
         ("gh api -X DELETE repos/o/r/branches/trunk/protection/required_status_checks",
          "branch protection"),
@@ -331,6 +332,10 @@ def fixtures(sb):
         (f"cd {sb.trunk} && git push", sb.work),
         ("git push origin main", sb.nohead),
         ("git push origin master", sb.nohead),
+        # The leak hook's parser used to split a command at a <(...) or >(...),
+        # leaving the operands after it in a command of their own (#95).
+        ("git push < <(echo y) origin trunk", sb.feat),
+        ("git push > >(tee out.log) origin HEAD:trunk", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),
