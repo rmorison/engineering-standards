@@ -336,6 +336,7 @@ def fixtures(sb):
         # leaving the operands after it in a command of their own (#95).
         ("git push < <(echo y) origin trunk", sb.feat),
         ("git push > >(tee out.log) origin HEAD:trunk", sb.feat),
+        ("env -S 'git push origin HEAD:trunk'", sb.feat),  # env -S runs its string (#117 review)
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),

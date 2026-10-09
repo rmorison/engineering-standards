@@ -204,6 +204,8 @@ WRAPPERS = {
     "sudo": {"-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir",
              "-h", "--host", "-p", "--prompt", "-r", "--role", "-t", "--type", "-U", "--other-user"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "builtin": set(),
+    "coproc": set(),
 }
 
 
@@ -233,9 +235,12 @@ def unwrap(words):
         if w in RESERVED:
             i += 1
             continue
+        if w == "function":  # function f { ...; }: the name is not a program
+            i += 2
+            continue
         name = os.path.basename(w)
-        if name not in WRAPPERS:
-            break
+        if name not in WRAPPERS or (name == "env" and splits_string(words, i + 1)):
+            break  # env -S runs a script, which nested_script() returns
         takes_value = WRAPPERS[name]
         i += 1
         while i < len(words) and words[i].startswith("-") and words[i] != "-":
@@ -251,6 +256,16 @@ def unwrap(words):
             assigns.append(words[i])
             i += 1
     return assigns, words[i:]
+
+
+def splits_string(words, i):
+    """Whether the env options from words[i] on include -S or --split-string."""
+    while i < len(words) and words[i].startswith("-") and words[i] not in ("-", "--"):
+        w = words[i]
+        if w.startswith(("-S", "--split-string")):
+            return True
+        i += 2 if w in WRAPPERS["env"] else 1
+    return False
 
 
 def expand(path, cwd):
@@ -290,6 +305,7 @@ class Parsed:
         self.stripped = []
         self.lost_dir = False
         self.unclosed = False  # a $(...) or backtick span whose end was not found
+        self.opaque = False  # a script nested past MAX_DEPTH, which is not parsed
 
 
 def parse(text, cwd):
@@ -333,6 +349,8 @@ def parse_command(text, cwd, depth=0, found=None):
             matched_text = matched_text[:start] + cut + matched_text[end:]
             if not quoted:
                 command_text = command_text[:start] + cut + command_text[end:]
+    elif substitutions(text):
+        found.opaque = True
     stack = []
     for words, redirects in simple_commands(tokenize(command_text)):
         assigns, unwrapped = unwrap(words)
@@ -351,6 +369,8 @@ def parse_command(text, cwd, depth=0, found=None):
         script, _ = nested_script(cmd)
         if script is not None and depth < MAX_DEPTH:
             parse_command(script, cwd, depth + 1, found)
+        elif script is not None:
+            found.opaque = True
     for words, redirects in simple_commands(tokenize(matched_text)):
         assigns, unwrapped = unwrap(words)
         cmd = Command(assigns, unwrapped, redirects, None)
@@ -411,17 +431,32 @@ def substitutions(text):
     return bodies
 
 
+SHELL_OPTION_VALUES = {"-o", "+o", "-O", "+O"}
+
+
 def nested_script(cmd):
-    """Returns (script, positions): the script that sh -c or eval runs, or None,
-    and the positions of the words that hold it."""
+    """Returns (script, positions): the script that sh -c, eval or env -S runs, or
+    None, and the positions of the words that hold it.
+
+    A shell's options end at its first other word, which names a script: in
+    bash fix.sh -c x, the -c is the script's argument, not the shell's.
+    """
     if cmd.program == "eval" and len(cmd.words) > 1:
         return " ".join(cmd.words[1:]), range(1, len(cmd.words))
+    if cmd.program == "env":  # unwrap() leaves env in place only for -S
+        for value, at, _ in option_at(cmd.words[1:], {"-S", "--split-string"}):
+            return value, [at + 1]
+        return None, []
     if cmd.program in SHELLS:
-        for j, w in enumerate(cmd.words[1:], 1):
+        words = cmd.words
+        j = 1
+        while j < len(words) and words[j][:1] in ("-", "+") and words[j] not in ("-", "--"):
+            w = words[j]
             if w.startswith("-") and not w.startswith("--") and "c" in w:
-                k = next((k for k in range(j + 1, len(cmd.words))
-                          if not cmd.words[k].startswith("-")), None)
-                return (cmd.words[k], [k]) if k is not None else (None, [])
+                k = next((k for k in range(j + 1, len(words))
+                          if not words[k].startswith("-")), None)
+                return (words[k], [k]) if k is not None else (None, [])
+            j += 2 if w in SHELL_OPTION_VALUES else 1
     return None, []
 
 
@@ -658,8 +693,9 @@ ESCAPE_REASON = "switches off the git hooks that run the leak gate."
 UNFOLLOWED = ("The hook could not follow a change of directory in this command, such as one to "
               "a variable, cd -, popd, or a glob that matches no directory or several, so a "
               "relative path after it does not resolve.")
-INTERPRETED = ("An interpreter, such as python3, node or perl, or a script runs in this command, "
-               "and can rewrite any file.")
+INTERPRETED = ("An interpreter, such as python3, node or perl, a script, a program named by a "
+               "variable, or a command nested too deep for the hook to read runs in this "
+               "command, and can rewrite any file.")
 PROCESS_SUBSTITUTIONS = {"<(...)", ">(...)"}  # the words parse_command() leaves for <(...) and >(...)
 FALLBACK_FILE_FLAGS = re.compile(r"--body-file|--notes-file|--input|\s-F|=@")
 
@@ -685,24 +721,28 @@ def edits_in_place(cmd):
 
 
 # Programs that run code the hook cannot read, which can write any file (#111).
-INTERPRETER = re.compile(r"^(python|pypy|perl|php|lua)[0-9.]*$|"
-                         r"^(node|nodejs|deno|bun|ruby|luajit|Rscript|awk|gawk|mawk|nawk)$")
-SCRIPT_EXTENSIONS = (".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".php",
-                     ".lua")
+# Case-insensitive, since macOS's file system runs Python3 as python3.
+INTERPRETER = re.compile(r"^(python|pypy|perl|php|lua|ruby|node|nodejs)[0-9.]*$|"
+                         r"^(deno|bun|luajit|rscript|awk|gawk|mawk|nawk)$", re.I)
+SCRIPT_EXTENSIONS = (".py", ".pyw", ".sh", ".bash", ".zsh", ".ksh", ".js", ".mjs", ".cjs", ".jsx",
+                     ".ts", ".mts", ".cts", ".tsx", ".rb", ".pl", ".php", ".lua", ".r", ".awk")
 
 
 def interprets(cmd):
     """Whether this command runs code the hook cannot read: an interpreter, with
     its code given inline, in a heredoc or in a file; a shell that runs a script
     or standard input rather than -c, whose script is parsed on its own; a
-    script read by source or .; or a script run by its path."""
+    script read by source or .; a script run by its path; or a program named
+    when the command runs, as in $PY fix.py, which may be any of these."""
     if INTERPRETER.match(cmd.program):
+        return True
+    if cmd.words and ("$" in cmd.words[0] or "`" in cmd.words[0]):
         return True
     if cmd.program in ("source", ".") and len(cmd.words) > 1:
         return True
     if cmd.program in SHELLS:
         return nested_script(cmd)[0] is None
-    return bool(cmd.words) and "/" in cmd.words[0] and cmd.words[0].endswith(SCRIPT_EXTENSIONS)
+    return bool(cmd.words) and "/" in cmd.words[0] and cmd.words[0].lower().endswith(SCRIPT_EXTENSIONS)
 
 
 class Written:
@@ -807,6 +847,7 @@ def decide(command, cwd):
             what = escape(cmd)
             if what:
                 raise Deny(f"{what} {ESCAPE_REASON}")
+        written.interpreter = found.opaque
         for cmd in found.commands:
             written_paths(cmd, written)
             if cmd.outbound:
