@@ -363,6 +363,16 @@ def fixtures(sb):
         ("sh -c - '+x; git push origin HEAD:trunk'", sb.feat),
         ("bash +c 'git push origin HEAD:trunk'", sb.feat),
         ("sh +c 'git push origin HEAD:trunk'", sb.feat),
+        # An fd number joined to a redirect is part of it, not the remote (#114).
+        ("git push 2>/dev/null origin HEAD:trunk", sb.feat),
+        ("git push 2>&1 origin HEAD:trunk", sb.feat),
+        ("git push 1>out.log origin HEAD:trunk", sb.feat),
+        ("git push &>out.log origin HEAD:trunk", sb.feat),
+        ("git push 2>>err.log origin HEAD:trunk", sb.feat),
+        ("git push 0</dev/null origin HEAD:trunk", sb.feat),
+        ("git push 10>out.log origin HEAD:trunk", sb.feat),
+        # A here-string is a redirect, not a separator (#114).
+        ("git push <<< y origin HEAD:trunk", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),
@@ -484,6 +494,8 @@ def fixtures(sb):
         ('git push origin "$(git rev-parse --abbrev-ref HEAD)"', sb.feat),
         ('git push origin "$(git symbolic-ref --short HEAD)"', sb.feat),
         ("git push -u origin HEAD", sb.track),
+        ("git push 2>/dev/null -u origin 76-x", sb.feat),  # #114
+        ("echo 2 > f.txt", sb.feat),  # with a space, 2 is an argument (#114)
         ("gh api -X PUT repos/o/r/contents/a.md -f message=m -f content=eA== -f branch=76-x",
          sb.trunk),
         ("gh api graphql -F query=@- <<'EOF'\nquery { viewer { login } }\nEOF", sb.work),
@@ -557,6 +569,9 @@ def fixtures(sb):
          "printf '[agentpolicy]\\n\\tallowDefaultPush = true\\n' >> .git/config"),
     ]:
         check(f"residual: {name}", sb.bash(command, cwd=sb.trunk), "allow", on_fail=RESIDUAL_DOC)
+    # A redirect the parser does not read as one leaves its fd among the words (#114).
+    check("residual: a named fd redirect", sb.bash("git push {fd}>/dev/null origin HEAD:trunk", cwd=sb.feat),
+          "allow", on_fail=RESIDUAL_DOC)
 
     # --- KTD2: the standard lists every gh command and mutation in the tables ---------
     spec = importlib.util.spec_from_file_location("policy_tables", REAL_HOOK)

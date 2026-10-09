@@ -648,6 +648,24 @@ def fixtures(sb):
              'gh pr comment 1 --body "use >(tee f here" --body-file clean.md')):
         check(name, sb.hook(command), "allow")
 
+    # --- fd numbers and here-strings are redirects (#114) ------------------------
+    # shlex splits 2>f like 2 > f; only the first is a redirect of fd 2.
+    for name, command in (
+            ("standard input is the plain <, not 3<", "gh pr comment 1 --body-file - < dirty.md 3< clean.md"),
+            ("body file after a here-string", "gh pr create --title t <<< y --body-file dirty.md"),
+            ("body file after 2>/dev/null", "gh pr create --title t 2>/dev/null --body-file dirty.md"),
+            ("body file after 2>&1", "gh pr create --title t 2>&1 --body-file dirty.md"),
+            ("body file after 1>out.log", "gh pr create --title t 1>out.log --body-file dirty.md"),
+            ("body file read from 0<", "gh pr comment 1 --body-file - 0< dirty.md")):
+        check(name, sb.hook(command), "deny", "matches private value list line", {3})
+    check("2> on the body file is a same-command write",
+          sb.hook("gh pr comment 1 --body-file reused.md 2>reused.md"), "deny", "written by the same command")
+    for name, command in (
+            ("3< is not standard input", "gh pr comment 1 --body-file - < clean.md 3< dirty.md"),
+            ("echo 2 > f: 2 is an argument", "echo 2 > f.txt && gh pr comment 1 --body-file clean.md"),
+            ('"2>" in quotes is text', 'gh pr comment 1 --body "use 2>/dev/null to quiet it"')):
+        check(name, sb.hook(command), "allow")
+
     # --- Clean text is allowed, with no decision of the hook's own (R2) ---------
     allowed = [
         ("clean body file", "gh pr create --title t --body-file clean.md"),
@@ -854,6 +872,7 @@ def fixtures(sb):
         ("sort -o on the body file", "sort -o reused.md reused.md && gh pr comment 1 --body-file reused.md"),
         ("an interpreter through uv run", "uv run python -c 1 && gh pr comment 1 --body-file reused.md"),
         ("an interpreter through xargs", "echo 1 | xargs python3 -c && gh pr comment 1 --body-file reused.md"),
+        ("a named fd read as standard input", "gh pr comment 1 --body-file - < dirty.md {fd}< clean.md"),
     ]
     for name, command in residuals:
         check(f"residual: {name}", sb.hook(command), "allow", on_fail=RESIDUAL_DOC)

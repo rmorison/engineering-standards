@@ -146,20 +146,83 @@ def strip_comments_and_continuations(text):
 
 
 PUNCTUATION = ";&|()<>\n"
+FD_MARK = "\ue000"  # a private-use character that marks an fd number before shlex runs
+FD_NUMBER = re.compile(r"[0-9]+(?=[<>])")
+FD_NUMBER_MARKED = re.compile(FD_MARK + r"[0-9]+$")
+WORD_START = " \t\r\n;&|()"
+
+
+def mark_fd_numbers(text):
+    """Returns text with FD_MARK before each fd number: digits that start a word,
+    outside quotes, and touch a redirect operator, as in 2>/dev/null or 2>&1.
+
+    shlex splits 2>f and 2 > f alike, so the mark is what keeps them apart: in
+    echo 2 > f, the 2 is an argument. A text that already holds the mark cannot
+    be read this way, and raises ValueError, as an unbalanced quote does.
+    """
+    if FD_MARK in text:
+        raise ValueError("the text holds the fd-number mark")
+    out, quote, i = [], None, 0
+    start = True  # whether text[i] starts a word: after an unquoted, unescaped separator
+    while i < len(text):
+        c = text[i]
+        if quote is None and start:
+            fd = FD_NUMBER.match(text, i)
+            if fd:
+                out.append(FD_MARK + fd.group())
+                i, start = fd.end(), False
+                continue
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif c == "\\":
+            out.append(text[i:i + 2])
+            i, start = i + 2, False
+            continue
+        elif c in "'\"":
+            quote = None if quote == c else (quote or c)
+        out.append(c)
+        i += 1
+        start = quote is None and c in WORD_START
+    return "".join(out)
 
 
 def tokenize(text):
     # shlex's defaults would treat a newline as plain whitespace, merging a
     # command on the next line into the one before it, and would read "#"
     # inside a word as the start of a comment.
-    lex = shlex.shlex(text, posix=True, punctuation_chars=PUNCTUATION)
+    lex = shlex.shlex(mark_fd_numbers(text), posix=True, punctuation_chars=PUNCTUATION)
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
     lex.commenters = ""
-    return list(lex)
+    tokens = []
+    for t in lex:
+        # A marked fd number joins the operator after it, as 2> or 2>&, and keeps
+        # the mark, so that simple_commands() can tell it from a quoted "2>".
+        if tokens and FD_NUMBER_MARKED.match(tokens[-1]) and t in REDIRECTS:
+            t = tokens.pop() + t
+        tokens.append(t)
+    return [t[len(FD_MARK):] if FD_NUMBER_MARKED.match(t) else t for t in tokens]
 
 
-REDIRECTS = {"<", ">", ">>", "<<", ">&", "<&", "&>", "&>>", ">|", "<>"}
+REDIRECTS = {"<", ">", ">>", "<<", "<<<", ">&", "<&", "&>", "&>>", ">|", "<>"}
+FD_REDIRECT = re.compile(FD_MARK + r"([0-9]+)(.+)$")
+
+
+def redirect(t):
+    """Returns the operator a redirect token is stored as, or None for a word.
+
+    An fd redirect comes from tokenize() marked, as FD_MARK + "2>". An output fd
+    is stored as the plain operator, since any fd writes its target. An input
+    fd other than 0 keeps its number, as 3<, so it is never read as standard
+    input.
+    """
+    if t in REDIRECTS:
+        return t
+    fd = FD_REDIRECT.match(t)
+    if not fd or fd.group(2) not in REDIRECTS or fd.group(2).startswith("&"):
+        return None
+    number, op = fd.groups()
+    return op if op.startswith(">") or int(number) == 0 else number + op
 
 
 def simple_commands(tokens):
@@ -169,9 +232,10 @@ def simple_commands(tokens):
     i = 0
     while i < len(tokens):
         t = tokens[i]
-        if t in REDIRECTS:
+        op = redirect(t)
+        if op:
             target = tokens[i + 1] if i + 1 < len(tokens) else ""
-            redirects.append((t, target))
+            redirects.append((op, target))
             i += 2
             continue
         # Any other run of punctuation separates commands: ; && || | & ( ) and newlines.
@@ -387,6 +451,8 @@ def parse_command(text, cwd, depth=0, found=None):
         elif script is not None:
             found.opaque = True
     for words, redirects in simple_commands(tokenize(matched_text)):
+        # A here-string's target is text the command sends, not a file name.
+        found.words += [t for op, t in redirects if op.endswith("<<<")]
         assigns, unwrapped = unwrap(words)
         cmd = Command(assigns, unwrapped, redirects, None)
         unmatched = dict(cmd.unmatched)
