@@ -337,6 +337,15 @@ def fixtures(sb):
         ("git push < <(echo y) origin trunk", sb.feat),
         ("git push > >(tee out.log) origin HEAD:trunk", sb.feat),
         ("env -S 'git push origin HEAD:trunk'", sb.feat),  # env -S runs its string (#117 review)
+        # From the fix-delta review of #117: option values clustered or long,
+        # env -S operands and clusters, and a named coproc.
+        ("bash -euo pipefail -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -eo pipefail -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash --rcfile /dev/null -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -c -o pipefail 'git push origin HEAD:trunk'", sb.feat),
+        ("env -S git push origin HEAD:trunk", sb.feat),
+        ("env -iS 'git push origin HEAD:trunk'", sb.feat),
+        ("coproc P { git push origin HEAD:trunk; }", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),

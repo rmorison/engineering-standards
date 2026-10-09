@@ -205,7 +205,6 @@ WRAPPERS = {
              "-h", "--host", "-p", "--prompt", "-r", "--role", "-t", "--type", "-U", "--other-user"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
     "builtin": set(),
-    "coproc": set(),
 }
 
 
@@ -238,8 +237,11 @@ def unwrap(words):
         if w == "function":  # function f { ...; }: the name is not a program
             i += 2
             continue
+        if w == "coproc":  # coproc NAME { ...; } names the coprocess; coproc cmd does not
+            i += 2 if i + 2 < len(words) and words[i + 2] == "{" else 1
+            continue
         name = os.path.basename(w)
-        if name not in WRAPPERS or (name == "env" and splits_string(words, i + 1)):
+        if name not in WRAPPERS or (name == "env" and env_split_string(words, i + 1)):
             break  # env -S runs a script, which nested_script() returns
         takes_value = WRAPPERS[name]
         i += 1
@@ -258,14 +260,26 @@ def unwrap(words):
     return assigns, words[i:]
 
 
-def splits_string(words, i):
-    """Whether the env options from words[i] on include -S or --split-string."""
+def env_split_string(words, i=1):
+    """Returns (string, position) for the value of env's -S or --split-string in
+    the options from words[i] on, or None: in a cluster such as -iS, and attached
+    or as the next word. A -u or -C in a cluster takes the rest of the word."""
     while i < len(words) and words[i].startswith("-") and words[i] not in ("-", "--"):
         w = words[i]
-        if w.startswith(("-S", "--split-string")):
-            return True
+        if w.startswith("--split-string="):
+            return w[len("--split-string="):], i
+        if w == "--split-string":
+            return (words[i + 1], i + 1) if i + 1 < len(words) else None
+        if not w.startswith("--"):
+            for k, letter in enumerate(w[1:], 1):
+                if letter == "S":
+                    if w[k + 1:]:
+                        return w[k + 1:], i
+                    return (words[i + 1], i + 1) if i + 1 < len(words) else None
+                if letter in "uC":
+                    break
         i += 2 if w in WRAPPERS["env"] else 1
-    return False
+    return None
 
 
 def expand(path, cwd):
@@ -431,32 +445,50 @@ def substitutions(text):
     return bodies
 
 
-SHELL_OPTION_VALUES = {"-o", "+o", "-O", "+O"}
+SHELL_LONG_VALUES = {"--rcfile", "--init-file", "--emulate"}  # long options that take a word
+
+
+def shell_option_values(w):
+    """How many words after a shell option word are its values: one for each o or
+    O in a cluster such as -euo pipefail, and one for --rcfile and its kind."""
+    if w in SHELL_LONG_VALUES:
+        return 1
+    if w.startswith("--"):
+        return 0
+    return w[1:].count("o") + w[1:].count("O")
 
 
 def nested_script(cmd):
     """Returns (script, positions): the script that sh -c, eval or env -S runs, or
     None, and the positions of the words that hold it.
 
-    A shell's options end at its first other word, which names a script: in
-    bash fix.sh -c x, the -c is the script's argument, not the shell's.
+    A shell's options, with their values, end at its first other word or at --.
+    With -c among them, that word is the script; without it, the word names a
+    script file: in bash fix.sh -c x, the -c is the script's argument. env runs
+    its split string with the words after it.
     """
     if cmd.program == "eval" and len(cmd.words) > 1:
         return " ".join(cmd.words[1:]), range(1, len(cmd.words))
     if cmd.program == "env":  # unwrap() leaves env in place only for -S
-        for value, at, _ in option_at(cmd.words[1:], {"-S", "--split-string"}):
-            return value, [at + 1]
-        return None, []
+        found = env_split_string(cmd.words)
+        if found is None:
+            return None, []
+        script, at = found
+        rest = [shlex.quote(w) for w in cmd.words[at + 1:]]
+        return " ".join([script] + rest), range(at, len(cmd.words))
     if cmd.program in SHELLS:
         words = cmd.words
-        j = 1
-        while j < len(words) and words[j][:1] in ("-", "+") and words[j] not in ("-", "--"):
+        j, run = 1, False
+        while j < len(words) and words[j][:1] in ("-", "+") and words[j] != "-":
             w = words[j]
+            j += 1
+            if w == "--":
+                break
             if w.startswith("-") and not w.startswith("--") and "c" in w:
-                k = next((k for k in range(j + 1, len(words))
-                          if not words[k].startswith("-")), None)
-                return (words[k], [k]) if k is not None else (None, [])
-            j += 2 if w in SHELL_OPTION_VALUES else 1
+                run = True
+            j += shell_option_values(w)
+        if run:
+            return (words[j], [j]) if j < len(words) else (None, [])
     return None, []
 
 

@@ -518,6 +518,9 @@ def fixtures(sb):
         "nice -n 5 python3 fix.py && ",
         "command python3 fix.py && ",
         "time python3 fix.py && ",
+        # From the fix-delta review of #117.
+        "coproc P { python3 fix.py; }; ",
+        "bash -euo pipefail -c 'python3 fix.py' && ",
     ]
     posts = [
         "gh pr edit 1 --body-file reused.md",
@@ -550,6 +553,8 @@ def fixtures(sb):
         ("bash -o pipefail -c is parsed, not an interpreter",
          "bash -o pipefail -c 'echo hi' && gh pr comment 1 --body-file clean.md"),
         ("env -S is parsed, not an interpreter", "env -S 'echo hi' && gh pr comment 1 --body-file clean.md"),
+        ("bash -euo pipefail -c is parsed, not an interpreter",
+         "bash -euo pipefail -c 'echo hi' && gh pr comment 1 --body-file clean.md"),
         ("interpreter named as a word", "echo python3 && gh pr comment 1 --body-file clean.md"),
         ("interpreter in a comment", "gh pr comment 1 --body-file clean.md # then python3 -c 1"),
         ("interpreter in a heredoc body", "cat > new.md <<'EOF'\npython3 -c 1\nEOF\ngh pr create --body-file new.md"),
@@ -572,6 +577,19 @@ def fixtures(sb):
         ("value inline after <(...)", f"gh pr comment 1 < <(echo y) --body {A}"),
         ("value inside <(...)", f"cat <(echo {A}) && gh pr comment 1 --body-file clean.md"),
         ("a gh write inside env -S", "env -S 'gh pr comment 1 --body-file dirty.md'"),
+        # A shell's option values, clustered or long, are not its script (fix-delta review of #117).
+        ("a gh write in bash -euo pipefail -c", "bash -euo pipefail -c 'gh pr comment 1 --body-file dirty.md'"),
+        ("a gh write in bash -eo pipefail -c", "bash -eo pipefail -c 'gh pr create --body-file dirty.md'"),
+        ("a gh write in bash -co pipefail", "bash -co pipefail 'gh pr comment 1 --body-file dirty.md'"),
+        ("a gh write in bash -c -o pipefail", "bash -c -o pipefail 'gh pr comment 1 --body-file dirty.md'"),
+        ("a gh write in bash --rcfile f -c", "bash --rcfile /dev/null -c 'gh pr comment 1 --body-file dirty.md'"),
+        ("a gh write in zsh --emulate sh -c", "zsh --emulate sh -c 'gh pr comment 1 --body-file dirty.md'"),
+        ("a value inline in bash -euo pipefail -c", f"bash -euo pipefail -c 'gh pr comment 1 --body {A}'"),
+        # env runs its split string with the words after it.
+        ("a gh write split across env -S and its operands", "env -S gh pr comment 1 --body-file dirty.md"),
+        ("a gh write after a quoted env -S string", "env -S 'gh pr comment 1' --body-file dirty.md"),
+        ("a gh write in env -iS", "env -iS 'gh pr comment 1 --body-file dirty.md'"),
+        ("a gh write in env -vS", "env -vS 'gh pr comment 1 --body-file dirty.md'"),
     ]
     for name, command in after_substitution:
         check(name, sb.hook(command), "deny", "matches private value list line", {3})
