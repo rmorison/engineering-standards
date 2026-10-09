@@ -24,9 +24,21 @@ To stop using it, follow the workflow's "To decline or stop", then run `claude p
 `start-team` takes the first of these that works and tells you which it used:
 
 1. **The Claude Code CLI:** `claude --bg --agent agent-team:lead -n <project>-lead`, run from the project's main checkout. Reach the lead with `claude attach <id>`. The project must be one where Claude Code's trust prompt was accepted.
-2. **A host session tool**, such as `create_session` in Claude Code on the web: a new session titled `<project>-lead`, which loads the lead role from this plugin or from its URL. A cloud session can receive messages but can't send them to local sessions, so you read the lead in the host's session view, and it falls back to its scheduled GitHub check for workers' news.
+2. **A host session tool**, such as `create_session` through Remote Control or Claude Code on the web: a new session titled `<project>-lead`, which loads the lead role from this plugin or from its URL. On your own machine it shows in your app and messages both ways. A cloud session can receive messages but can't send them to local sessions, so you read the lead in the host's session view, and it falls back to its scheduled GitHub check for workers' news.
 3. **The current session**, which becomes the lead and says so. It also prints the command for starting a role-loaded lead later.
 
-A background session started in the default mode waits on its first permission prompt until you attach. The skill's step 7 holds the one rule for which mode started sessions get; in short, never `bypassPermissions`, and `auto` or `acceptEdits` only when both hooks are installed.
+## How the lead starts workers
 
-Proved on Claude Code 2.1.293; see [#101](https://github.com/rmorison/engineering-standards/issues/101) for the runs.
+The lead prefers a host session tool that starts sessions on your own machine, so each worker shows in your app. Otherwise it starts a background session with `claude --bg`, which you watch from a terminal with `claude agents` and `claude attach <id>`. A cloud worker comes last, and only with your go-ahead.
+
+## Permission modes
+
+The skill's step 7 holds the one rule for which mode started sessions get. In short:
+
+- never `bypassPermissions`;
+- `auto` or `acceptEdits` only when both hooks are installed, and then only for a session on your own machine that passes the workflow's guardrail check as its first step;
+- `default` for every cloud session, and for a worker whose check failed. The lead tells you when that happens.
+
+A session in the default mode waits on its permission prompts until you answer them: in the app, or after `claude attach <id>` for a background session.
+
+Proved on Claude Code 2.1.293; see [#101](https://github.com/rmorison/engineering-standards/issues/101) for the runs. The guardrail check and the routes for workers were proved on 2.1.295; see [#112](https://github.com/rmorison/engineering-standards/issues/112).

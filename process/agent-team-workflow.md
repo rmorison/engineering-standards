@@ -19,7 +19,7 @@ It builds on parts of the standard that also stand alone, and links to them rath
 - the [AI-review discipline](./compound-engineering-integration.md#ai-review-discipline-not-enforced-merge-gate) and [the ready-to-merge comment](./compound-engineering-integration.md#the-ready-to-merge-comment);
 - learnings in [`docs/solutions/`](../docs/solutions/).
 
-**What it leaves out.** How a session is started, named, messaged or archived depends on the agent host, and so does reaching a session from another machine. This document names the capability it needs ([Prerequisites](#9-prerequisites)) and leaves the mechanics to the host's own documentation.
+**What it leaves out.** How a session is started, named, messaged or archived depends on the agent host, and so does reaching a session from another machine. This document names the capability it needs ([Prerequisites](#9-prerequisites)), the route it prefers ([Roles](#1-roles)) and the check each session the team starts runs first ([the guardrail check](#the-guardrail-check)). The mechanics are left to the host's own documentation, and for Claude Code, to the [`agent-team` plugin](../plugins/agent-team/README.md).
 
 ---
 
@@ -36,6 +36,8 @@ The lead's value is seeing the whole board. Doing ticket work fills its context 
 **Starting, stopping and naming.**
 
 - The lead starts each worker with its handoff, and archives it when its ticket is done. The operator can always start or stop a session by hand.
+- **Where a worker runs, and how the operator sees it.** The lead prefers the host's session tool wherever it can start a session on the operator's own machine, so the team appears in the operator's app and can be watched from a desktop or a phone. Otherwise it starts a background session from the command line, which runs and messages the same but shows only in a terminal. A cloud session comes last, and only with the operator's go-ahead, since its messages can't reach the lead. After starting a worker, the lead checks that it connected: a started session can stay pending and never run, and then the lead tries the next route.
+- **The worker's permission mode.** A worker never gets a more permissive mode than the lead's own. On the operator's machine, a worker keeps a mode above the default only if it passes the [guardrail check](#the-guardrail-check) first, whichever route started it. A cloud worker always gets the default mode, though its environment's own rules may still let some steps run without asking.
 - Names are unique on the machine, so a message reaches the session it means to. The lead is `<project>-lead`. Each worker is `<PREFIX>-<role>`: a short project prefix and a word for the ticket, such as `ES-policy`.
 - After starting a worker, the lead checks that it can reach the worker by that name. If the name didn't take, the worker renames itself, which is the first line of its handoff.
 
@@ -63,6 +65,14 @@ Apart from the sprint itself, which is on the lead's board, every step leaves it
 - **Pings are traffic, GitHub is the record.** Workers send the lead one-line pings: approach posted, blocked, pull request up, review answered. Content and decisions go on GitHub, never only in a message.
 - **The lead checks GitHub on a schedule as a backstop.** Each check compares what GitHub shows since a given time with the pings received since then. A list of expected events written in advance goes stale; a comparison from a timestamp doesn't.
 
+**Which channel reaches which session.**
+
+- **The agent's own messaging tool, by name** (in Claude Code, `SendMessage` to a name `ListAgents` shows), for every session the listing shows. That includes workers on the same machine, whichever route started them, and cloud sessions.
+- **The host's session tool** (in Claude Code, a connector such as `send_message`) only for a session the listing doesn't show. Connector calls ask the operator for approval unless the lead runs in auto mode.
+- **A cloud session can't message back.** Its pings never arrive, so for a cloud worker the lead relies on its scheduled GitHub check.
+- **A new session's listed name can lag its title** for many minutes. The worker's first ping gives the name the listing shows for it, and the lead sends to that name until the title appears.
+- **A message to a session in a different permission mode can be held** there for its operator's approval, and some receivers report nothing back. The mode that counts is the one the host records, which can differ from the mode the session actually runs in. The lead never reads silence as agreement, and falls back to GitHub.
+
 ---
 
 ## 4. The worker handoff
@@ -81,6 +91,30 @@ The rules in the template, and why each is there:
 - **Test hooks and git behaviour only in scratch repositories and scratch home directories.** A hook under test in the real settings guards, or blocks, every session on the machine.
 - **Name the human by role.**
 - **Never merge.** The [policy hook](./repository-standards.md#guarding-repository-authority) enforces this; the handoff says it so the worker stops and asks rather than meeting a refusal.
+- **Check your guardrails first** ([below](#the-guardrail-check)). A hook that is installed but not registered, or switched off by a settings file, guards nothing, and a session can't tell from its settings alone. Only a live denial shows the hook fires in this session.
+
+### The guardrail check
+
+Every worker on the operator's machine runs this before anything else, in any permission mode. So does a lead started above the default mode, which reports a fail to the operator itself. A cloud session skips it, since the hooks aren't installed there and it already runs in the default mode.
+
+1. **The mode check.** The worker reads the permission mode its own context states, for example a notice that auto mode is active. It passes when that is the handoff's mode, or when the handoff says the default mode and the context states no other. A different mode, `bypassPermissions`, or no stated mode under a handoff above the default is a fail. The canaries can't catch a wrong mode, since hooks fire in every mode.
+2. **The canaries.** Two harmless commands, each denied by one hook. If not denied, each only prints git's version. The worker runs both, each as its own command, before judging either:
+
+   ```bash
+   git -c core.hooksPath=/dev/null --version
+   git -c agentpolicy.allowDefaultPush=true --version
+   ```
+
+   The first passes only if its result contains "leak hook: denied". The second passes only if its result contains "policy hook: denied". A git version, any other denial (such as a permission refusal) or an error is a fail. The hooks run before the session's permission decision, so a hook that fires always answers first. The policy hook's message ends by telling the session to stop; for this canary, that is the expected pass, and the worker carries on.
+
+   Piping input into a hook file proves only that the file works. A live denial also proves the hook is registered in the settings this session loaded and not switched off. A dry-run push can't serve as the policy canary, because the policy hook doesn't check a dry run. A real push to the default branch isn't harmless, and a clone can opt out of that check.
+3. **The result.**
+   - **Pass:** the worker gives its stated mode and the first line of each denial in its first ping to the lead, and adds a "Guardrails:" line to its plan comment. The operator hears nothing.
+   - **Fail, in a mode above the default:** the worker stops before any other work. It comments "Guardrail check failed:" and names the part that failed (mode check, leak canary or policy canary), adding only each canary's first output line, since the leak hook may not be scanning what it posts. Then it pings the lead. The lead archives it, starts it again in the default mode, and tells the operator that this worker's guardrails didn't fire. That is a blocker in [quiet mode](#6-operator-interaction).
+   - **Fail, in the default mode:** a failed canary is reported the same way, and the worker carries on, since the operator approves each of its steps. A failed mode check means the default mode didn't hold. The worker stops, and the lead restarts it by another route that sets the mode explicitly, or gives the handoff to the operator.
+   - **No report:** the lead treats a worker above the default mode that hasn't reported a pass within five minutes of connecting as a fail.
+
+### Writing the handoff
 
 Before writing a handoff, the lead checks that the tools it names (a language runtime, a linter) exist on the host where the worker runs.
 
@@ -91,6 +125,14 @@ Before writing a handoff, the lead checks that the tools it names (a language ru
 
 You are <PREFIX>-<role>, a worker for <owner>/<repo>, started by <project>-lead.
 If your session name isn't <PREFIX>-<role>, rename it first.
+
+## Check your guardrails first
+- Your permission mode: <mode>. You run <on the operator's machine | in the cloud>.
+- On the operator's machine, before anything else, run the guardrail check
+  in the Agent Team Workflow, § 4 "The guardrail check", in any mode: the
+  mode check, then both canaries, then act on the result as it says.
+  Your first ping gives the result and the name ListAgents shows for you.
+- In the cloud, skip it.
 
 ## The ticket
 - Issue #<ISSUE> is the spec. Read it and its comments in full.
@@ -246,7 +288,7 @@ Then, in the session, run `/agent-team:start-team`, or ask for an agent team. It
 
 ### Starting a team
 
-**With the plugin,** `start-team` does the operator's part: it starts the lead with an opening prompt like the one below, filled in, and the lead's role is loaded from the start. It asks once where the lead keeps its board, records how it started the lead, and on a second run reports the running lead instead of starting another. Background sessions get the starting session's `auto` or `acceptEdits` permission mode only when both hooks are installed, and never `bypassPermissions`. Otherwise they start in the default mode, and the operator answers their prompts after `claude attach <id>`.
+**With the plugin,** `start-team` does the operator's part: it starts the lead with an opening prompt like the one below, filled in, and the lead's role is loaded from the start. It asks once where the lead keeps its board, records how it started the lead, and on a second run reports the running lead instead of starting another. Sessions it starts get the starting session's `auto` or `acceptEdits` permission mode only when both hooks are installed, and never `bypassPermissions`. A worker on the operator's machine then keeps that mode only if it passes [the guardrail check](#the-guardrail-check). A cloud session, or any session when the hooks are missing, runs in the default mode, and the operator answers its prompts.
 
 **By hand,** the operator starts a new session and types something like this opening prompt:
 
@@ -264,7 +306,7 @@ first sprint. Stop for my sign-off before starting any worker.
 2. **Check each [prerequisite](#9-prerequisites)** and report any that is missing, with § 9's fallback where there is one. If it can't start sessions, the operator starts workers by hand. If sessions can't message each other, it says so and stops: pings depend on messaging. The one exception is a lead the operator chose to start on a host where messages reach sessions but replies can't come back, such as a cloud session started from a local one; there the lead relies on its scheduled GitHub check (§ 3) instead of pings, and says so.
 3. **Read the open issues and pull requests** on GitHub.
 4. **Propose a first sprint:** the tickets, their lanes by file overlap and the merge order ([Traffic](#3-traffic)), with one worker per ticket. Then it stops for the operator's sign-off.
-5. **After sign-off,** it records the approved sprint on its board, writes each ticket's handoff from [the template](#4-the-worker-handoff), checks the usage window, and starts the workers, checking each is reachable by name. If it can't start sessions, it gives the handoffs to the operator.
+5. **After sign-off,** it records the approved sprint on its board, writes each ticket's handoff from [the template](#4-the-worker-handoff), checks the usage window, and starts the workers by the route [§ 1](#1-roles) prefers. It checks that each one connected, is reachable by name and reported its [guardrail check](#the-guardrail-check). If it can't start sessions, it gives the handoffs to the operator.
 
 **What the operator does next.** Sign off the sprint, or edit it and sign off the edit. If the lead can't start sessions, start each worker by hand with the handoff the lead wrote. Each worker then posts a plan, and the lead brings it to the operator for sign-off ([the sprint loop](#2-the-sprint-loop)). [Quiet mode](#6-operator-interaction) is on throughout: the lead messages the operator only for a pull request ready to merge, a decision, a blocker or a leak.
 
@@ -272,7 +314,7 @@ first sprint. Stop for my sign-off before starting any worker.
 
 ## 9. Prerequisites
 
-- **Both hooks installed** for the account the sessions run as: [the leak hook](./repository-standards.md#guarding-agent-sessions) and [the policy hook](./repository-standards.md#guarding-repository-authority). Both are Claude Code hooks; on another agent host, an equivalent guard is needed.
+- **Both hooks installed** for the account the sessions run as: [the leak hook](./repository-standards.md#guarding-agent-sessions) and [the policy hook](./repository-standards.md#guarding-repository-authority). Both are Claude Code hooks; on another agent host, an equivalent guard is needed. Installed is not enough for a session above the default mode: [the guardrail check](#the-guardrail-check) shows the hooks fire in that session.
 - **A plan review, a code review and a learnings step** in each worker's flow. The [compound-engineering plugin](./compound-engineering-integration.md) provides them (`ce-doc-review`, `ce-code-review`, `ce-compound`); equivalents work too.
 - **Sessions that can message each other**, and a lead that can start and archive sessions. Without the second, the operator starts and archives workers by hand and the rest of the model still holds.
 - **A way to wake the lead on a schedule**, for the backstop check in [Traffic](#3-traffic). Without it, the operator prompts the lead to check ("status?" does it), and a missed ping waits until then.
