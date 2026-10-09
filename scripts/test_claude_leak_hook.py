@@ -479,6 +479,15 @@ def fixtures(sb):
         "bash fix.sh && ",
         "sh <<'EOF'\nsed -i s/a/b/ reused.md\nEOF\n",
         "./fix.py && ",
+        "./fix.rb && ",
+        "tools/fix.mjs && ",
+        "source fix.sh && ",
+        ". ./fix.sh; ",
+        "pypy3 -c 1 && ",
+        "lua5.4 -e 1 && ",
+        "luajit -e 1 && ",
+        "Rscript -e 1 && ",
+        "gawk 'BEGIN{}' && ",
         "scripts/edit.sh && ",
         "env FOO=1 python3 -c 1 && ",
         "timeout 5 node -e 1 && ",
@@ -553,7 +562,11 @@ def fixtures(sb):
             ("<(...) beside a clean post", "diff <(cat clean.md) <(cat reused.md); gh pr comment 1 --body-file clean.md"),
             ("2> >(...) on a clean post", "gh pr create --title t 2> >(tee err.log) --body-file clean.md"),
             ("<( in double quotes is text", 'gh pr comment 1 --body "use <(cat f) here" --body-file clean.md'),
-            ("<( in single quotes is text", "gh pr comment 1 --body 'use <(cat f) here'")):
+            ("<( in single quotes is text", "gh pr comment 1 --body 'use <(cat f) here'"),
+            ("an unclosed <( in double quotes is text",
+             'gh pr comment 1 --body "use <(cat f here" --body-file clean.md'),
+            ("an unclosed >( in double quotes is text",
+             'gh pr comment 1 --body "use >(tee f here" --body-file clean.md')):
         check(name, sb.hook(command), "allow")
 
     # --- Clean text is allowed, with no decision of the hook's own (R2) ---------

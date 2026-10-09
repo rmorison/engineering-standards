@@ -661,7 +661,7 @@ UNFOLLOWED = ("The hook could not follow a change of directory in this command, 
 INTERPRETED = ("An interpreter, such as python3, node or perl, or a script runs in this command, "
                "and can rewrite any file.")
 PROCESS_SUBSTITUTIONS = {"<(...)", ">(...)"}  # the words parse_command() leaves for <(...) and >(...)
-FALLBACK_FILE_FLAGS =re.compile(r"--body-file|--notes-file|--input|\s-F|=@")
+FALLBACK_FILE_FLAGS = re.compile(r"--body-file|--notes-file|--input|\s-F|=@")
 
 
 WRITE_REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
@@ -694,9 +694,11 @@ SCRIPT_EXTENSIONS = (".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".rb",
 def interprets(cmd):
     """Whether this command runs code the hook cannot read: an interpreter, with
     its code given inline, in a heredoc or in a file; a shell that runs a script
-    or standard input rather than -c, whose script is parsed on its own; or a
-    script run by its path."""
+    or standard input rather than -c, whose script is parsed on its own; a
+    script read by source or .; or a script run by its path."""
     if INTERPRETER.match(cmd.program):
+        return True
+    if cmd.program in ("source", ".") and len(cmd.words) > 1:
         return True
     if cmd.program in SHELLS:
         return nested_script(cmd)[0] is None
