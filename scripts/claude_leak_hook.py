@@ -182,7 +182,9 @@ def mark_fd_numbers(text):
             quote = None if quote == c else (quote or c)
         out.append(c)
         i += 1
-        start = quote is None and c in WORD_START
+        # The & of >& or <& is part of the operator: the digits after it are the
+        # fd it duplicates, as the 1 in 2>&1>f, not an fd number of their own.
+        start = quote is None and c in WORD_START and not (c == "&" and text[i - 2:i - 1] in ("<", ">"))
     return "".join(out)
 
 
@@ -219,7 +221,7 @@ def redirect(t):
     if t in REDIRECTS:
         return t
     fd = FD_REDIRECT.match(t)
-    if not fd or fd.group(2) not in REDIRECTS or fd.group(2).startswith("&"):
+    if not fd or fd.group(2) not in REDIRECTS:
         return None
     number, op = fd.groups()
     return op if op.startswith(">") or int(number) == 0 else number + op

@@ -656,8 +656,16 @@ def fixtures(sb):
             ("body file after 2>/dev/null", "gh pr create --title t 2>/dev/null --body-file dirty.md"),
             ("body file after 2>&1", "gh pr create --title t 2>&1 --body-file dirty.md"),
             ("body file after 1>out.log", "gh pr create --title t 1>out.log --body-file dirty.md"),
-            ("body file read from 0<", "gh pr comment 1 --body-file - 0< dirty.md")):
+            ("body file read from 0<", "gh pr comment 1 --body-file - 0< dirty.md"),
+            # The digits after >& or <& are the fd duplicated, not an fd number (#118 review).
+            ("standard input after 2>&1", "gh pr comment 1 --body-file - 2>&1<dirty.md"),
+            ("standard input after >&2", "gh pr comment 1 --body-file - >&2<dirty.md"),
+            ("a here-string on fd 3 is text", f'gh pr comment 1 --body "ok" 3<<< "{A}"')):
         check(name, sb.hook(command), "deny", "matches private value list line", {3})
+    check("2>&1>F on the body file is a same-command write",
+          sb.hook("gh pr comment 1 --body-file reused.md 2>&1>reused.md"), "deny", "written by the same command")
+    check("a command holding the fd mark cannot be split", sb.hook("gh pr comment 1 --body-file clean.md \ue0002>x"),
+          "deny", "cannot be split")
     check("2> on the body file is a same-command write",
           sb.hook("gh pr comment 1 --body-file reused.md 2>reused.md"), "deny", "written by the same command")
     for name, command in (

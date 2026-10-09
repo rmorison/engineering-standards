@@ -373,6 +373,9 @@ def fixtures(sb):
         ("git push 10>out.log origin HEAD:trunk", sb.feat),
         # A here-string is a redirect, not a separator (#114).
         ("git push <<< y origin HEAD:trunk", sb.feat),
+        # The digits after >& are the fd duplicated, not an fd number (#118 review).
+        ("git push 2>&1>/dev/null origin HEAD:trunk", sb.feat),
+        ("git push >&2>/dev/null origin HEAD:trunk", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),
