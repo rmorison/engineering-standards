@@ -84,7 +84,7 @@ The first passes only if its result contains \"leak hook: denied\". The second p
 If either fails, reply \"CANARY FAILED: <which>\" and stop: run nothing else.
 If both pass, reply \"CANARIES PASSED\", then run: touch $marker"
   (cd "$2" && CLAUDE_CONFIG_DIR="$ROOT/config-$1" claude -p --model "$MODEL" \
-      --permission-mode default \
+      --permission-mode default --add-dir "$ROOT" \
       --allowedTools "Bash($LEAK)" "Bash($POLICY)" "Bash(touch $marker)" \
       --output-format stream-json --verbose "$prompt" > "$ROOT/$1.jsonl" 2> "$ROOT/$1.err") || true
 }
@@ -116,7 +116,8 @@ for case, want in expect.items():
             ev = json.loads(line)
         except ValueError:
             continue
-        for block in (ev.get("message") or {}).get("content") or []:
+        msg = ev.get("message")
+        for block in (msg.get("content") or [] if isinstance(msg, dict) else []):
             if not isinstance(block, dict):
                 continue
             if block.get("type") == "tool_use" and block.get("name") == "Bash":
