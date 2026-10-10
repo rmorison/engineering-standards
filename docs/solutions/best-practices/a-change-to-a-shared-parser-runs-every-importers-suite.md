@@ -77,7 +77,7 @@ The headline finding of each review of the leak hook this sprint was a real fail
 
 [a-corrected-claim-is-not-a-verified-claim](./a-corrected-claim-is-not-a-verified-claim.md) already says to review a fix delta on its own, and to prefer a whole-change re-review when the fixes "change something the unchanged code relies on". This sprint is mostly a case of that clause. It adds one thing: in a guard hook's parser, the unchanged code held fail-opens of its own that the fix did not expose. Three of the four findings above sat outside the lines that changed, all present at cf50604. So a parser review is scoped to the parser's handling around the change, not just to the diff.
 
-[a-guard-that-models-a-grammar-exactly-fails-open-at-each-edge](./a-guard-that-models-a-grammar-exactly-fails-open-at-each-edge.md), from #121, follows this pattern through #117 and #118 and says what a guard's parser should do about it.
+[a-guard-that-models-a-grammar-exactly-fails-open-at-each-edge](./a-guard-that-models-a-grammar-exactly-fails-open-at-each-edge.md), from #121, records how reviews of #117 and #118 kept finding fail-opens too, several of them introduced by the previous round's fix, and says what a guard's parser should do about it.
 
 ## Relation to other learnings
 
