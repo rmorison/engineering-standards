@@ -58,7 +58,7 @@ A green check on the pull request that changes a shared parser proves only that 
 
 ## When to Apply
 
-- Any change to `parse()`, `parse_command()`, `Command`, `option()` or `Deny` in `scripts/claude_leak_hook.py`, while `scripts/claude_policy_hook.py` imports from it. #95, an open fail-open in the same parser, is the next such change.
+- Any change to `parse()`, `parse_command()`, `Command`, `option()` or `Deny` in `scripts/claude_leak_hook.py`, while `scripts/claude_policy_hook.py` imports from it. #117 and #118, which closed fail-opens in the same parser, were such changes.
 - Any module in the repository that another script imports. Not for a file with no importers, where the module's own suite is the whole story.
 
 ## Examples
@@ -76,6 +76,8 @@ The headline finding of each review of the leak hook this sprint was a real fail
 #91's first review also found that a body file given in a short-flag cluster, such as `gh pr create -dF body.md`, is never read. This was also present at cf50604. It is now listed under "What it does not see" in `process/repository-standards.md`, and #92 corrected the sentence that says so.
 
 [a-corrected-claim-is-not-a-verified-claim](./a-corrected-claim-is-not-a-verified-claim.md) already says to review a fix delta on its own, and to prefer a whole-change re-review when the fixes "change something the unchanged code relies on". This sprint is mostly a case of that clause. It adds one thing: in a guard hook's parser, the unchanged code held fail-opens of its own that the fix did not expose. Three of the four findings above sat outside the lines that changed, all present at cf50604. So a parser review is scoped to the parser's handling around the change, not just to the diff.
+
+[a-guard-that-models-a-grammar-exactly-fails-open-at-each-edge](./a-guard-that-models-a-grammar-exactly-fails-open-at-each-edge.md), from #121, follows this pattern through #117 and #118 and says what a guard's parser should do about it.
 
 ## Relation to other learnings
 
