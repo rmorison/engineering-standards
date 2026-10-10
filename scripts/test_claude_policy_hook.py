@@ -363,6 +363,38 @@ def fixtures(sb):
         ("sh -c - '+x; git push origin HEAD:trunk'", sb.feat),
         ("bash +c 'git push origin HEAD:trunk'", sb.feat),
         ("sh +c 'git push origin HEAD:trunk'", sb.feat),
+        # An fd number joined to a redirect is part of it, not the remote (#114).
+        ("git push 2>/dev/null origin HEAD:trunk", sb.feat),
+        ("git push 2>&1 origin HEAD:trunk", sb.feat),
+        ("git push 1>out.log origin HEAD:trunk", sb.feat),
+        ("git push &>out.log origin HEAD:trunk", sb.feat),
+        ("git push 2>>err.log origin HEAD:trunk", sb.feat),
+        ("git push 0</dev/null origin HEAD:trunk", sb.feat),
+        ("git push 10>out.log origin HEAD:trunk", sb.feat),
+        # A here-string is a redirect, not a separator (#114).
+        ("git push <<< y origin HEAD:trunk", sb.feat),
+        # The digits after >& are the fd duplicated, not an fd number (#118 review).
+        ("git push 2>&1>/dev/null origin HEAD:trunk", sb.feat),
+        ("git push >&2>/dev/null origin HEAD:trunk", sb.feat),
+        # Even across a space (#118 review).
+        ("git push >& 2>/dev/null origin HEAD:trunk", sb.feat),
+        ("git push 2>& 1>/dev/null origin HEAD:trunk", sb.feat),
+        ("git push <& 0</dev/null origin HEAD:trunk", sb.feat),
+        # env reads --un as --unset, which takes a value (#118 review).
+        ("env --un FOO git push origin HEAD:trunk", sb.feat),
+        # From the fix-delta review of #118: a quoted or escaped >& is not a dup
+        # operator, and wrappers' options are read as getopt reads them.
+        ("X='a>&' 2>/dev/null git push origin HEAD:trunk", sb.feat),
+        ("git -c 'x.y=a>&' 2>/dev/null push origin HEAD:trunk", sb.feat),
+        ("git push <<< 'x>&' 2>/dev/null origin HEAD:trunk", sb.feat),
+        ("echo a\\>&2>/dev/null git push origin HEAD:trunk", sb.feat),
+        ("timeout --sig KILL 5 git push origin HEAD:trunk", sb.feat),
+        ("nice --adj 5 git push origin HEAD:trunk", sb.feat),
+        ("sudo --us root git push origin HEAD:trunk", sb.feat),
+        ("env -iu FOO git push origin HEAD:trunk", sb.feat),
+        ("env --un X -S 'git push origin HEAD:trunk'", sb.feat),  # the rebase onto #117
+        # shlex treats a carriage return as a blank, so the dup flag must too (#118 review).
+        ("git push >&\r2>/dev/null origin HEAD:trunk", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),
@@ -484,6 +516,8 @@ def fixtures(sb):
         ('git push origin "$(git rev-parse --abbrev-ref HEAD)"', sb.feat),
         ('git push origin "$(git symbolic-ref --short HEAD)"', sb.feat),
         ("git push -u origin HEAD", sb.track),
+        ("git push 2>/dev/null -u origin 76-x", sb.feat),  # #114
+        ("echo 2 > f.txt", sb.feat),  # with a space, 2 is an argument (#114)
         ("gh api -X PUT repos/o/r/contents/a.md -f message=m -f content=eA== -f branch=76-x",
          sb.trunk),
         ("gh api graphql -F query=@- <<'EOF'\nquery { viewer { login } }\nEOF", sb.work),
@@ -557,6 +591,9 @@ def fixtures(sb):
          "printf '[agentpolicy]\\n\\tallowDefaultPush = true\\n' >> .git/config"),
     ]:
         check(f"residual: {name}", sb.bash(command, cwd=sb.trunk), "allow", on_fail=RESIDUAL_DOC)
+    # A redirect the parser does not read as one leaves its fd among the words (#114).
+    check("residual: a named fd redirect", sb.bash("git push {fd}>/dev/null origin HEAD:trunk", cwd=sb.feat),
+          "allow", on_fail=RESIDUAL_DOC)
 
     # --- KTD2: the standard lists every gh command and mutation in the tables ---------
     spec = importlib.util.spec_from_file_location("policy_tables", REAL_HOOK)

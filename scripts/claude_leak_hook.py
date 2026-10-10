@@ -146,20 +146,98 @@ def strip_comments_and_continuations(text):
 
 
 PUNCTUATION = ";&|()<>\n"
+FD_MARK = "\ue000"  # a private-use character that marks an fd number before shlex runs
+PRIVATE_MARKS = "\ue000\ue001\ue002\ue003"  # FD_MARK and the standard-input marks below
+BLANKS = " \t\r"  # what tokenize() gives shlex as whitespace
+FD_NUMBER = re.compile(r"[0-9]+(?=[<>])")
+FD_NUMBER_MARKED = re.compile(FD_MARK + r"[0-9]+$")
+WORD_START = " \t\r\n;&|()"
+
+
+def mark_fd_numbers(text):
+    """Returns text with FD_MARK before each fd number: digits that start a word,
+    outside quotes, and touch a redirect operator, as in 2>/dev/null or 2>&1.
+
+    shlex splits 2>f and 2 > f alike, so the mark is what keeps them apart: in
+    echo 2 > f, the 2 is an argument. A text that already holds the mark cannot
+    be read this way, and raises ValueError, as an unbalanced quote does.
+    """
+    if any(c in text for c in PRIVATE_MARKS):
+        raise ValueError("the text holds a character the parser uses as a mark")
+    out, quote, i = [], None, 0
+    start = True  # whether text[i] starts a word: after an unquoted, unescaped separator
+    arrow = False  # whether the last character was an unquoted, unescaped < or >
+    # After an unquoted >& or <&, the next word is the fd it duplicates, even
+    # across blanks, as the 1 in 2>&1>f or the 2 in >& 2>f: never an fd number.
+    dup = False
+    while i < len(text):
+        c = text[i]
+        if quote is None and start and not dup:
+            fd = FD_NUMBER.match(text, i)
+            if fd:
+                out.append(FD_MARK + fd.group())
+                i, start, arrow = fd.end(), False, False
+                continue
+        unquoted = quote is None
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif c == "\\":
+            out.append(text[i:i + 2])
+            i, start, arrow, dup = i + 2, False, False, False
+            continue
+        elif c in "'\"":
+            quote = None if quote == c else (quote or c)
+        out.append(c)
+        i += 1
+        closes_dup = unquoted and c == "&" and arrow
+        if unquoted and c not in BLANKS:
+            dup = closes_dup
+        elif not unquoted:
+            dup = False
+        arrow = unquoted and quote is None and c in "<>"
+        start = quote is None and c in WORD_START and not closes_dup
+    return "".join(out)
 
 
 def tokenize(text):
     # shlex's defaults would treat a newline as plain whitespace, merging a
     # command on the next line into the one before it, and would read "#"
     # inside a word as the start of a comment.
-    lex = shlex.shlex(text, posix=True, punctuation_chars=PUNCTUATION)
-    lex.whitespace = " \t\r"
+    lex = shlex.shlex(mark_fd_numbers(text), posix=True, punctuation_chars=PUNCTUATION)
+    lex.whitespace = BLANKS
     lex.whitespace_split = True
     lex.commenters = ""
-    return list(lex)
+    tokens = []
+    for t in lex:
+        # A marked fd number joins the operator after it, as 2> or 2>&, and keeps
+        # the mark, so that simple_commands() can tell it from a quoted "2>".
+        if tokens and FD_NUMBER_MARKED.match(tokens[-1]) and t in REDIRECTS:
+            t = tokens.pop() + t
+        tokens.append(t)
+    return [t[len(FD_MARK):] if FD_NUMBER_MARKED.match(t) else t for t in tokens]
 
 
-REDIRECTS = {"<", ">", ">>", "<<", ">&", "<&", "&>", "&>>", ">|", "<>"}
+REDIRECTS = {"<", ">", ">>", "<<", "<<<", ">&", "<&", "&>", "&>>", ">|", "<>"}
+FD_REDIRECT = re.compile(FD_MARK + r"([0-9]+)(.+)$")
+
+
+def redirect(t):
+    """Returns the operator a redirect token is stored as, or None for a word.
+
+    An fd redirect comes from tokenize() marked, as FD_MARK + "2>". An output fd
+    is stored as the plain operator, since any fd writes its target. An input
+    fd other than 0 keeps its number, as 3<, so it is never read as standard
+    input.
+    """
+    if t in REDIRECTS:
+        return t
+    fd = FD_REDIRECT.match(t)
+    if not fd or fd.group(2) not in REDIRECTS:
+        return None
+    number, op = fd.groups()
+    if op == ">&" and int(number) == 0:
+        return "0>&"  # n>&m and n<&m both copy fd m onto fd n, so 0>&3 sets standard input
+    return op if op.startswith(">") or int(number) == 0 else number + op
 
 
 def simple_commands(tokens):
@@ -169,9 +247,12 @@ def simple_commands(tokens):
     i = 0
     while i < len(tokens):
         t = tokens[i]
-        if t in REDIRECTS:
+        op = redirect(t)
+        if op:
             target = tokens[i + 1] if i + 1 < len(tokens) else ""
-            redirects.append((t, target))
+            if FD_REDIRECT.match(target):  # the parser lost its place: 2> cannot be a target
+                raise ValueError("a redirect's target is itself an fd redirect")
+            redirects.append((op, target))
             i += 2
             continue
         # Any other run of punctuation separates commands: ; && || | & ( ) and newlines.
@@ -195,16 +276,29 @@ RESERVED = {"!", "{", "}", "if", "then", "else", "elif", "while", "until", "do",
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 # Wrappers skipped to find the program, with their options that take a value.
 WRAPPERS = {
-    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
+    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "--argv0"},
     "command": set(),
     "exec": {"-a"},
     "nohup": set(),
     "time": {"-f", "--format", "-o", "--output"},
     "nice": {"-n", "--adjustment"},
     "sudo": {"-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir",
-             "-h", "--host", "-p", "--prompt", "-r", "--role", "-t", "--type", "-U", "--other-user"},
+             "-h", "--host", "-p", "--prompt", "-r", "--role", "-t", "--type", "-U", "--other-user",
+             "-R", "--chroot", "-T", "--command-timeout"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
     "builtin": set(),
+}
+# Their long options that take no value, so that an abbreviation is read as
+# getopt_long reads it: --sig is --signal, which takes a value; --fore is not.
+WRAPPER_FLAGS = {
+    "env": {"--ignore-environment", "--null", "--debug", "--help", "--version",
+            "--list-signal-handling", "--block-signal", "--default-signal", "--ignore-signal"},
+    "time": {"--append", "--verbose", "--portability", "--quiet", "--help", "--version"},
+    "nice": {"--help", "--version"},
+    "sudo": {"--askpass", "--background", "--bell", "--edit", "--help", "--login", "--list",
+             "--non-interactive", "--preserve-env", "--preserve-groups", "--remove-timestamp",
+             "--reset-timestamp", "--set-home", "--shell", "--stdin", "--validate", "--version"},
+    "timeout": {"--foreground", "--preserve-status", "--verbose", "--help", "--version"},
 }
 
 
@@ -243,14 +337,13 @@ def unwrap(words):
         name = os.path.basename(w)
         if name not in WRAPPERS or (name == "env" and env_split_string(words, i + 1)):
             break  # env -S runs a script, which nested_script() returns
-        takes_value = WRAPPERS[name]
         i += 1
         while i < len(words) and words[i].startswith("-") and words[i] != "-":
             opt = words[i]
             i += 1
             if opt == "--":
                 break
-            if opt in takes_value:
+            if wrapper_option_takes_value(name, opt):
                 i += 1
         if name == "timeout" and i < len(words):
             i += 1  # the duration
@@ -279,8 +372,28 @@ def env_split_string(words, i=1):
                     return (words[i + 1], i + 1) if i + 1 < len(words) else None
                 if letter in "uC":
                     break
-        i += 2 if w in WRAPPERS["env"] else 1
+        i += 2 if wrapper_option_takes_value("env", w) else 1
     return None
+
+
+def wrapper_option_takes_value(name, opt):
+    """Whether a wrapper's option word takes the next word as its value: one of
+    its value options, an abbreviation getopt_long would expand to one (--un for
+    env's --unset, --sig for timeout's --signal), or a cluster of short options
+    whose last letter takes a value, as -iu FOO for env."""
+    values = WRAPPERS[name]
+    if opt in values:
+        return True
+    if opt.startswith("--"):
+        if "=" in opt:
+            return False
+        longs = {o for o in values if o.startswith("--")} | WRAPPER_FLAGS.get(name, set())
+        return any(o in values for o in longs if o.startswith(opt))
+    short = {o[1] for o in values if len(o) == 2}
+    for k, letter in enumerate(opt[1:], 1):
+        if letter in short:  # it takes the rest of the word, or the next word if none is left
+            return k == len(opt) - 1
+    return False
 
 
 def expand(path, cwd):
@@ -387,6 +500,8 @@ def parse_command(text, cwd, depth=0, found=None):
         elif script is not None:
             found.opaque = True
     for words, redirects in simple_commands(tokenize(matched_text)):
+        # A here-string's target is text the command sends, not a file name.
+        found.words += [t for op, t in redirects if op.endswith("<<<")]
         assigns, unwrapped = unwrap(words)
         cmd = Command(assigns, unwrapped, redirects, None)
         unmatched = dict(cmd.unmatched)
@@ -595,6 +710,7 @@ GH_TEXT_VERBS = {
 GH_FILE_FLAGS = {"--body-file", "-F", "--notes-file"}
 GH_API_FIELDS = {"-f", "-F", "--field", "--raw-field"}
 STDIN_PATHS = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
+FD_PATH = re.compile(r"^/(dev|proc/[^/]+)/fd/[0-9]+$")
 
 
 def option_at(words, names):
@@ -662,10 +778,36 @@ def gh_outbound(cmd):
                 unmatched[base + at] = word[:len(word) - len(path)]
     else:
         return False, [], {}
-    stdin = [t for op, t in cmd.redirects if op == "<"]
+    stdin = PIPED_STDIN if (s := standard_input(cmd.redirects)) is None else s
     files = ["-" if f in STDIN_PATHS else f for f in files]
-    files = [stdin[-1] if f == "-" and stdin else f for f in files if f != "-" or stdin]
+    files = [f for f in (stdin if f == "-" else f for f in files) if f != HEREDOC_STDIN]
     return True, files, unmatched
+
+
+UNKNOWN_STDIN = "\ue001"  # a standard input the hook cannot follow, such as <&3 with fd 3 unknown
+
+
+HEREDOC_STDIN = "\ue002"  # standard input is a heredoc or here-string, whose text is in the command
+PIPED_STDIN = "\ue003"  # no redirect sets standard input: a pipe, or a compound command's redirect
+
+
+def standard_input(redirects):
+    """Returns what a command's standard input reads: the file of its last plain
+    < (0< is stored as <), HEREDOC_STDIN, None when no redirect sets it, or
+    UNKNOWN_STDIN for any other redirect onto fd 0: <>, <&N or 0>&N.
+
+    Fail-safe rather than exact (#118): a dup onto standard input is not
+    followed through the fds it copies, so it is denied."""
+    stdin = None
+    for op, target in redirects:
+        if op == "<":
+            # /dev/stdin, /dev/fd/N and /proc/*/fd/N reopen an fd the hook does not follow.
+            stdin = UNKNOWN_STDIN if target in STDIN_PATHS or FD_PATH.match(target) else target
+        elif op in ("<<", "<<<"):
+            stdin = HEREDOC_STDIN
+        elif op in ("<>", "<&", "0>&"):  # redirect() keeps a number on any fd but 0
+            stdin = UNKNOWN_STDIN
+    return stdin
 
 
 # --- The value list, read the way scripts/leak-gate.sh reads it ---------------------------
@@ -886,6 +1028,8 @@ def decide(command, cwd):
     outbound = False
     files = []  # resolved paths, None where the path cannot be known
     substituted = False  # a file sent is a <(...) or >(...)
+    unknown_stdin = False  # --body-file - reads a standard input the hook cannot follow
+    piped_stdin = False  # --body-file - reads a standard input no redirect on its command sets
     written = Written()
     if found is None:
         has_git = "git" in command
@@ -906,7 +1050,9 @@ def decide(command, cwd):
             written_paths(cmd, written)
             if cmd.outbound:
                 outbound = True
-                files += [expand(f, cmd.cwd) for f in cmd.files]
+                unknown_stdin = unknown_stdin or UNKNOWN_STDIN in cmd.files
+                piped_stdin = piped_stdin or PIPED_STDIN in cmd.files
+                files += [expand(f, cmd.cwd) for f in cmd.files if f not in (UNKNOWN_STDIN, PIPED_STDIN)]
                 substituted = substituted or any(f in PROCESS_SUBSTITUTIONS for f in cmd.files)
     if not outbound:
         return None
@@ -926,6 +1072,19 @@ def decide(command, cwd):
         raise Deny("a file this command sends to GitHub is a process substitution, <(...) or "
                    ">(...), whose text is made when the command runs, so it cannot be checked. "
                    "Write the file in one step, then post it in the next.")
+
+    # A redirect on a compound command, { ...; } <f or while ...; done <f, sets
+    # the standard input of the gh command inside it, which the hook does not
+    # follow: } and done are not programs, and ( ... ) <f leaves no words at all.
+    if piped_stdin and found is not None and any(
+            not cmd.words and any(op.lstrip("0123456789").startswith("<") or op == "0>&"
+                                  for op, _ in cmd.redirects)
+            for cmd in found.commands):
+        unknown_stdin = True
+    if unknown_stdin:
+        raise Deny("this command sends its standard input to GitHub from a redirect the hook cannot "
+                   "follow, such as <&3, so it cannot be checked. Write the file in one step, then "
+                   "post it with --body-file in the next.")
 
     # A parsed command is matched without the words that only name a file or a
     # directory (parse_command()); one that cannot be split is matched whole.

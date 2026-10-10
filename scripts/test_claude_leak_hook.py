@@ -530,6 +530,8 @@ def fixtures(sb):
         "declare -x BASH_ENV=fix.sh; bash -c 'echo hi'; ",
         "export ENV=fix.sh; sh -c 'echo hi'; ",
         "ZDOTDIR=. zsh -c 'echo hi' && ",
+        # An fd redirect before the program is not the program (#114, with #117's rule).
+        "2>/dev/null python3 fix.py && ",
     ]
     posts = [
         "gh pr edit 1 --body-file reused.md",
@@ -646,6 +648,63 @@ def fixtures(sb):
              'gh pr comment 1 --body "use <(cat f here" --body-file clean.md'),
             ("an unclosed >( in double quotes is text",
              'gh pr comment 1 --body "use >(tee f here" --body-file clean.md')):
+        check(name, sb.hook(command), "allow")
+
+    # --- fd numbers and here-strings are redirects (#114) ------------------------
+    # shlex splits 2>f like 2 > f; only the first is a redirect of fd 2.
+    for name, command in (
+            ("standard input is the plain <, not 3<", "gh pr comment 1 --body-file - < dirty.md 3< clean.md"),
+            ("body file after a here-string", "gh pr create --title t <<< y --body-file dirty.md"),
+            ("body file after 2>/dev/null", "gh pr create --title t 2>/dev/null --body-file dirty.md"),
+            ("body file after 2>&1", "gh pr create --title t 2>&1 --body-file dirty.md"),
+            ("body file after 1>out.log", "gh pr create --title t 1>out.log --body-file dirty.md"),
+            ("body file read from 0<", "gh pr comment 1 --body-file - 0< dirty.md"),
+            # The digits after >& or <& are the fd duplicated, not an fd number (#118 review).
+            ("standard input after 2>&1", "gh pr comment 1 --body-file - 2>&1<dirty.md"),
+            ("standard input after >&2", "gh pr comment 1 --body-file - >&2<dirty.md"),
+            ("a here-string on fd 3 is text", f'gh pr comment 1 --body "ok" 3<<< "{A}"'),
+            ("body file after >& 2>/dev/null", "gh pr create --title t >& 2>/dev/null --body-file dirty.md"),
+            ("a gh write after env --un", "env --un FOO gh pr comment 1 --body-file dirty.md"),
+            # From the fix-delta review of #118.
+            ("a quoted word ending in >& before 2>", "X='a>&' 2>/dev/null gh pr comment 1 --body-file dirty.md"),
+            ("a gh write after timeout --sig", "timeout --sig KILL 5 gh pr comment 1 --body-file dirty.md"),
+            ("a gh write after env -iu", "env -iu FOO gh pr comment 1 --body-file dirty.md"),
+            # #117's env -S reads env's options as #118's wrappers do (the rebase onto #117).
+            ("a gh write in env -S after --un", "env --un X -S 'gh pr comment 1 --body-file dirty.md'")):
+        check(name, sb.hook(command), "deny", "matches private value list line", {3})
+    check("2>&1>F on the body file is a same-command write",
+          sb.hook("gh pr comment 1 --body-file reused.md 2>&1>reused.md"), "deny", "written by the same command")
+    # --body-file - is read only from a plain < file, a heredoc or a here-string; any
+    # other redirect onto standard input is denied (fail-safe, #118 review).
+    for name, command in (
+            ("<&3 copying a file on fd 3", "gh pr comment 1 --body-file - 3<dirty.md <&3"),
+            ("0<&3", "gh pr comment 1 --body-file - 3<dirty.md 0<&3"),
+            ("0>&3", "gh pr comment 1 --body-file - 3<dirty.md 0>&3"),
+            ("<>", "gh pr comment 1 --body-file - <>dirty.md"),
+            ("a redirect on { ...; }", "{ gh pr comment 1 --body-file -; } < dirty.md"),
+            ("a redirect on ( ... )", "( gh pr comment 1 --body-file - ) < dirty.md"),
+            ("a redirect on while ... done", "while true; do gh pr comment 1 --body-file -; break; done < dirty.md"),
+            ("<&3 with nothing on fd 3", "gh pr comment 1 --body-file - <&3"),
+            ("< /dev/fd/3", "gh pr comment 1 --body-file - 3<dirty.md < /dev/fd/3"),
+            ("< /proc/self/fd/3", "gh pr comment 1 --body-file - 3<dirty.md < /proc/self/fd/3"),
+            ("< /dev/stdin", "gh pr comment 1 --body-file - < /dev/stdin"),
+            ("<&- closes standard input", "gh pr comment 1 --body-file - <&-"),
+            ("<&3- moves fd 3", "gh pr comment 1 --body-file - 3<clean.md <&3-"),
+            ("a heredoc on fd 3 copied to standard input", "gh pr comment 1 --body-file - 3<<EOF <&3\nhi\nEOF")):
+        check(f"a standard input the hook cannot follow: {name}", sb.hook(command), "deny", "cannot follow")
+    check("a command holding the fd mark cannot be split", sb.hook("gh pr comment 1 --body-file clean.md \ue0002>x"),
+          "deny", "cannot be split")
+    for mark in "\ue000\ue001\ue002\ue003":  # the parser's private marks, as a body file's name
+        check(f"a body file named U+{ord(mark):04X} cannot be split", sb.hook(f"gh pr comment 1 --body-file {mark}"),
+              "deny", "cannot be split")
+    check("2> on the body file is a same-command write",
+          sb.hook("gh pr comment 1 --body-file reused.md 2>reused.md"), "deny", "written by the same command")
+    for name, command in (
+            ("3< is not standard input", "gh pr comment 1 --body-file - < clean.md 3< dirty.md"),
+            ("2>&1 does not touch standard input", "gh pr comment 1 --body-file - < clean.md 2>&1"),
+            ("a heredoc into --body-file -", "gh pr comment 1 --body-file - <<'EOF'\nclean\nEOF"),
+            ("echo 2 > f: 2 is an argument", "echo 2 > f.txt && gh pr comment 1 --body-file clean.md"),
+            ('"2>" in quotes is text', 'gh pr comment 1 --body "use 2>/dev/null to quiet it"')):
         check(name, sb.hook(command), "allow")
 
     # --- Clean text is allowed, with no decision of the hook's own (R2) ---------
@@ -854,6 +913,10 @@ def fixtures(sb):
         ("sort -o on the body file", "sort -o reused.md reused.md && gh pr comment 1 --body-file reused.md"),
         ("an interpreter through uv run", "uv run python -c 1 && gh pr comment 1 --body-file reused.md"),
         ("an interpreter through xargs", "echo 1 | xargs python3 -c && gh pr comment 1 --body-file reused.md"),
+        ("a named fd read as standard input", "gh pr comment 1 --body-file - < dirty.md {fd}< clean.md"),
+        ("standard input redirected around sh -c", "sh -c 'gh pr comment 1 --body-file -' < dirty.md"),
+        ("standard input redirected around a function call",
+         "f() { gh pr comment 1 --body-file -; }; f < dirty.md"),
     ]
     for name, command in residuals:
         check(f"residual: {name}", sb.hook(command), "allow", on_fail=RESIDUAL_DOC)
