@@ -681,12 +681,18 @@ def fixtures(sb):
             ("a redirect on ( ... )", "( gh pr comment 1 --body-file - ) < dirty.md"),
             ("a redirect on while ... done", "while true; do gh pr comment 1 --body-file -; break; done < dirty.md"),
             ("<&3 with nothing on fd 3", "gh pr comment 1 --body-file - <&3"),
+            ("< /dev/fd/3", "gh pr comment 1 --body-file - 3<dirty.md < /dev/fd/3"),
+            ("< /proc/self/fd/3", "gh pr comment 1 --body-file - 3<dirty.md < /proc/self/fd/3"),
+            ("< /dev/stdin", "gh pr comment 1 --body-file - < /dev/stdin"),
             ("<&- closes standard input", "gh pr comment 1 --body-file - <&-"),
             ("<&3- moves fd 3", "gh pr comment 1 --body-file - 3<clean.md <&3-"),
             ("a heredoc on fd 3 copied to standard input", "gh pr comment 1 --body-file - 3<<EOF <&3\nhi\nEOF")):
         check(f"a standard input the hook cannot follow: {name}", sb.hook(command), "deny", "cannot follow")
     check("a command holding the fd mark cannot be split", sb.hook("gh pr comment 1 --body-file clean.md \ue0002>x"),
           "deny", "cannot be split")
+    for mark in "\ue000\ue001\ue002\ue003":  # the parser's private marks, as a body file's name
+        check(f"a body file named U+{ord(mark):04X} cannot be split", sb.hook(f"gh pr comment 1 --body-file {mark}"),
+              "deny", "cannot be split")
     check("2> on the body file is a same-command write",
           sb.hook("gh pr comment 1 --body-file reused.md 2>reused.md"), "deny", "written by the same command")
     for name, command in (
@@ -904,6 +910,9 @@ def fixtures(sb):
         ("an interpreter through uv run", "uv run python -c 1 && gh pr comment 1 --body-file reused.md"),
         ("an interpreter through xargs", "echo 1 | xargs python3 -c && gh pr comment 1 --body-file reused.md"),
         ("a named fd read as standard input", "gh pr comment 1 --body-file - < dirty.md {fd}< clean.md"),
+        ("standard input redirected around sh -c", "sh -c 'gh pr comment 1 --body-file -' < dirty.md"),
+        ("standard input redirected around a function call",
+         "f() { gh pr comment 1 --body-file -; }; f < dirty.md"),
     ]
     for name, command in residuals:
         check(f"residual: {name}", sb.hook(command), "allow", on_fail=RESIDUAL_DOC)

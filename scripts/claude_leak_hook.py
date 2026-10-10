@@ -147,6 +147,8 @@ def strip_comments_and_continuations(text):
 
 PUNCTUATION = ";&|()<>\n"
 FD_MARK = "\ue000"  # a private-use character that marks an fd number before shlex runs
+PRIVATE_MARKS = "\ue000\ue001\ue002\ue003"  # FD_MARK and the standard-input marks below
+BLANKS = " \t\r"  # what tokenize() gives shlex as whitespace
 FD_NUMBER = re.compile(r"[0-9]+(?=[<>])")
 FD_NUMBER_MARKED = re.compile(FD_MARK + r"[0-9]+$")
 WORD_START = " \t\r\n;&|()"
@@ -160,8 +162,8 @@ def mark_fd_numbers(text):
     echo 2 > f, the 2 is an argument. A text that already holds the mark cannot
     be read this way, and raises ValueError, as an unbalanced quote does.
     """
-    if FD_MARK in text:
-        raise ValueError("the text holds the fd-number mark")
+    if any(c in text for c in PRIVATE_MARKS):
+        raise ValueError("the text holds a character the parser uses as a mark")
     out, quote, i = [], None, 0
     start = True  # whether text[i] starts a word: after an unquoted, unescaped separator
     arrow = False  # whether the last character was an unquoted, unescaped < or >
@@ -188,7 +190,7 @@ def mark_fd_numbers(text):
         out.append(c)
         i += 1
         closes_dup = unquoted and c == "&" and arrow
-        if unquoted and c not in " \t":
+        if unquoted and c not in BLANKS:
             dup = closes_dup
         elif not unquoted:
             dup = False
@@ -202,7 +204,7 @@ def tokenize(text):
     # command on the next line into the one before it, and would read "#"
     # inside a word as the start of a comment.
     lex = shlex.shlex(mark_fd_numbers(text), posix=True, punctuation_chars=PUNCTUATION)
-    lex.whitespace = " \t\r"
+    lex.whitespace = BLANKS
     lex.whitespace_split = True
     lex.commenters = ""
     tokens = []
@@ -248,6 +250,8 @@ def simple_commands(tokens):
         op = redirect(t)
         if op:
             target = tokens[i + 1] if i + 1 < len(tokens) else ""
+            if FD_REDIRECT.match(target):  # the parser lost its place: 2> cannot be a target
+                raise ValueError("a redirect's target is itself an fd redirect")
             redirects.append((op, target))
             i += 2
             continue
@@ -706,6 +710,7 @@ GH_TEXT_VERBS = {
 GH_FILE_FLAGS = {"--body-file", "-F", "--notes-file"}
 GH_API_FIELDS = {"-f", "-F", "--field", "--raw-field"}
 STDIN_PATHS = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
+FD_PATH = re.compile(r"^/(dev|proc/[^/]+)/fd/[0-9]+$")
 
 
 def option_at(words, names):
@@ -796,7 +801,8 @@ def standard_input(redirects):
     stdin = None
     for op, target in redirects:
         if op == "<":
-            stdin = target
+            # /dev/stdin, /dev/fd/N and /proc/*/fd/N reopen an fd the hook does not follow.
+            stdin = UNKNOWN_STDIN if target in STDIN_PATHS or FD_PATH.match(target) else target
         elif op in ("<<", "<<<"):
             stdin = HEREDOC_STDIN
         elif op in ("<>", "<&", "0>&"):  # redirect() keeps a number on any fd but 0

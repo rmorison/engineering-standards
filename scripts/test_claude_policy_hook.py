@@ -392,6 +392,8 @@ def fixtures(sb):
         ("nice --adj 5 git push origin HEAD:trunk", sb.feat),
         ("sudo --us root git push origin HEAD:trunk", sb.feat),
         ("env -iu FOO git push origin HEAD:trunk", sb.feat),
+        # shlex treats a carriage return as a blank, so the dup flag must too (#118 review).
+        ("git push >&\r2>/dev/null origin HEAD:trunk", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),
