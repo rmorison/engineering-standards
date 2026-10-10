@@ -27,6 +27,7 @@ set -eu
 
 MODEL=${1:-haiku}
 HOOKS="$HOME/.claude/hooks"
+# These two must match the canaries in process/agent-team-workflow.md, § 4 "The guardrail check".
 LEAK="git -c core.hooksPath=/dev/null --version"
 POLICY="git -c agentpolicy.allowDefaultPush=true --version"
 

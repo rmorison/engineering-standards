@@ -33,8 +33,13 @@ Put your own address in every handoff, as ListAgents shows it to you, so the wor
 
 **After starting a worker:**
 
-- **Check that it connected.** The host shows a started session's connection. A session can stay pending and never run: after five minutes, archive it and take the next route.
+- **Record it on your board:** its name, the route, its session ID (from `create_session`, or the id `claude --bg` prints) and the time you started it. Set a one-shot wake-up for five minutes later with your scheduling tool (such as `send_later`), since a missing report sends you nothing.
+- **Check that it connected:** `get_session <id>` shows `connection_status` for a host session, and `claude agents --json` lists a CLI one. A session can stay pending and never run. If it hasn't connected by the wake-up, archive it and take the next route.
 - **Check that it is reachable by name,** as § 1 says. Until its title shows as its listed name, send to the name its first ping gives.
-- **Wait for its guardrail check** (§ 4 "The guardrail check"). It reports the result in its first ping. On a fail, or no pass within five minutes of connecting for a worker above `default`: archive it, start it again in `default`, and tell the operator "<worker>'s guardrails didn't fire, so I restarted it in the default mode". That is a blocker. If the restarted worker's mode check fails too, the host didn't hold `default`: restart it by route 2 with `--permission-mode default`, or give the handoff to the operator.
+- **Wait for its guardrail check** (§ 4 "The guardrail check"). It reports the result in its first ping. If no report has come by the wake-up, ask the worker directly. The host's status and summary for a session can be stale for hours, and can show it blocked when it isn't, so never take them as proof either way. Then act on the result:
+  - **A worker above `default` fails, or doesn't answer:** archive it (`archive_session` for a host session, `claude stop <id>` for a CLI one), change its handoff's mode line to `default`, and start it again. Tell the operator "<worker>'s guardrails didn't fire, so I restarted it in the default mode". That is a blocker.
+  - **A worker in `default` fails a canary:** it carries on. Tell the operator, as a blocker, that its hooks don't fire, so any step their settings' allow rules cover runs without asking and unguarded.
+  - **Any worker fails the mode check while its handoff says `default`:** the host didn't hold `default`. Archive it and restart it by route 2 with `--permission-mode default`, or give the handoff to the operator.
 
 **Messaging.** Use SendMessage by name for every session ListAgents lists: workers on this machine by either route, and cloud sessions. Use the host's `send_message` only for a session ListAgents doesn't list; unless you run in auto mode, each such call asks the operator. A cloud worker can't message you back, so check GitHub for it on your schedule (§ 3). A message to a session in another permission mode, as the host records it, can be held for its operator's approval, and some receivers report nothing back: never read silence as agreement.
+

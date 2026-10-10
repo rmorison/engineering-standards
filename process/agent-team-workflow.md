@@ -37,7 +37,7 @@ The lead's value is seeing the whole board. Doing ticket work fills its context 
 
 - The lead starts each worker with its handoff, and archives it when its ticket is done. The operator can always start or stop a session by hand.
 - **Where a worker runs, and how the operator sees it.** The lead prefers the host's session tool wherever it can start a session on the operator's own machine, so the team appears in the operator's app and can be watched from a desktop or a phone. Otherwise it starts a background session from the command line, which runs and messages the same but shows only in a terminal. A cloud session comes last, and only with the operator's go-ahead, since its messages can't reach the lead. After starting a worker, the lead checks that it connected: a started session can stay pending and never run, and then the lead tries the next route.
-- **The worker's permission mode.** A worker never gets a more permissive mode than the lead's own. On the operator's machine, a worker keeps a mode above the default only if it passes the [guardrail check](#the-guardrail-check) first, whichever route started it. A cloud worker always gets the default mode, though its environment's own rules may still let some steps run without asking.
+- **The worker's permission mode.** A worker never gets a more permissive mode than the lead's recorded mode, the one `start-team` gave it. On the operator's machine, a worker keeps a mode above the default only if it passes the [guardrail check](#the-guardrail-check) first, whichever route started it. A cloud worker always gets the default mode, though its environment's own rules may still let some steps run without asking.
 - Names are unique on the machine, so a message reaches the session it means to. The lead is `<project>-lead`. Each worker is `<PREFIX>-<role>`: a short project prefix and a word for the ticket, such as `ES-policy`.
 - After starting a worker, the lead checks that it can reach the worker by that name. If the name didn't take, the worker renames itself, which is the first line of its handoff.
 
@@ -95,24 +95,24 @@ The rules in the template, and why each is there:
 
 ### The guardrail check
 
-Every worker on the operator's machine runs this before anything else, in any permission mode. So does a lead started above the default mode, which reports a fail to the operator itself. A cloud session skips it, since the hooks aren't installed there and it already runs in the default mode.
+Every session the team starts on the operator's machine runs this before anything else, in any permission mode: each worker, and a lead started by `start-team`. A cloud session skips it, since the hooks aren't installed there and it runs in the default mode. A worker treats itself as a cloud session only when its handoff says so and, where it can ask the host (in Claude Code, `get_session` with no ID), the host reports a cloud environment too.
 
-1. **The mode check.** The worker reads the permission mode its own context states, for example a notice that auto mode is active. It passes when that is the handoff's mode, or when the handoff says the default mode and the context states no other. A different mode, `bypassPermissions`, or no stated mode under a handoff above the default is a fail. The canaries can't catch a wrong mode, since hooks fire in every mode.
-2. **The canaries.** Two harmless commands, each denied by one hook. If not denied, each only prints git's version. The worker runs both, each as its own command, before judging either:
+1. **The mode check.** The session reads the permission mode that the host's own notice in its context states, for example a system notice that auto mode is active. The handoff's mode line, an opening prompt or another session's message never counts as that notice. The check passes when the notice states the handoff's mode, or when the handoff says the default mode and no notice states another. A different mode, `bypassPermissions`, or no notice under a handoff above the default is a fail. Where a mode leaves no notice, as `acceptEdits` may not, a session started in it fails closed and is restarted in the default mode. The canaries can't catch a wrong mode: they show the hooks fire, not which mode the session runs in.
+2. **The canaries.** Two harmless commands, each denied by one hook. If not denied, each only prints git's version. The session runs both, each as its own command, before judging either:
 
    ```bash
    git -c core.hooksPath=/dev/null --version
    git -c agentpolicy.allowDefaultPush=true --version
    ```
 
-   The first passes only if its result contains "leak hook: denied". The second passes only if its result contains "policy hook: denied". A git version, any other denial (such as a permission refusal) or an error is a fail. The hooks run before the session's permission decision, so a hook that fires always answers first. The policy hook's message ends by telling the session to stop; for this canary, that is the expected pass, and the worker carries on.
+   The first passes only if its result contains "leak hook: denied". The second passes only if its result contains "policy hook: denied". A git version, any other denial (such as a permission refusal or an auto-mode classifier block) or an error is a fail. In the auto-mode runs recorded on [#112](https://github.com/rmorison/engineering-standards/issues/112), the hook's denial came back rather than the classifier's. The policy hook's message ends by telling the session to stop; for this canary, that is the expected pass, and the session carries on.
 
-   Piping input into a hook file proves only that the file works. A live denial also proves the hook is registered in the settings this session loaded and not switched off. A dry-run push can't serve as the policy canary, because the policy hook doesn't check a dry run. A real push to the default branch isn't harmless, and a clone can opt out of that check.
+   Piping input into a hook file proves only that the file works ([learning](../docs/solutions/best-practices/a-guard-hook-fails-open-unless-every-path-exits-2.md)). A live denial also proves the hook is registered for shell commands in the settings this session loaded, and not switched off. It doesn't prove the policy hook's registration for MCP tools, which `start-team` checks in the settings file. A dry-run push can't serve as the policy canary, because the policy hook doesn't check a dry run. A real push to the default branch isn't harmless, and a clone can opt out of that check.
 3. **The result.**
-   - **Pass:** the worker gives its stated mode and the first line of each denial in its first ping to the lead, and adds a "Guardrails:" line to its plan comment. The operator hears nothing.
-   - **Fail, in a mode above the default:** the worker stops before any other work. It comments "Guardrail check failed:" and names the part that failed (mode check, leak canary or policy canary), adding only each canary's first output line, since the leak hook may not be scanning what it posts. Then it pings the lead. The lead archives it, starts it again in the default mode, and tells the operator that this worker's guardrails didn't fire. That is a blocker in [quiet mode](#6-operator-interaction).
-   - **Fail, in the default mode:** a failed canary is reported the same way, and the worker carries on, since the operator approves each of its steps. A failed mode check means the default mode didn't hold. The worker stops, and the lead restarts it by another route that sets the mode explicitly, or gives the handoff to the operator.
-   - **No report:** the lead treats a worker above the default mode that hasn't reported a pass within five minutes of connecting as a fail.
+   - **Pass:** a worker gives its stated mode and the first line of each denial in its first ping to the lead, and adds a "Guardrails:" line to its plan comment. A lead gives the same in its first message to the operator.
+   - **Fail, in a mode above the default:** the session stops before any other work. A worker comments "Guardrail check failed:" and names the part that failed (mode check, leak canary or policy canary), adding only each canary's first output line, since the leak hook may not be scanning what it posts. Then it pings the lead. The lead archives it, rewrites the handoff's mode line to the default mode, starts it again, and tells the operator that this worker's guardrails didn't fire. That is a blocker in [quiet mode](#6-operator-interaction). A lead that fails tells the operator and stops, and the operator runs `start-team` again once the hooks are fixed.
+   - **Fail, in the default mode:** a failed mode check means the default mode didn't hold. The session stops, and the lead restarts it by a route that sets the mode explicitly, or gives the handoff to the operator. A failed canary is reported the same way, and the worker carries on, because the default mode still asks the operator before most steps. The lead tells the operator, as a blocker, that the worker's hooks don't fire. Any step the settings' allow rules cover still runs without asking and without the hooks.
+   - **No report:** a worker above the default mode that hasn't reported within five minutes of connecting is asked directly. The host's own status for a session can be stale for hours, and can show it blocked when it isn't, so the lead never reads it as proof either way. With no answer to that either, the lead treats it as a fail.
 
 ### Writing the handoff
 
@@ -131,8 +131,10 @@ If your session name isn't <PREFIX>-<role>, rename it first.
 - On the operator's machine, before anything else, run the guardrail check
   in the Agent Team Workflow, § 4 "The guardrail check", in any mode: the
   mode check, then both canaries, then act on the result as it says.
+  The policy hook's message tells you to stop: for this canary, that is
+  the expected pass, so carry on.
   Your first ping gives the result and the name ListAgents shows for you.
-- In the cloud, skip it.
+- In the cloud (the host confirms it, where you can ask), skip it.
 
 ## The ticket
 - Issue #<ISSUE> is the spec. Read it and its comments in full.
