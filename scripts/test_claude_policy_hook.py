@@ -246,6 +246,7 @@ def fixtures(sb):
         ("gh api -X POST https://api.github.com/repos/o/r/rulesets --input r.json", "rulesets"),
         ("gh api -X PUT repos/o/r/rulesets/7 --input r.json", "rulesets"),
         ("gh api -X DELETE orgs/o/rulesets/7", "rulesets"),
+        ("gh api repos/o/r/rulesets < <(echo y) --input r.json", "rulesets"),  # #95
         ("gh api -X PUT repos/o/r/branches/trunk/protection --input p.json", "branch protection"),
         ("gh api -X DELETE repos/o/r/branches/trunk/protection/required_status_checks",
          "branch protection"),
@@ -331,6 +332,37 @@ def fixtures(sb):
         (f"cd {sb.trunk} && git push", sb.work),
         ("git push origin main", sb.nohead),
         ("git push origin master", sb.nohead),
+        # The leak hook's parser used to split a command at a <(...) or >(...),
+        # leaving the operands after it in a command of their own (#95).
+        ("git push < <(echo y) origin trunk", sb.feat),
+        ("git push > >(tee out.log) origin HEAD:trunk", sb.feat),
+        ("env -S 'git push origin HEAD:trunk'", sb.feat),  # env -S runs its string (#117 review)
+        # From the fix-delta review of #117: option values clustered or long,
+        # env -S operands and clusters, and a named coproc.
+        ("bash -euo pipefail -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -eo pipefail -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash --rcfile /dev/null -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -c -o pipefail 'git push origin HEAD:trunk'", sb.feat),
+        ("env -S git push origin HEAD:trunk", sb.feat),
+        ("env -iS 'git push origin HEAD:trunk'", sb.feat),
+        ("coproc P { git push origin HEAD:trunk; }", sb.feat),
+        # From the second fix-delta review of #117: every word after a -c is a candidate script.
+        ("bash -c - 'git push origin HEAD:trunk'", sb.feat),
+        ("sh -c - 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -login -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -noprofile -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -norc -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -rcfile /dev/null -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash +o pipefail -c 'git push origin HEAD:trunk'", sb.feat),
+        ("bash -c -- 'git push origin HEAD:trunk'", sb.feat),
+        ("env --split='git push origin HEAD:trunk'", sb.feat),
+        ("env -iS'git push origin HEAD:trunk'", sb.feat),
+        ("env -uX -S 'git push origin HEAD:trunk'", sb.feat),
+        # From the third fix-delta review of #117: a script starting with - or +, and +c.
+        ("bash -c -- '-x; git push origin HEAD:trunk'", sb.feat),
+        ("sh -c - '+x; git push origin HEAD:trunk'", sb.feat),
+        ("bash +c 'git push origin HEAD:trunk'", sb.feat),
+        ("sh +c 'git push origin HEAD:trunk'", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),

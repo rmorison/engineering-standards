@@ -18,8 +18,11 @@ command still goes through the session's normal permission prompts.
      are matched, never its path. A body file that does not exist yet, or that
      the same command writes, is denied, unless the command writes it only from
      a heredoc, whose text is part of the command. sed -i, gsed -i and perl -i
-     count as writes. Commands after shell keywords (if, then, do, {, !), inside $(...)
-     or backticks, and inside sh -c or eval are checked like any other.
+     count as writes, and an interpreter or a script run in the command counts
+     as writing every file. A body file that is a <(...) or >(...) is denied.
+     Commands after shell keywords (if, then, do, {, !), inside $(...),
+     backticks, <(...) or >(...), and inside sh -c or eval are checked like any
+     other.
   2. Gate escapes. Denied in every list state: `--no-verify` on any git
      command, `git commit -n`, `git -c core.hooksPath=...`, a `git config`
      write of core.hooksPath, and `SKIP=` on git or pre-commit. These are the
@@ -201,6 +204,7 @@ WRAPPERS = {
     "sudo": {"-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir",
              "-h", "--host", "-p", "--prompt", "-r", "--role", "-t", "--type", "-U", "--other-user"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "builtin": set(),
 }
 
 
@@ -230,9 +234,15 @@ def unwrap(words):
         if w in RESERVED:
             i += 1
             continue
+        if w == "function":  # function f { ...; }: the name is not a program
+            i += 2
+            continue
+        if w == "coproc":  # coproc NAME { ...; } names the coprocess; coproc cmd does not
+            i += 2 if i + 2 < len(words) and words[i + 2] == "{" else 1
+            continue
         name = os.path.basename(w)
-        if name not in WRAPPERS:
-            break
+        if name not in WRAPPERS or (name == "env" and env_split_string(words, i + 1)):
+            break  # env -S runs a script, which nested_script() returns
         takes_value = WRAPPERS[name]
         i += 1
         while i < len(words) and words[i].startswith("-") and words[i] != "-":
@@ -248,6 +258,29 @@ def unwrap(words):
             assigns.append(words[i])
             i += 1
     return assigns, words[i:]
+
+
+def env_split_string(words, i=1):
+    """Returns (string, position) for the value of env's -S or --split-string in
+    the options from words[i] on, or None: in a cluster such as -iS, and attached
+    or as the next word. A -u or -C in a cluster takes the rest of the word."""
+    while i < len(words) and words[i].startswith("-") and words[i] not in ("-", "--"):
+        w = words[i]
+        name, eq, value = w.partition("=")
+        if len(name) > 2 and "--split-string".startswith(name):  # getopt_long takes --s, --split
+            if eq:
+                return value, i
+            return (words[i + 1], i + 1) if i + 1 < len(words) else None
+        if not w.startswith("--"):
+            for k, letter in enumerate(w[1:], 1):
+                if letter == "S":
+                    if w[k + 1:]:
+                        return w[k + 1:], i
+                    return (words[i + 1], i + 1) if i + 1 < len(words) else None
+                if letter in "uC":
+                    break
+        i += 2 if w in WRAPPERS["env"] else 1
+    return None
 
 
 def expand(path, cwd):
@@ -287,6 +320,7 @@ class Parsed:
         self.stripped = []
         self.lost_dir = False
         self.unclosed = False  # a $(...) or backtick span whose end was not found
+        self.opaque = False  # a script nested past MAX_DEPTH, which is not parsed
 
 
 def parse(text, cwd):
@@ -311,11 +345,13 @@ def parse_command(text, cwd, depth=0, found=None):
     text, comments = strip_comments_and_continuations(text)
     found.stripped += bodies + comments
     # The commands keep their words as written, as callers that read them
-    # expect, except that an unquoted $(...) becomes "$()": its parentheses would
-    # otherwise split the command around it, and the options after it, such as
-    # --body-file, would land in a command of their own. The words matched come
-    # from a second pass with every parsed $(...) cut out, since its own parse
-    # matches what it holds.
+    # expect, except that an unquoted $(...) becomes "$()", and a <(...) or
+    # >(...) becomes "<(...)" or ">(...)", which holds a character that is not
+    # punctuation, so it stays a word: their parentheses would otherwise split the
+    # command around them, and the options after them, such as --body-file,
+    # would land in a command of their own. The words matched come from a
+    # second pass with every parsed span cut out, since its own parse matches
+    # what it holds.
     command_text = matched_text = text
     if depth < MAX_DEPTH:
         spans = substitutions(text)
@@ -323,10 +359,13 @@ def parse_command(text, cwd, depth=0, found=None):
         for _, _, script, _, _ in spans:
             parse_command(script, cwd, depth + 1, found)
         for start, end, _, quoted, _ in reversed(spans):
-            cut = "$()" if quoted else '"$()"'  # unquoted, the parentheses split words
+            cut = text[start] + "(...)" if text[start] in "<>" else "$()"
+            cut = cut if quoted else f'"{cut}"'  # unquoted, the parentheses split words
             matched_text = matched_text[:start] + cut + matched_text[end:]
             if not quoted:
                 command_text = command_text[:start] + cut + command_text[end:]
+    elif substitutions(text):
+        found.opaque = True
     stack = []
     for words, redirects in simple_commands(tokenize(command_text)):
         assigns, unwrapped = unwrap(words)
@@ -345,6 +384,8 @@ def parse_command(text, cwd, depth=0, found=None):
         script, _ = nested_script(cmd)
         if script is not None and depth < MAX_DEPTH:
             parse_command(script, cwd, depth + 1, found)
+        elif script is not None:
+            found.opaque = True
     for words, redirects in simple_commands(tokenize(matched_text)):
         assigns, unwrapped = unwrap(words)
         cmd = Command(assigns, unwrapped, redirects, None)
@@ -364,13 +405,15 @@ def parse_command(text, cwd, depth=0, found=None):
 
 def substitutions(text):
     """Returns (start, end, script, quoted, closed) for each $(...) and backtick
-    span outside single quotes: quoted says whether it is inside double quotes,
-    and closed whether its end was found. Parentheses are counted without
-    reading quotes, so "fix (wip" inside $(...) leaves the span unclosed.
+    span outside single quotes, and each <(...) and >(...) process substitution
+    outside any quotes: quoted says whether it is inside double quotes, and
+    closed whether its end was found. Parentheses are counted without reading
+    quotes, so "fix (wip" inside $(...) leaves the span unclosed.
 
     The shell runs them, quoted in double quotes or not, as in
     url="$(gh pr create ...)". Inside single quotes they are literal text, as
-    in a PR body that quotes `git commit -n`.
+    in a PR body that quotes `git commit -n`. Inside double quotes, <( and >(
+    are literal text too.
     """
     bodies = []
     quote = None
@@ -391,7 +434,7 @@ def substitutions(text):
             end = len(text) if end == -1 else end
             bodies.append((i, min(end + 1, len(text)), text[i + 1:end], quote == '"', end < len(text)))
             i = end
-        elif text.startswith("$(", i):
+        elif text.startswith("$(", i) or (quote is None and text[i:i + 2] in ("<(", ">(")):
             depth, j = 1, i + 2
             while j < len(text) and depth:
                 depth += {"(": 1, ")": -1}.get(text[j], 0)
@@ -403,17 +446,66 @@ def substitutions(text):
     return bodies
 
 
+# A shell's option grammar is not modelled exactly: three attempts each opened a
+# fail-open (#117). Every word after the first that could be a -c is parsed as a
+# script, and a shell counts as an interpreter unless plain_shell_script() names
+# its one script, which only removes the false positive of a -c beside a post.
+PLAIN_SHELL_LETTERS = set("ceuxvlo")
+STARTUP_VARIABLES = ("BASH_ENV=", "ENV=", "ZDOTDIR=")  # each names a file a shell runs at start
+EXPORTERS = {"export", "declare", "typeset", "readonly", "local"}  # -e -u -x -v -l -o and -c, none a bash long option
+
+
+def shell_candidates(words):
+    """Returns the positions of every word a shell could run as a -c script: each
+    word after the first option word, -c or +c in any cluster, that holds a c.
+    Values such as pipefail, and options such as --, are parsed too, harmlessly;
+    a script may itself start with - or +, as in bash -c -- '-x; ...'."""
+    first = next((j for j, w in enumerate(words[1:], 1)
+                  if w[:1] in ("-", "+") and not w.startswith("--") and "c" in w), None)
+    if first is None:
+        return []
+    return list(range(first + 1, len(words)))
+
+
+def plain_shell_script(cmd):
+    """Whether this shell runs exactly one -c script, with only the options in
+    PLAIN_SHELL_LETTERS before it and no startup file: bash -c '...' or
+    bash -euo pipefail -c '...'. Anything else counts as an interpreter."""
+    if any(a.startswith(STARTUP_VARIABLES) for a in cmd.assigns):
+        return False
+    words, j, run = cmd.words, 1, False
+    while j < len(words) and words[j][:1] in ("-", "+"):
+        w = words[j]
+        if w == "--":
+            j += 1
+            break
+        if len(w) < 2 or not set(w[1:]) <= PLAIN_SHELL_LETTERS:
+            return False
+        run = run or (w[0] == "-" and "c" in w)
+        j += 1 + w[1:].count("o")
+    return run and j < len(words)
+
+
 def nested_script(cmd):
-    """Returns (script, positions): the script that sh -c or eval runs, or None,
-    and the positions of the words that hold it."""
+    """Returns (script, positions): the script that sh -c, eval or env -S runs, or
+    None, and the positions of the words that hold it.
+
+    For a shell, the script is every word shell_candidates() finds, one per
+    line. env runs its split string with the words after it.
+    """
     if cmd.program == "eval" and len(cmd.words) > 1:
         return " ".join(cmd.words[1:]), range(1, len(cmd.words))
+    if cmd.program == "env":  # unwrap() leaves env in place only for -S
+        found = env_split_string(cmd.words)
+        if found is None:
+            return None, []
+        script, at = found
+        rest = [shlex.quote(w) for w in cmd.words[at + 1:]]
+        return " ".join([script] + rest), range(at, len(cmd.words))
     if cmd.program in SHELLS:
-        for j, w in enumerate(cmd.words[1:], 1):
-            if w.startswith("-") and not w.startswith("--") and "c" in w:
-                k = next((k for k in range(j + 1, len(cmd.words))
-                          if not cmd.words[k].startswith("-")), None)
-                return (cmd.words[k], [k]) if k is not None else (None, [])
+        at = shell_candidates(cmd.words)
+        if at:
+            return "\n".join(cmd.words[k] for k in at), at
     return None, []
 
 
@@ -650,6 +742,10 @@ ESCAPE_REASON = "switches off the git hooks that run the leak gate."
 UNFOLLOWED = ("The hook could not follow a change of directory in this command, such as one to "
               "a variable, cd -, popd, or a glob that matches no directory or several, so a "
               "relative path after it does not resolve.")
+INTERPRETED = ("An interpreter, such as python3, node or perl, a script, a program named by a "
+               "variable, or a command nested too deep for the hook to read runs in this "
+               "command, and can rewrite any file.")
+PROCESS_SUBSTITUTIONS = {"<(...)", ">(...)"}  # the words parse_command() leaves for <(...) and >(...)
 FALLBACK_FILE_FLAGS = re.compile(r"--body-file|--notes-file|--input|\s-F|=@")
 
 
@@ -673,16 +769,48 @@ def edits_in_place(cmd):
     return False
 
 
+# Programs that run code the hook cannot read, which can write any file (#111).
+# Case-insensitive, since macOS's file system runs Python3 as python3.
+INTERPRETER = re.compile(r"^(python|pypy|perl|php|lua|ruby|node|nodejs)[0-9.]*$|"
+                         r"^(deno|bun|luajit|rscript|awk|gawk|mawk|nawk)$", re.I)
+SCRIPT_EXTENSIONS = (".py", ".pyw", ".sh", ".bash", ".zsh", ".ksh", ".js", ".mjs", ".cjs", ".jsx",
+                     ".ts", ".mts", ".cts", ".tsx", ".rb", ".pl", ".php", ".lua", ".r", ".awk")
+
+
+def interprets(cmd):
+    """Whether this command runs code the hook cannot read: an interpreter, with
+    its code given inline, in a heredoc or in a file; a shell that runs a script
+    or standard input, or with options beyond the plain ones (plain_shell_script()); a
+    script read by source or .; a script run by its path; or a program named
+    when the command runs, as in $PY fix.py, which may be any of these."""
+    if INTERPRETER.match(cmd.program):
+        return True
+    # A startup file set anywhere, as in export BASH_ENV=f; bash -c '...', runs
+    # in any shell the command starts later.
+    if any(a.startswith(STARTUP_VARIABLES) for a in cmd.assigns) or (
+            cmd.program in EXPORTERS and any(w.startswith(STARTUP_VARIABLES) for w in cmd.words[1:])):
+        return True
+    if cmd.words and ("$" in cmd.words[0] or "`" in cmd.words[0]):
+        return True
+    if cmd.program in ("source", ".") and len(cmd.words) > 1:
+        return True
+    if cmd.program in SHELLS:
+        return not plain_shell_script(cmd)
+    return bool(cmd.words) and "/" in cmd.words[0] and cmd.words[0].lower().endswith(SCRIPT_EXTENSIONS)
+
+
 class Written:
-    """The paths the commands write: from a heredoc, any other way, as globs, and
-    whether an in-place editor names a file the hook cannot resolve."""
+    """The paths the commands write: from a heredoc, any other way, as globs,
+    whether an in-place editor names a file the hook cannot resolve, and whether
+    an interpreter runs, which can write any file."""
 
     def __init__(self):
         self.heredoc, self.other, self.globs = set(), set(), []
         self.unknown = False
+        self.interpreter = False
 
     def rewrites(self, path):
-        return (path in self.other or self.unknown
+        return (path in self.other or self.unknown or self.interpreter
                 or any(fnmatch.fnmatchcase(path, g) for g in self.globs))
 
 
@@ -694,8 +822,10 @@ def written_paths(cmd, written):
     hook cannot see until the command runs. An in-place editor writes every
     file it names, and the hook cannot tell its script from its files, so every
     operand counts; a glob counts for each file it matches, and an operand the
-    hook cannot resolve counts for every file.
+    hook cannot resolve counts for every file. An interpreter counts for every
+    file.
     """
+    written.interpreter = written.interpreter or interprets(cmd)
     targets = [t for op, t in cmd.redirects if op in WRITE_REDIRECTS]
     operands = [w for w in cmd.words[1:] if not w.startswith("-")]
     if cmd.program == "tee":
@@ -755,6 +885,7 @@ def decide(command, cwd):
 
     outbound = False
     files = []  # resolved paths, None where the path cannot be known
+    substituted = False  # a file sent is a <(...) or >(...)
     written = Written()
     if found is None:
         has_git = "git" in command
@@ -770,11 +901,13 @@ def decide(command, cwd):
             what = escape(cmd)
             if what:
                 raise Deny(f"{what} {ESCAPE_REASON}")
+        written.interpreter = found.opaque
         for cmd in found.commands:
             written_paths(cmd, written)
             if cmd.outbound:
                 outbound = True
                 files += [expand(f, cmd.cwd) for f in cmd.files]
+                substituted = substituted or any(f in PROCESS_SUBSTITUTIONS for f in cmd.files)
     if not outbound:
         return None
     entries = read_list()
@@ -785,9 +918,14 @@ def decide(command, cwd):
     if found is not None and found.unclosed:
         # The span runs to the end of the text, so the options after it never
         # reach the gh command, and its files would go unread.
-        raise Deny("a $(...) or backtick substitution in this command does not close where the "
-                   "hook can tell, so the files it sends to GitHub cannot be checked. Balance its "
-                   "parentheses, quotes included, or build the text in an earlier step.")
+        raise Deny("a $(...), <(...), >(...) or backtick substitution in this command does not "
+                   "close where the hook can tell, so the files it sends to GitHub cannot be "
+                   "checked. Balance its parentheses, quotes included, or build the text in an "
+                   "earlier step.")
+    if substituted:
+        raise Deny("a file this command sends to GitHub is a process substitution, <(...) or "
+                   ">(...), whose text is made when the command runs, so it cannot be checked. "
+                   "Write the file in one step, then post it in the next.")
 
     # A parsed command is matched without the words that only name a file or a
     # directory (parse_command()); one that cannot be split is matched whole.
@@ -800,6 +938,8 @@ def decide(command, cwd):
             if path in written.heredoc and not rewritten:
                 continue
             lost = (UNFOLLOWED + " ") if path is None and found is not None and found.lost_dir else ""
+            if written.interpreter:
+                lost += INTERPRETED + " "
             raise Deny("a file this command sends to GitHub is written by the same command, or "
                        f"does not exist yet, so it cannot be checked. {lost}Write the file in one "
                        "step, then post it in the next.")
