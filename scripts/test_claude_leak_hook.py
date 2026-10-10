@@ -666,12 +666,21 @@ def fixtures(sb):
             ("standard input from 0<&3", "gh pr comment 1 --body-file - 3<dirty.md 0<&3"),
             ("standard input from <>", "gh pr comment 1 --body-file - <>dirty.md"),
             ("body file after >& 2>/dev/null", "gh pr create --title t >& 2>/dev/null --body-file dirty.md"),
-            ("a gh write after env --un", "env --un FOO gh pr comment 1 --body-file dirty.md")):
+            ("a gh write after env --un", "env --un FOO gh pr comment 1 --body-file dirty.md"),
+            # From the fix-delta review of #118.
+            ("a quoted word ending in >& before 2>", "X='a>&' 2>/dev/null gh pr comment 1 --body-file dirty.md"),
+            ("standard input from 0>&3", "gh pr comment 1 --body-file - 3<dirty.md 0>&3"),
+            ("a gh write after timeout --sig", "timeout --sig KILL 5 gh pr comment 1 --body-file dirty.md"),
+            ("a gh write after env -iu", "env -iu FOO gh pr comment 1 --body-file dirty.md")):
         check(name, sb.hook(command), "deny", "matches private value list line", {3})
     check("2>&1>F on the body file is a same-command write",
           sb.hook("gh pr comment 1 --body-file reused.md 2>&1>reused.md"), "deny", "written by the same command")
-    check("a standard input the hook cannot follow", sb.hook("gh pr comment 1 --body-file - <&3"),
-          "deny", "cannot follow")
+    for name, command in (
+            ("<&3 with nothing on fd 3", "gh pr comment 1 --body-file - <&3"),
+            ("<&- closes standard input", "gh pr comment 1 --body-file - <&-"),
+            ("<&3- moves fd 3", "gh pr comment 1 --body-file - 3<clean.md <&3-"),
+            ("a heredoc on fd 3 copied to standard input", "gh pr comment 1 --body-file - 3<<EOF <&3\nhi\nEOF")):
+        check(f"a standard input the hook cannot follow: {name}", sb.hook(command), "deny", "cannot follow")
     check("a command holding the fd mark cannot be split", sb.hook("gh pr comment 1 --body-file clean.md \ue0002>x"),
           "deny", "cannot be split")
     check("2> on the body file is a same-command write",
@@ -889,6 +898,7 @@ def fixtures(sb):
         ("an interpreter through uv run", "uv run python -c 1 && gh pr comment 1 --body-file reused.md"),
         ("an interpreter through xargs", "echo 1 | xargs python3 -c && gh pr comment 1 --body-file reused.md"),
         ("a named fd read as standard input", "gh pr comment 1 --body-file - < dirty.md {fd}< clean.md"),
+        ("a redirect on a compound command", "{ gh pr comment 1 --body-file -; } < dirty.md"),
     ]
     for name, command in residuals:
         check(f"residual: {name}", sb.hook(command), "allow", on_fail=RESIDUAL_DOC)

@@ -382,6 +382,16 @@ def fixtures(sb):
         ("git push <& 0</dev/null origin HEAD:trunk", sb.feat),
         # env reads --un as --unset, which takes a value (#118 review).
         ("env --un FOO git push origin HEAD:trunk", sb.feat),
+        # From the fix-delta review of #118: a quoted or escaped >& is not a dup
+        # operator, and wrappers' options are read as getopt reads them.
+        ("X='a>&' 2>/dev/null git push origin HEAD:trunk", sb.feat),
+        ("git -c 'x.y=a>&' 2>/dev/null push origin HEAD:trunk", sb.feat),
+        ("git push <<< 'x>&' 2>/dev/null origin HEAD:trunk", sb.feat),
+        ("echo a\\>&2>/dev/null git push origin HEAD:trunk", sb.feat),
+        ("timeout --sig KILL 5 git push origin HEAD:trunk", sb.feat),
+        ("nice --adj 5 git push origin HEAD:trunk", sb.feat),
+        ("sudo --us root git push origin HEAD:trunk", sb.feat),
+        ("env -iu FOO git push origin HEAD:trunk", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),

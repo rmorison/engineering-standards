@@ -164,27 +164,36 @@ def mark_fd_numbers(text):
         raise ValueError("the text holds the fd-number mark")
     out, quote, i = [], None, 0
     start = True  # whether text[i] starts a word: after an unquoted, unescaped separator
+    arrow = False  # whether the last character was an unquoted, unescaped < or >
+    # After an unquoted >& or <&, the next word is the fd it duplicates, even
+    # across blanks, as the 1 in 2>&1>f or the 2 in >& 2>f: never an fd number.
+    dup = False
     while i < len(text):
         c = text[i]
-        if quote is None and start:
+        if quote is None and start and not dup:
             fd = FD_NUMBER.match(text, i)
             if fd:
                 out.append(FD_MARK + fd.group())
-                i, start = fd.end(), False
+                i, start, arrow = fd.end(), False, False
                 continue
+        unquoted = quote is None
         if quote == "'":
             quote = None if c == "'" else quote
         elif c == "\\":
             out.append(text[i:i + 2])
-            i, start = i + 2, False
+            i, start, arrow, dup = i + 2, False, False, False
             continue
         elif c in "'\"":
             quote = None if quote == c else (quote or c)
         out.append(c)
         i += 1
-        # The & of >& or <& is part of the operator: the digits after it are the
-        # fd it duplicates, as the 1 in 2>&1>f, not an fd number of their own.
-        start = quote is None and c in WORD_START and not (c == "&" and text[i - 2:i - 1] in ("<", ">"))
+        closes_dup = unquoted and c == "&" and arrow
+        if unquoted and c not in " \t":
+            dup = closes_dup
+        elif not unquoted:
+            dup = False
+        arrow = unquoted and quote is None and c in "<>"
+        start = quote is None and c in WORD_START and not closes_dup
     return "".join(out)
 
 
@@ -200,10 +209,7 @@ def tokenize(text):
     for t in lex:
         # A marked fd number joins the operator after it, as 2> or 2>&, and keeps
         # the mark, so that simple_commands() can tell it from a quoted "2>".
-        # After a dup operator, >& or <&, the number is its target even across a
-        # space, as the 2 in >& 2>f, so it is not joined.
-        dup = len(tokens) > 1 and tokens[-2].endswith((">&", "<&"))
-        if tokens and FD_NUMBER_MARKED.match(tokens[-1]) and t in REDIRECTS and not dup:
+        if tokens and FD_NUMBER_MARKED.match(tokens[-1]) and t in REDIRECTS:
             t = tokens.pop() + t
         tokens.append(t)
     return [t[len(FD_MARK):] if FD_NUMBER_MARKED.match(t) else t for t in tokens]
@@ -227,6 +233,8 @@ def redirect(t):
     if not fd or fd.group(2) not in REDIRECTS:
         return None
     number, op = fd.groups()
+    if op == ">&" and int(number) == 0:
+        return "0>&"  # n>&m and n<&m both copy fd m onto fd n, so 0>&3 sets standard input
     return op if op.startswith(">") or int(number) == 0 else number + op
 
 
@@ -264,16 +272,29 @@ RESERVED = {"!", "{", "}", "if", "then", "else", "elif", "while", "until", "do",
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 # Wrappers skipped to find the program, with their options that take a value.
 WRAPPERS = {
-    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
+    "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "--argv0"},
     "command": set(),
     "exec": {"-a"},
     "nohup": set(),
     "time": {"-f", "--format", "-o", "--output"},
     "nice": {"-n", "--adjustment"},
     "sudo": {"-u", "--user", "-g", "--group", "-C", "--close-from", "-D", "--chdir",
-             "-h", "--host", "-p", "--prompt", "-r", "--role", "-t", "--type", "-U", "--other-user"},
+             "-h", "--host", "-p", "--prompt", "-r", "--role", "-t", "--type", "-U", "--other-user",
+             "-R", "--chroot", "-T", "--command-timeout"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
     "builtin": set(),
+}
+# Their long options that take no value, so that an abbreviation is read as
+# getopt_long reads it: --sig is --signal, which takes a value; --fore is not.
+WRAPPER_FLAGS = {
+    "env": {"--ignore-environment", "--null", "--debug", "--help", "--version",
+            "--list-signal-handling", "--block-signal", "--default-signal", "--ignore-signal"},
+    "time": {"--append", "--verbose", "--portability", "--quiet", "--help", "--version"},
+    "nice": {"--help", "--version"},
+    "sudo": {"--askpass", "--background", "--bell", "--edit", "--help", "--login", "--list",
+             "--non-interactive", "--preserve-env", "--preserve-groups", "--remove-timestamp",
+             "--reset-timestamp", "--set-home", "--shell", "--stdin", "--validate", "--version"},
+    "timeout": {"--foreground", "--preserve-status", "--verbose", "--help", "--version"},
 }
 
 
@@ -312,14 +333,13 @@ def unwrap(words):
         name = os.path.basename(w)
         if name not in WRAPPERS or (name == "env" and env_split_string(words, i + 1)):
             break  # env -S runs a script, which nested_script() returns
-        takes_value = WRAPPERS[name]
         i += 1
         while i < len(words) and words[i].startswith("-") and words[i] != "-":
             opt = words[i]
             i += 1
             if opt == "--":
                 break
-            if opt in takes_value or (name == "env" and env_option_takes_value(opt)):
+            if wrapper_option_takes_value(name, opt):
                 i += 1
         if name == "timeout" and i < len(words):
             i += 1  # the duration
@@ -348,15 +368,28 @@ def env_split_string(words, i=1):
                     return (words[i + 1], i + 1) if i + 1 < len(words) else None
                 if letter in "uC":
                     break
-        i += 2 if w in WRAPPERS["env"] else 1
+        i += 2 if wrapper_option_takes_value("env", w) else 1
     return None
 
 
-def env_option_takes_value(opt):
-    """Whether opt abbreviates an env long option that takes a value, as getopt_long
-    reads --un FOO as --unset FOO."""
-    return (opt.startswith("--") and "=" not in opt and len(opt) > 2
-            and any(name.startswith(opt) for name in ("--unset", "--chdir", "--split-string")))
+def wrapper_option_takes_value(name, opt):
+    """Whether a wrapper's option word takes the next word as its value: one of
+    its value options, an abbreviation getopt_long would expand to one (--un for
+    env's --unset, --sig for timeout's --signal), or a cluster of short options
+    whose last letter takes a value, as -iu FOO for env."""
+    values = WRAPPERS[name]
+    if opt in values:
+        return True
+    if opt.startswith("--"):
+        if "=" in opt:
+            return False
+        longs = {o for o in values if o.startswith("--")} | WRAPPER_FLAGS.get(name, set())
+        return any(o in values for o in longs if o.startswith(opt))
+    short = {o[1] for o in values if len(o) == 2}
+    for k, letter in enumerate(opt[1:], 1):
+        if letter in short:  # it takes the rest of the word, or the next word if none is left
+            return k == len(opt) - 1
+    return False
 
 
 def expand(path, cwd):
@@ -759,7 +792,7 @@ def standard_input(redirects):
         fd, base = (op[:-len(op.lstrip("0123456789"))] or "0"), op.lstrip("0123456789")
         if base in ("<", "<>"):
             fds[fd] = target
-        elif base == "<&":
+        elif base == "<&" or (base == ">&" and fd == "0"):
             fds[fd] = fds.get(target, UNKNOWN_STDIN) if target.isdigit() else UNKNOWN_STDIN
         elif base in ("<<", "<<<") and fd == "0":
             fds["0"] = None
