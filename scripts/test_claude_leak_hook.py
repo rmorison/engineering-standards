@@ -530,6 +530,8 @@ def fixtures(sb):
         "declare -x BASH_ENV=fix.sh; bash -c 'echo hi'; ",
         "export ENV=fix.sh; sh -c 'echo hi'; ",
         "ZDOTDIR=. zsh -c 'echo hi' && ",
+        # An fd redirect before the program is not the program (#114, with #117's rule).
+        "2>/dev/null python3 fix.py && ",
     ]
     posts = [
         "gh pr edit 1 --body-file reused.md",
@@ -666,7 +668,9 @@ def fixtures(sb):
             # From the fix-delta review of #118.
             ("a quoted word ending in >& before 2>", "X='a>&' 2>/dev/null gh pr comment 1 --body-file dirty.md"),
             ("a gh write after timeout --sig", "timeout --sig KILL 5 gh pr comment 1 --body-file dirty.md"),
-            ("a gh write after env -iu", "env -iu FOO gh pr comment 1 --body-file dirty.md")):
+            ("a gh write after env -iu", "env -iu FOO gh pr comment 1 --body-file dirty.md"),
+            # #117's env -S reads env's options as #118's wrappers do (the rebase onto #117).
+            ("a gh write in env -S after --un", "env --un X -S 'gh pr comment 1 --body-file dirty.md'")):
         check(name, sb.hook(command), "deny", "matches private value list line", {3})
     check("2>&1>F on the body file is a same-command write",
           sb.hook("gh pr comment 1 --body-file reused.md 2>&1>reused.md"), "deny", "written by the same command")
