@@ -38,7 +38,8 @@ Put your own address in every handoff, as ListAgents shows it to you, so the wor
 - **Check that it is reachable by name,** as § 1 says. Until its title shows as its listed name, send to the name its first ping gives.
 - **Wait for its guardrail check,** and act on the result by the table in § 4 "The guardrail check". The table is the rule; these are your steps for it:
   - It reports in its first ping. If nothing has come by the wake-up, ask the worker directly, and set a second five-minute wake-up. Never take the host's status or summary as a result.
-  - **To restart a worker:** archive it (`archive_session` for a host session, `claude stop <id>` for a CLI one), change its handoff's mode line to `default`, and start it again: by route 2 with `--permission-mode default` where you can, otherwise by route 1 with `permission_mode: "default"`. Both hold an explicit `default` (proved on #112). A worker in `default` whose mode check failed was already started with `default` by one route, so restart it by the other, or give its handoff to the operator.
+  - **To restart a worker:** archive it (`archive_session` for a host session, `claude stop <id>` for a CLI one), change its handoff's mode line to `default`, and start it again: by route 2 with `--permission-mode default` where you can, otherwise by route 1 with `permission_mode: "default"`. Both hold an explicit `default` (proved on #112). A worker in `default` whose mode check failed was already started with `default` by one route, so restart it by the other route to the same place (route 1 or 2, both on the operator's machine; a cloud worker has none), or hand it to the operator.
+  - **To hand a worker to the operator:** archive it first, then give them its handoff as a blocker, so two sessions never work one branch.
   - Note each restart on your board, and never restart a worker twice.
   - Send the operator the message the table names, in quiet mode's words.
 
