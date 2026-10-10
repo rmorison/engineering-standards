@@ -200,7 +200,10 @@ def tokenize(text):
     for t in lex:
         # A marked fd number joins the operator after it, as 2> or 2>&, and keeps
         # the mark, so that simple_commands() can tell it from a quoted "2>".
-        if tokens and FD_NUMBER_MARKED.match(tokens[-1]) and t in REDIRECTS:
+        # After a dup operator, >& or <&, the number is its target even across a
+        # space, as the 2 in >& 2>f, so it is not joined.
+        dup = len(tokens) > 1 and tokens[-2].endswith((">&", "<&"))
+        if tokens and FD_NUMBER_MARKED.match(tokens[-1]) and t in REDIRECTS and not dup:
             t = tokens.pop() + t
         tokens.append(t)
     return [t[len(FD_MARK):] if FD_NUMBER_MARKED.match(t) else t for t in tokens]
@@ -316,7 +319,7 @@ def unwrap(words):
             i += 1
             if opt == "--":
                 break
-            if opt in takes_value:
+            if opt in takes_value or (name == "env" and env_option_takes_value(opt)):
                 i += 1
         if name == "timeout" and i < len(words):
             i += 1  # the duration
@@ -347,6 +350,13 @@ def env_split_string(words, i=1):
                     break
         i += 2 if w in WRAPPERS["env"] else 1
     return None
+
+
+def env_option_takes_value(opt):
+    """Whether opt abbreviates an env long option that takes a value, as getopt_long
+    reads --un FOO as --unset FOO."""
+    return (opt.startswith("--") and "=" not in opt and len(opt) > 2
+            and any(name.startswith(opt) for name in ("--unset", "--chdir", "--split-string")))
 
 
 def expand(path, cwd):
@@ -730,10 +740,34 @@ def gh_outbound(cmd):
                 unmatched[base + at] = word[:len(word) - len(path)]
     else:
         return False, [], {}
-    stdin = [t for op, t in cmd.redirects if op == "<"]
+    stdin = standard_input(cmd.redirects)
     files = ["-" if f in STDIN_PATHS else f for f in files]
-    files = [stdin[-1] if f == "-" and stdin else f for f in files if f != "-" or stdin]
+    files = [stdin if f == "-" and stdin else f for f in files if f != "-" or stdin]
     return True, files, unmatched
+
+
+UNKNOWN_STDIN = "\ue001"  # a standard input the hook cannot follow, such as <&3 with fd 3 unknown
+
+
+def standard_input(redirects):
+    """Returns the file a command's standard input reads, UNKNOWN_STDIN when the
+    hook cannot tell, or None when it is not a file: a pipe, or a heredoc or
+    here-string, whose text is in the command. Redirects apply in order: <,
+    0< and <> open a file on fd 0, N< and N<> on fd N, and <&N copies fd N."""
+    fds, stdin = {}, None
+    for op, target in redirects:
+        fd, base = (op[:-len(op.lstrip("0123456789"))] or "0"), op.lstrip("0123456789")
+        if base in ("<", "<>"):
+            fds[fd] = target
+        elif base == "<&":
+            fds[fd] = fds.get(target, UNKNOWN_STDIN) if target.isdigit() else UNKNOWN_STDIN
+        elif base in ("<<", "<<<") and fd == "0":
+            fds["0"] = None
+        else:
+            continue
+        if fd == "0":
+            stdin = fds["0"]
+    return stdin
 
 
 # --- The value list, read the way scripts/leak-gate.sh reads it ---------------------------
@@ -954,6 +988,7 @@ def decide(command, cwd):
     outbound = False
     files = []  # resolved paths, None where the path cannot be known
     substituted = False  # a file sent is a <(...) or >(...)
+    unknown_stdin = False  # --body-file - reads a standard input the hook cannot follow
     written = Written()
     if found is None:
         has_git = "git" in command
@@ -974,7 +1009,9 @@ def decide(command, cwd):
             written_paths(cmd, written)
             if cmd.outbound:
                 outbound = True
-                files += [expand(f, cmd.cwd) for f in cmd.files]
+                if UNKNOWN_STDIN in cmd.files:
+                    unknown_stdin = True
+                files += [expand(f, cmd.cwd) for f in cmd.files if f != UNKNOWN_STDIN]
                 substituted = substituted or any(f in PROCESS_SUBSTITUTIONS for f in cmd.files)
     if not outbound:
         return None
@@ -994,6 +1031,11 @@ def decide(command, cwd):
         raise Deny("a file this command sends to GitHub is a process substitution, <(...) or "
                    ">(...), whose text is made when the command runs, so it cannot be checked. "
                    "Write the file in one step, then post it in the next.")
+
+    if unknown_stdin:
+        raise Deny("this command sends its standard input to GitHub from a redirect the hook cannot "
+                   "follow, such as <&3, so it cannot be checked. Write the file in one step, then "
+                   "post it with --body-file in the next.")
 
     # A parsed command is matched without the words that only name a file or a
     # directory (parse_command()); one that cannot be split is matched whole.

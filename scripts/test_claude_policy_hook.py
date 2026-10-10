@@ -376,6 +376,12 @@ def fixtures(sb):
         # The digits after >& are the fd duplicated, not an fd number (#118 review).
         ("git push 2>&1>/dev/null origin HEAD:trunk", sb.feat),
         ("git push >&2>/dev/null origin HEAD:trunk", sb.feat),
+        # Even across a space (#118 review).
+        ("git push >& 2>/dev/null origin HEAD:trunk", sb.feat),
+        ("git push 2>& 1>/dev/null origin HEAD:trunk", sb.feat),
+        ("git push <& 0</dev/null origin HEAD:trunk", sb.feat),
+        # env reads --un as --unset, which takes a value (#118 review).
+        ("env --un FOO git push origin HEAD:trunk", sb.feat),
     ]:
         check(f"R5 deny: {command!r} in {cwd.name}", sb.bash(command, cwd=cwd), "deny", PUSH)
     check("R5 deny: a refspec built at run time", sb.bash('git push origin "$B"', cwd=sb.feat),
