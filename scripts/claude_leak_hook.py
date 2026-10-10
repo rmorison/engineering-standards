@@ -773,33 +773,34 @@ def gh_outbound(cmd):
                 unmatched[base + at] = word[:len(word) - len(path)]
     else:
         return False, [], {}
-    stdin = standard_input(cmd.redirects)
+    stdin = PIPED_STDIN if (s := standard_input(cmd.redirects)) is None else s
     files = ["-" if f in STDIN_PATHS else f for f in files]
-    files = [stdin if f == "-" and stdin else f for f in files if f != "-" or stdin]
+    files = [f for f in (stdin if f == "-" else f for f in files) if f != HEREDOC_STDIN]
     return True, files, unmatched
 
 
 UNKNOWN_STDIN = "\ue001"  # a standard input the hook cannot follow, such as <&3 with fd 3 unknown
 
 
+HEREDOC_STDIN = "\ue002"  # standard input is a heredoc or here-string, whose text is in the command
+PIPED_STDIN = "\ue003"  # no redirect sets standard input: a pipe, or a compound command's redirect
+
+
 def standard_input(redirects):
-    """Returns the file a command's standard input reads, UNKNOWN_STDIN when the
-    hook cannot tell, or None when it is not a file: a pipe, or a heredoc or
-    here-string, whose text is in the command. Redirects apply in order: <,
-    0< and <> open a file on fd 0, N< and N<> on fd N, and <&N copies fd N."""
-    fds, stdin = {}, None
+    """Returns what a command's standard input reads: the file of its last plain
+    < (0< is stored as <), HEREDOC_STDIN, None when no redirect sets it, or
+    UNKNOWN_STDIN for any other redirect onto fd 0: <>, <&N or 0>&N.
+
+    Fail-safe rather than exact (#118): a dup onto standard input is not
+    followed through the fds it copies, so it is denied."""
+    stdin = None
     for op, target in redirects:
-        fd, base = (op[:-len(op.lstrip("0123456789"))] or "0"), op.lstrip("0123456789")
-        if base in ("<", "<>"):
-            fds[fd] = target
-        elif base == "<&" or (base == ">&" and fd == "0"):
-            fds[fd] = fds.get(target, UNKNOWN_STDIN) if target.isdigit() else UNKNOWN_STDIN
-        elif base in ("<<", "<<<") and fd == "0":
-            fds["0"] = None
-        else:
-            continue
-        if fd == "0":
-            stdin = fds["0"]
+        if op == "<":
+            stdin = target
+        elif op in ("<<", "<<<"):
+            stdin = HEREDOC_STDIN
+        elif op in ("<>", "<&", "0>&"):  # redirect() keeps a number on any fd but 0
+            stdin = UNKNOWN_STDIN
     return stdin
 
 
@@ -1022,6 +1023,7 @@ def decide(command, cwd):
     files = []  # resolved paths, None where the path cannot be known
     substituted = False  # a file sent is a <(...) or >(...)
     unknown_stdin = False  # --body-file - reads a standard input the hook cannot follow
+    piped_stdin = False  # --body-file - reads a standard input no redirect on its command sets
     written = Written()
     if found is None:
         has_git = "git" in command
@@ -1042,9 +1044,9 @@ def decide(command, cwd):
             written_paths(cmd, written)
             if cmd.outbound:
                 outbound = True
-                if UNKNOWN_STDIN in cmd.files:
-                    unknown_stdin = True
-                files += [expand(f, cmd.cwd) for f in cmd.files if f != UNKNOWN_STDIN]
+                unknown_stdin = unknown_stdin or UNKNOWN_STDIN in cmd.files
+                piped_stdin = piped_stdin or PIPED_STDIN in cmd.files
+                files += [expand(f, cmd.cwd) for f in cmd.files if f not in (UNKNOWN_STDIN, PIPED_STDIN)]
                 substituted = substituted or any(f in PROCESS_SUBSTITUTIONS for f in cmd.files)
     if not outbound:
         return None
@@ -1065,6 +1067,14 @@ def decide(command, cwd):
                    ">(...), whose text is made when the command runs, so it cannot be checked. "
                    "Write the file in one step, then post it in the next.")
 
+    # A redirect on a compound command, { ...; } <f or while ...; done <f, sets
+    # the standard input of the gh command inside it, which the hook does not
+    # follow: } and done are not programs, and ( ... ) <f leaves no words at all.
+    if piped_stdin and found is not None and any(
+            not cmd.words and any(op.lstrip("0123456789").startswith("<") or op == "0>&"
+                                  for op, _ in cmd.redirects)
+            for cmd in found.commands):
+        unknown_stdin = True
     if unknown_stdin:
         raise Deny("this command sends its standard input to GitHub from a redirect the hook cannot "
                    "follow, such as <&3, so it cannot be checked. Write the file in one step, then "
