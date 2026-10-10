@@ -55,14 +55,14 @@ The lead keeps its board, log and handoffs in a private place outside the reposi
 
 **Permission mode.** This one rule decides the mode of every session the team starts. The lead receives the result in its opening prompt and passes it to its workers, and no session gets more.
 
-- **The ceiling.** The mode is `auto` or `acceptEdits` only when all three hold: this session's context states its permission mode explicitly (for example, a notice that auto mode is active), that mode is `auto` or `acceptEdits`, and the hooks passed in step 4 on this machine. Otherwise it is `default`. Never `bypassPermissions`.
+- **The ceiling.** The mode is `auto` or `acceptEdits` only when all four hold: this session's context states its permission mode explicitly (for example, a notice that auto mode is active); that mode is `auto` or `acceptEdits`; the hooks passed in step 4 on this machine; and the operator hasn't said the last lead's guardrail check failed. Otherwise it is `default`. Never `bypassPermissions`.
 - **Where the session lands, not the route, decides the rest.** A session on the operator's own machine, by Route A or by a host session tool that starts sessions there, may get the ceiling. It keeps that mode only if it passes the workflow's guardrail check (§ 4 "The guardrail check") as its first step, which shows its own hooks fire. A cloud session always gets `default`: step 4 never checked its machine, and its messages can't come back.
 - In `default`, the operator answers the session's prompts: after `claude attach <id>` for Route A, or in the app for a host session.
 
 **The opening prompt.** Fill in this text:
 
 ```text
-You are <project>-lead, the lead for <project>. The Agent Team Workflow is at <workflow URL>; read it in full and act as the lead it describes. Your board, log and handoffs live in <board path>; resume from them if they exist. Permission mode for you and the sessions you start: <mode>. Prerequisites start-team found missing: <list, or none>. Unless you run in the cloud, first run the guardrail check in the workflow's § 4, whatever your mode, and give the operator its result in your first message; if it fails, tell the operator and stop. Check that you are reachable as <project>-lead, then follow the Starting a team steps: read the open issues and pull requests, and propose a first sprint. Stop for the operator's sign-off before starting any worker.
+You are <project>-lead, the lead for <project>. The Agent Team Workflow is at <workflow URL>; read it in full and act as the lead it describes. Your board, log and handoffs live in <board path>; resume from them if they exist. Permission mode for you and the sessions you start: <mode>. Prerequisites start-team found missing: <list, or none>. Unless this prompt says you run in the cloud and `get_session` agrees, first run the guardrail check in the workflow's § 4, whatever your mode, and give its result in your first message. If it fails, tell the operator which part failed and stop. Check that you are reachable as <project>-lead, then follow the Starting a team steps: read the open issues and pull requests, and propose a first sprint. Stop for the operator's sign-off before starting any worker.
 ```
 
 Try the routes in order, and take the first that works.
@@ -75,7 +75,7 @@ claude --bg --agent agent-team:lead -n <project>-lead --permission-mode <mode> "
 
 Never paste the prompt into the command line itself. The command prints the session's id. Any failure means Route A didn't work: a non-zero exit, a refusal such as "Workspace not trusted" in a directory that never accepted the trust prompt, or a lead that `claude agents --json` doesn't list within a minute. Tell the operator what happened, stop any session it did start (`claude stop <id>`), and go to Route B. Don't retry.
 
-The lead is up once `claude agents --json` lists it under its name. If it runs in `auto` or `acceptEdits`, also send it a SendMessage asking for its role and check the reply. In default mode it may be `blocked` on its first prompt, which is expected. Leave the role check to the operator once they attach.
+The lead is up once `claude agents --json` lists it under its name. If it runs in `auto` or `acceptEdits`, also send it a SendMessage asking for its role and its guardrail check result, and check the reply. A failed check means the lead has stopped: archive it with `claude stop <id>`, and start it again in `default`. In default mode it may be `blocked` on its first prompt, which is expected. Leave the role check to the operator once they attach.
 
 **Route B, a host session tool.** Use this when a session-start tool such as `create_session` is available (Claude Code on the web, Remote Control). Start a session titled `<project>-lead` in this project's repository. First find where it would land. The host's environment list gives each environment's kind: `bridge` is a machine connected by Remote Control, and `anthropic_cloud` is the cloud. `get_session` with no ID gives this session's own environment and kind.
 
@@ -90,7 +90,7 @@ Take on the lead role: read agents/lead.md from the agent-team plugin if it is i
 Take on the lead role: read agents/lead.md from the agent-team plugin if it is installed in your session, or else from https://github.com/rmorison/engineering-standards/blob/main/plugins/agent-team/agents/lead.md. The operator chose a cloud lead knowing its messages can't reach local sessions: rely on the scheduled GitHub check (§ 3) instead of pings, as the workflow's Starting a team step 2 allows, and say so. Then: <opening prompt>
 ```
 
-The lead is up once ListAgents or the host's session list shows it, and the host shows it connected. A started session can stay pending and never connect: if it hasn't connected within five minutes, archive it, tell the operator, and go to Route C. Record the address ListAgents gives it, since a title can take a while to become its listed name. The lead reports its own guardrail check to the operator. If it fails, the lead stops, and the operator runs this skill again once the hooks are fixed.
+The lead is up once ListAgents or the host's session list shows it, and the host shows it connected. A started session can stay pending and never connect: if it hasn't connected within five minutes, archive it, tell the operator, and go to Route C. Record the address ListAgents gives it, since a title can take a while to become its listed name. The lead reports its own guardrail check in its first message: read it in the host's session view, or ask the lead with SendMessage. A failed check means the lead has stopped: archive it, and start it again in `default`.
 
 Tell the operator what a cloud lead can't do. It receives messages, but it can't send them back to local sessions, so its pings and quiet-mode messages never arrive; the operator reads it in the host's session view. It may also have no session-start tool of its own, in which case it gives the operator each worker's handoff and start command. Workers in the same cloud have the same one-way messaging, so their pings to the lead are lost too; the lead falls back to its scheduled GitHub check (§ 3).
 
@@ -104,6 +104,7 @@ Write `<git common dir>/agent-team/lead.json` as one JSON object with these keys
 
 In a few lines:
 
+- the lead's guardrail check result, if it has given one (a lead in `default` may still be waiting on its first prompt);
 - where the lead is (name, route, state), and how to reach it: `claude attach <id>` for Route A, the session link for Route B, this session for Route C;
 - what start-team changed (the adoption line, the record) and what it left for the operator: committing the line, naming the branch the main checkout is on so it isn't committed into an unrelated pull request, and any prerequisites marked missing;
 - if the hooks failed step 4, say plainly what nothing guards until they are installed: a merge, a change to repository settings, a push to the default branch, and a private value posted in GitHub text. Every session the team starts runs in the default mode meanwhile, and the operator's own approval of each prompt is then the only guard;
