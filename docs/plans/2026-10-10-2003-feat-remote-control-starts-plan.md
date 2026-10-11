@@ -149,6 +149,10 @@ Every acceptance criterion of #123 and its widening comment is mapped to text an
 
 ---
 
+## Sign-off (2026-10-11)
+
+Signed off by the operator on #123 with six changes, which the build follows where they differ from the decisions above: `--name` in place of `-n`; the combination of `--bg` and `--remote-control` is described as observed, not documented; start-team's step 9 lists the documented reasons Remote Control is unavailable; a refusal that names Remote Control is retried once without the flag, approved in advance; D5 is a follow-up; and `remoteControlAtStartup` is an optional mention only. For the plugin under test, the operator chose a test-only `--plugin-dir` in a scratch copy of the plugin, after the setup probe showed neither way in the plan loads it. The proof records are in the pull request.
+
 ## Appendix: research (2026-10-10 UTC, Claude Code 2.1.296)
 
 | Step | Result |

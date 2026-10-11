@@ -23,13 +23,19 @@ To stop using it, follow the workflow's "To decline or stop", then run `claude p
 
 `start-team` takes the first of these that works and tells you which it used:
 
-1. **The Claude Code CLI:** `claude --bg --agent agent-team:lead --name <project>-lead --remote-control <project>-lead`, run from the project's main checkout. Reach the lead with `claude attach <id>`. The project must be one where Claude Code's trust prompt was accepted.
+1. **The Claude Code CLI:** `claude --bg --agent agent-team:lead --name <project>-lead --remote-control <project>-lead`, run from the project's main checkout. The lead appears in your app as `<project>-lead`, grouped under the repository when the folder has a GitHub remote, and `claude attach <id>` opens it in a terminal. The project must be one where Claude Code's trust prompt was accepted.
 2. **A host session tool**, such as `create_session` through Remote Control or Claude Code on the web: a new session titled `<project>-lead`, which loads the lead role from this plugin or from its URL. On your own machine it shows in your app and messages both ways. A cloud session can receive messages but can't send them to local sessions, so you read the lead in the host's session view, and it falls back to its scheduled GitHub check for workers' news.
 3. **The current session**, which becomes the lead and says so. It also prints the command for starting a role-loaded lead later.
 
 ## How the lead starts workers
 
-The lead prefers a host session tool that starts sessions on your own machine, so each worker shows in your app. Otherwise it starts a background session with `claude --bg`, which you watch from a terminal with `claude agents` and `claude attach <id>`. A cloud worker comes last, and only with your go-ahead.
+The lead prefers a host session tool that starts sessions on your own machine, so each worker shows in your app. Otherwise it starts a background session with `claude --bg … --name <name> --remote-control <name>`, which appears in your app too. From a terminal, `claude agents` lists it and `claude attach <id>` opens it. A cloud worker comes last, and only with your go-ahead.
+
+## Remote Control
+
+The command-line sessions the team starts pass `--remote-control`, so they appear in your desktop and mobile app. If Remote Control isn't available on your machine, they still start and run but appear only in a terminal, and start-team tells you the likely causes. The [Remote Control docs](https://code.claude.com/docs/en/remote-control) list them.
+
+Optional: `"remoteControlAtStartup": true` in your user settings (`~/.claude/settings.json`) connects every session you start, background sessions included, not only the team's. Project settings can't turn it on. That a background session connects with it was observed with the setting passed by `--settings` for one session, not from user settings.
 
 ## Permission modes
 
@@ -41,4 +47,4 @@ The skill's step 7 holds the one rule for which mode started sessions get. In sh
 
 A session in the default mode waits on its permission prompts until you answer them: in the app, or after `claude attach <id>` for a background session.
 
-Proved on Claude Code 2.1.293; see [#101](https://github.com/rmorison/engineering-standards/issues/101) for the runs. The guardrail check and the routes for workers were proved on 2.1.295; see [#112](https://github.com/rmorison/engineering-standards/issues/112).
+Proved on Claude Code 2.1.293; see [#101](https://github.com/rmorison/engineering-standards/issues/101) for the runs. The guardrail check and the routes for workers were proved on 2.1.295; see [#112](https://github.com/rmorison/engineering-standards/issues/112). Starting command-line sessions with Remote Control was observed on 2.1.296; the docs describe `--remote-control` for interactive sessions only. See [#123](https://github.com/rmorison/engineering-standards/issues/123).
