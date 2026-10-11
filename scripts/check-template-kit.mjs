@@ -74,6 +74,19 @@
  *      skipped as quietly as a subagent is (check 10), and a plugin the
  *      marketplace does not list, or lists under a path that moved, cannot be
  *      installed at all; neither failure shows until an adopter tries.
+ *  12. A change to a plugin raises its version. For each plugin under
+ *      `plugins/`, if any file in its directory differs from the base commit
+ *      (tracked changes and untracked files in the working tree, so a local
+ *      run catches it before a commit), its `plugin.json` version must be
+ *      greater than the base's, compared as MAJOR.MINOR.PATCH. Claude Code
+ *      caches an installed plugin by its version, so `claude plugin update`
+ *      reports an unbumped change current and keeps the old copy (#108, #110).
+ *      The base is `--base <rev>`, or else the merge base with `origin/main`;
+ *      a base that does not resolve is a failure, not a skip. CI passes
+ *      `--base HEAD^1`: a pull request run checks out the merge commit, whose
+ *      first parent is the base branch's tip, and a push to `main` diffs
+ *      against the commit before it. A plugin with no `plugin.json` at the
+ *      base is new and passes.
  *
  * Deliberately NOT a validation against the published Claude Code settings
  * schema (https://json.schemastore.org/claude-code-settings.json). That schema
@@ -91,7 +104,7 @@
  * the docs — rather than a whole schema tracking every key in the product. If
  * this check ever cries wolf, widen the list; do not switch it off.
  *
- * Usage:  node scripts/check-template-kit.mjs [--verbose]
+ * Usage:  node scripts/check-template-kit.mjs [--verbose] [--base <rev>]
  * Exits non-zero if any check fails. No dependencies beyond Node itself.
  */
 
@@ -102,6 +115,10 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VERBOSE = process.argv.includes('--verbose');
+const BASE_ARG = (() => {
+  const at = process.argv.indexOf('--base');
+  return at === -1 ? null : (process.argv[at + 1] ?? '');
+})();
 
 /** Directory names skipped wherever they appear in the tree. */
 const SKIP_ANYWHERE = new Set([
@@ -1108,6 +1125,135 @@ function readJson(file, check) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Check 12 — a plugin change raises the plugin's version
+// ---------------------------------------------------------------------------
+
+const VERSION_RE = /^(\d+)\.(\d+)\.(\d+)$/;
+
+/** -1, 0 or 1, or null when either is not MAJOR.MINOR.PATCH. */
+function compareVersions(a, b) {
+  const ma = VERSION_RE.exec(a ?? '');
+  const mb = VERSION_RE.exec(b ?? '');
+  if (!ma || !mb) return null;
+  for (let i = 1; i <= 3; i += 1) {
+    const d = Number(ma[i]) - Number(mb[i]);
+    if (d !== 0) return Math.sign(d);
+  }
+  return 0;
+}
+
+/**
+ * The rule, apart from git: null when it holds, else the problem. `baseVersion`
+ * is undefined for a plugin with no manifest at the base.
+ */
+function versionBumpProblem(changedCount, baseVersion, headVersion) {
+  if (baseVersion === undefined) return null;
+  if (!VERSION_RE.test(headVersion ?? '')) {
+    return `its version "${headVersion}" is not MAJOR.MINOR.PATCH`;
+  }
+  if (changedCount === 0) return null;
+  const order = compareVersions(headVersion, baseVersion);
+  if (order === null) return `the base's version "${baseVersion}" is not MAJOR.MINOR.PATCH`;
+  if (order <= 0) {
+    return `${changedCount} file(s) changed since the base, but the version is ${headVersion}, ` +
+      `not greater than the base's ${baseVersion}, so \`claude plugin update\` keeps the old copy`;
+  }
+  return null;
+}
+
+// [changed files, base version, head version, problem expected]
+const VERSION_FIXTURES = [
+  [3, '0.10.0', '0.11.0', false],
+  [3, '0.10.0', '0.10.1', false],
+  [3, '0.10.0', '1.0.0', false],
+  [3, '0.9.0', '0.10.0', false], // numeric, not string, order
+  [3, '0.10.0', '0.10.0', true],
+  [3, '0.10.0', '0.9.0', true],
+  [3, '0.10.0', '0.10', true],
+  [3, '0.10.0', undefined, true],
+  [0, '0.10.0', '0.10.0', false],
+  [0, '0.10.0', '0.9.0', false], // nothing changed, so nothing to publish
+  [3, undefined, '0.1.0', false], // a new plugin
+];
+
+function checkVersionFixtures() {
+  for (const [changed, base, head, expected] of VERSION_FIXTURES) {
+    if ((versionBumpProblem(changed, base, head) !== null) !== expected) {
+      fail(PLUGINS, null, 'plugin-version',
+        `the version rule in this script ${expected ? 'passes' : 'fails'} ${changed} changed ` +
+        `file(s) from ${base} to ${head}, which it must ${expected ? 'fail' : 'pass'}, ` +
+        'so check 12 cannot be trusted');
+    }
+  }
+}
+
+function git(...args) {
+  const run = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' });
+  return { ok: run.status === 0, out: (run.stdout ?? '').trim(), err: (run.stderr ?? '').trim() };
+}
+
+/** Resolves the base commit, or reports why it can't. */
+function versionBase() {
+  if (BASE_ARG !== null) {
+    const rev = git('rev-parse', '--verify', '--quiet', `${BASE_ARG}^{commit}`);
+    if (!rev.ok || BASE_ARG === '') {
+      fail(PLUGINS, null, 'plugin-version',
+        `--base "${BASE_ARG}" does not name a commit here; in CI the checkout needs fetch-depth: 2 ` +
+        'for HEAD^1 — a check with no base ran on nothing, so this is a failure, not a pass');
+      return null;
+    }
+    return rev.out;
+  }
+  const base = git('merge-base', 'HEAD', 'origin/main');
+  if (!base.ok) {
+    fail(PLUGINS, null, 'plugin-version',
+      'no merge base with origin/main; fetch it (git fetch origin main) or pass --base <rev> — ' +
+      'a check with no base ran on nothing, so this is a failure, not a pass');
+    return null;
+  }
+  return base.out;
+}
+
+/** Checks each plugin's version against the base. Returns how many plugins it compared. */
+function checkPluginVersions() {
+  const dirs = pluginDirs();
+  if (dirs.length === 0) return 0;
+  const base = versionBase();
+  if (!base) return 0;
+  let compared = 0;
+  for (const dir of dirs) {
+    const rel = relative(REPO_ROOT, dir).split(sep).join('/');
+    const manifest = `${rel}/.claude-plugin/plugin.json`;
+    const tracked = git('diff', '--name-only', base, '--', `${rel}/`);
+    const untracked = git('ls-files', '--others', '--exclude-standard', '--', `${rel}/`);
+    if (!tracked.ok || !untracked.ok) {
+      fail(dir, null, 'plugin-version', `git could not list the changes under ${rel}/: ${tracked.err || untracked.err}`);
+      continue;
+    }
+    const changed = [tracked.out, untracked.out].join('\n').split('\n').filter(Boolean);
+    const atBase = git('show', `${base}:${manifest}`);
+    let baseVersion;
+    if (atBase.ok) {
+      try {
+        baseVersion = String(JSON.parse(atBase.out).version);
+      } catch {
+        baseVersion = '(unparseable)';
+      }
+    }
+    let headVersion;
+    try {
+      headVersion = JSON.parse(readFileSync(join(REPO_ROOT, manifest), 'utf8')).version;
+    } catch {
+      continue; // check 11 already reports a missing or unparseable manifest
+    }
+    const problem = versionBumpProblem(changed.length, baseVersion, headVersion);
+    if (problem) fail(join(REPO_ROOT, manifest), null, 'plugin-version', `plugins/${dir.split(sep).pop()}: ${problem}`);
+    compared += 1;
+  }
+  return compared;
+}
+
 /** Checks the marketplace, each plugin's manifest and its skills. Returns counts. */
 function checkPlugins() {
   const dirs = pluginDirs();
@@ -1184,6 +1330,8 @@ function checkPlugins() {
 checkRuleSyntaxFixtures();
 const agentFiles = checkAgents();
 const pluginCounts = checkPlugins();
+checkVersionFixtures();
+const bumpChecked = checkPluginVersions();
 
 const files = settingsFiles();
 if (files.length === 0) {
@@ -1207,7 +1355,8 @@ if (VERBOSE || failures.length === 0) {
     `command(s); ${RULE_SYNTAX_FIXTURES.length} rule-syntax fixtures, ` +
     `${ALLOW_POSITIVE.length} allow-list positive, ${ALLOW_NEGATIVE.length} negative and ` +
     `${ALLOW_ACCEPTED_RISK.length} accepted-risk cases. ${pathsSkipped} command path(s) skipped as not statically resolvable. ` +
-    `${agentFiles} subagent file(s); ${pluginCounts.plugins} plugin(s) with ${pluginCounts.skills} skill(s).`);
+    `${agentFiles} subagent file(s); ${pluginCounts.plugins} plugin(s) with ${pluginCounts.skills} skill(s); ` +
+    `${bumpChecked} plugin version(s) checked against the base and ${VERSION_FIXTURES.length} version-rule fixtures.`);
 }
 
 if (failures.length > 0) {
