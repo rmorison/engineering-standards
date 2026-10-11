@@ -35,7 +35,7 @@ The lead prefers a host session tool that starts sessions on your own machine, s
 
 The command-line sessions the team starts pass `--remote-control`, so they appear in your desktop and mobile app. If Remote Control isn't available on your machine, they still start and run but appear only in a terminal, and start-team tells you the likely causes. The [Remote Control docs](https://code.claude.com/docs/en/remote-control) list them.
 
-Optional: `"remoteControlAtStartup": true` in your user settings (`~/.claude/settings.json`) connects every session you start, background sessions included, not only the team's. Project settings can't turn it on. That a background session connects with it was observed with the setting passed by `--settings` for one session, not from user settings.
+Optional: `"remoteControlAtStartup": true` in your user settings (`~/.claude/settings.json`) connects every interactive session you start to Remote Control, not only the team's; project settings can't turn it on. On 2.1.296 the same setting, passed with `--settings` for one session, also connected a background session; that wasn't tried from user settings.
 
 ## Permission modes
 
