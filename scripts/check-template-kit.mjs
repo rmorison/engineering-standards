@@ -108,7 +108,8 @@
  * Exits non-zero if any check fails. No dependencies beyond Node itself.
  */
 
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join, dirname, resolve, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1148,10 +1149,12 @@ function compareVersions(a, b) {
  * is undefined for a plugin with no manifest at the base.
  */
 function versionBumpProblem(changedCount, baseVersion, headVersion) {
-  if (baseVersion === undefined) return null;
+  // The format first, so a new plugin can't land without a version and then
+  // fail every later pull request instead of its own.
   if (!VERSION_RE.test(headVersion ?? '')) {
     return `its version "${headVersion}" is not MAJOR.MINOR.PATCH`;
   }
+  if (baseVersion === undefined) return null;
   if (changedCount === 0) return null;
   const order = compareVersions(headVersion, baseVersion);
   if (order === null) return `the base's version "${baseVersion}" is not MAJOR.MINOR.PATCH`;
@@ -1175,6 +1178,8 @@ const VERSION_FIXTURES = [
   [0, '0.10.0', '0.10.0', false],
   [0, '0.10.0', '0.9.0', false], // nothing changed, so nothing to publish
   [3, undefined, '0.1.0', false], // a new plugin
+  [3, undefined, undefined, true], // a new plugin with no version
+  [3, undefined, '1.0.0-beta', true],
 ];
 
 function checkVersionFixtures() {
@@ -1188,10 +1193,12 @@ function checkVersionFixtures() {
   }
 }
 
-function git(...args) {
-  const run = spawnSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' });
+function gitIn(root, ...args) {
+  const run = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
   return { ok: run.status === 0, out: (run.stdout ?? '').trim(), err: (run.stderr ?? '').trim() };
 }
+
+const git = (...args) => gitIn(REPO_ROOT, ...args);
 
 /** Resolves the base commit, or reports why it can't. */
 function versionBase() {
@@ -1215,6 +1222,83 @@ function versionBase() {
   return base.out;
 }
 
+/**
+ * The git side of check 12, for one plugin directory (`rel`, POSIX-style)
+ * in the repository at `root`. Returns { problem } or { error }, or null
+ * when the manifest is missing or unparseable, which check 11 reports.
+ */
+function pluginVersionProblem(root, base, rel) {
+  const manifest = `${rel}/.claude-plugin/plugin.json`;
+  const tracked = gitIn(root, 'diff', '--name-only', base, '--', `${rel}/`);
+  const untracked = gitIn(root, 'ls-files', '--others', '--exclude-standard', '--', `${rel}/`);
+  if (!tracked.ok || !untracked.ok) {
+    return { error: `git could not list the changes under ${rel}/: ${tracked.err || untracked.err}` };
+  }
+  const changed = [tracked.out, untracked.out].join('\n').split('\n').filter(Boolean);
+  const atBase = gitIn(root, 'show', `${base}:${manifest}`);
+  let baseVersion;
+  if (atBase.ok) {
+    try {
+      const version = JSON.parse(atBase.out).version;
+      baseVersion = version === undefined ? undefined : String(version);
+    } catch {
+      baseVersion = '(unparseable)';
+    }
+  }
+  let headVersion;
+  try {
+    headVersion = JSON.parse(readFileSync(join(root, manifest), 'utf8')).version;
+  } catch {
+    return null;
+  }
+  return { problem: versionBumpProblem(changed.length, baseVersion, headVersion) };
+}
+
+/**
+ * Runs the git side against a throwaway repository, so a pathspec or base
+ * regression that counts no changed files fails here rather than passing
+ * every plugin silently.
+ */
+function checkVersionPlumbing() {
+  const root = mkdtempSync(join(tmpdir(), 'check12-'));
+  const rel = 'plugins/demo';
+  const write = (path, text) => {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), text);
+  };
+  const manifest = (version) => write(`${rel}/.claude-plugin/plugin.json`, JSON.stringify({ name: 'demo', version }));
+  const expect = (what, wantProblem) => {
+    const got = pluginVersionProblem(root, 'HEAD', rel);
+    if (!got || got.error || (got.problem !== null) !== wantProblem) {
+      fail(PLUGINS, null, 'plugin-version',
+        `in a throwaway repository, check 12 ${wantProblem ? 'passed' : 'failed'} ${what}` +
+        `${got?.error ? ` (${got.error})` : ''}, so its git side cannot be trusted`);
+    }
+  };
+  try {
+    const init = [['init', '-q'], ['config', 'user.email', 'check12@example.invalid'],
+      ['config', 'user.name', 'check12'], ['config', 'commit.gpgsign', 'false']];
+    for (const args of init) gitIn(root, ...args);
+    manifest('1.0.0');
+    write(`${rel}/README.md`, 'one\n');
+    gitIn(root, 'add', '-A');
+    if (!gitIn(root, 'commit', '-qm', 'base').ok) {
+      fail(PLUGINS, null, 'plugin-version', 'could not commit in a throwaway repository, so check 12\'s git side is untested');
+      return;
+    }
+    expect('a plugin with no change', false);
+    write(`${rel}/README.md`, 'two\n');
+    expect('a tracked edit with no version raised', true);
+    manifest('1.0.1');
+    expect('a tracked edit with the version raised', false);
+    gitIn(root, 'checkout', '-q', '--', '.');
+    write(`${rel}/agents/new.md`, 'new\n');
+    expect('an untracked new file with no version raised', true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 /** Checks each plugin's version against the base. Returns how many plugins it compared. */
 function checkPluginVersions() {
   const dirs = pluginDirs();
@@ -1224,31 +1308,11 @@ function checkPluginVersions() {
   let compared = 0;
   for (const dir of dirs) {
     const rel = relative(REPO_ROOT, dir).split(sep).join('/');
-    const manifest = `${rel}/.claude-plugin/plugin.json`;
-    const tracked = git('diff', '--name-only', base, '--', `${rel}/`);
-    const untracked = git('ls-files', '--others', '--exclude-standard', '--', `${rel}/`);
-    if (!tracked.ok || !untracked.ok) {
-      fail(dir, null, 'plugin-version', `git could not list the changes under ${rel}/: ${tracked.err || untracked.err}`);
-      continue;
-    }
-    const changed = [tracked.out, untracked.out].join('\n').split('\n').filter(Boolean);
-    const atBase = git('show', `${base}:${manifest}`);
-    let baseVersion;
-    if (atBase.ok) {
-      try {
-        baseVersion = String(JSON.parse(atBase.out).version);
-      } catch {
-        baseVersion = '(unparseable)';
-      }
-    }
-    let headVersion;
-    try {
-      headVersion = JSON.parse(readFileSync(join(REPO_ROOT, manifest), 'utf8')).version;
-    } catch {
-      continue; // check 11 already reports a missing or unparseable manifest
-    }
-    const problem = versionBumpProblem(changed.length, baseVersion, headVersion);
-    if (problem) fail(join(REPO_ROOT, manifest), null, 'plugin-version', `plugins/${dir.split(sep).pop()}: ${problem}`);
+    const result = pluginVersionProblem(REPO_ROOT, base, rel);
+    if (!result) continue;
+    const manifest = join(dir, '.claude-plugin', 'plugin.json');
+    if (result.error) fail(dir, null, 'plugin-version', result.error);
+    else if (result.problem) fail(manifest, null, 'plugin-version', `plugins/${dir.split(sep).pop()}: ${result.problem}`);
     compared += 1;
   }
   return compared;
@@ -1331,6 +1395,7 @@ checkRuleSyntaxFixtures();
 const agentFiles = checkAgents();
 const pluginCounts = checkPlugins();
 checkVersionFixtures();
+checkVersionPlumbing();
 const bumpChecked = checkPluginVersions();
 
 const files = settingsFiles();
