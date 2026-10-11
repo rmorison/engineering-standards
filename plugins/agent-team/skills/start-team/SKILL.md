@@ -57,7 +57,7 @@ The lead keeps its board, log and handoffs in a private place outside the reposi
 
 - **The ceiling.** The mode is `auto` or `acceptEdits` only when all four hold: this session's context states its permission mode explicitly (for example, a notice that auto mode is active); that mode is `auto` or `acceptEdits`; the hooks passed in step 4 on this machine; and the operator hasn't said the last lead's guardrail check failed. Otherwise it is `default`. Never `bypassPermissions`.
 - **Where the session lands, not the route, decides the rest.** A session on the operator's own machine, by Route A or by a host session tool that starts sessions there, may get the ceiling. It keeps that mode only if it passes the workflow's guardrail check (§ 4 "The guardrail check") as its first step, which shows its own hooks fire. A cloud session always gets `default`: step 4 never checked its machine, and its messages can't come back.
-- In `default`, the operator answers the session's prompts: after `claude attach <id>` for Route A, or in the app for a host session.
+- In `default`, the operator answers the session's prompts in the app, or for Route A after `claude attach <id>` if it isn't there.
 
 **The opening prompt.** Fill in this text:
 
@@ -77,7 +77,7 @@ claude --bg --agent agent-team:lead --name <project>-lead --remote-control <proj
 
 Never paste the prompt into the command line itself. The command prints the session's id. If it refuses with a message about Remote Control, stop any `<project>-lead` it did start (`claude stop <id>`), run it once more without `--remote-control <project>-lead`, and tell the operator the lead is in a terminal only. A later restart of that lead leaves the flag out too. Otherwise, any failure means Route A didn't work: a non-zero exit, a refusal such as "Workspace not trusted" in a directory that never accepted the trust prompt, or a lead that `claude agents --json` doesn't list within a minute. Tell the operator what happened, stop any session it did start (`claude stop <id>`), and go to Route B. Don't retry.
 
-The lead is up once `claude agents --json` lists it under its name. If it runs in `auto` or `acceptEdits`, also send it a SendMessage asking for its role and its guardrail check result, and check the reply. Act on the lead's result by the table in the workflow's § 4 "The guardrail check" (the lead column). A lead above `default` with no result within five minutes counts as a fail. Where the table says to restart it, stop it with `claude stop <id>` and restart it as below. In default mode it may be `blocked` on its first prompt, which is expected. Leave the role check to the operator once they attach, and ask them for the lead's guardrail result.
+The lead is up once `claude agents --json` lists it under its name. If it runs in `auto` or `acceptEdits`, also send it a SendMessage asking for its role and its guardrail check result, and check the reply. Act on the lead's result by the table in the workflow's § 4 "The guardrail check" (the lead column). A lead above `default` with no result within five minutes counts as a fail. Where the table says to restart it, stop it with `claude stop <id>` and restart it as below. In default mode it may be `blocked` on its first prompt, which is expected. Leave the role check to the operator once they open it, in the app or after `claude attach <id>` if it isn't there, and ask them for the lead's guardrail result.
 
 Restart a failed lead once, and only once, as follows. Fill the opening prompt again with `default` as its mode, rewrite `<board path>/opening-prompt.md` with it, set `permissionMode` to `default` in the lead record (step 8), and start the lead again by the same route with the mode set explicitly. This restart and the retry without Remote Control are the only exceptions to Route A's "Don't retry". If the restarted lead stops again, for any part, don't restart it again: tell the operator, and stop.
 
@@ -111,8 +111,10 @@ In a few lines:
 
 - the lead's guardrail check result, if it has given one (a lead in `default` may still be waiting on its first prompt);
 - where the lead is (name, route, state), and how to reach it: in the app as `<project>-lead` or by `claude attach <id>` for Route A, the session link for Route B, this session for Route C;
-- for Route A, ask the operator to look for `<project>-lead` in their app. It is grouped under the repository when the folder has a GitHub remote. If it isn't there, Remote Control isn't available on this machine, and the lead runs in a terminal only: reach it with `claude attach <id>`, and once the cause is fixed, `/remote-control` in that session connects it. The [Remote Control docs](https://code.claude.com/docs/en/remote-control) give these causes:
+- for Route A, unless the retry dropped `--remote-control`, ask the operator to look for `<project>-lead` in their app. It is grouped under the repository when the folder has a GitHub remote. If it isn't there, Remote Control isn't available on this machine, and the lead runs in a terminal only: reach it with `claude attach <id>`, and once the cause is fixed, `/remote-control` in that session connects it. The [Remote Control docs](https://code.claude.com/docs/en/remote-control) give these causes:
   - not signed in through claude.ai, or signed in with an API key;
+  - a Free plan: Remote Control needs Pro, Max, Team or Enterprise;
+  - a sign-in still tied to an earlier Team or Enterprise organization (`/status` shows which; log out and in again);
   - Amazon Bedrock, Google Vertex or Microsoft Foundry, or a gateway set through `ANTHROPIC_BASE_URL`;
   - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` or `DISABLE_GROWTHBOOK` set;
   - the `disableRemoteControl` setting;
