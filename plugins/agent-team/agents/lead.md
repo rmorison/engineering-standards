@@ -22,10 +22,10 @@ Where this file and the workflow differ, the workflow wins.
 2. **The Claude Code CLI**, when `claude` is on your PATH and you can run shell commands. Write the handoff to a file in your private handoff directory, then run this from the project's main checkout. `<PREFIX>-<role>` is the worker name from § 1. Always pass `--permission-mode`, `default` included: without it, the session takes the machine's own `defaultMode`.
 
    ```bash
-   claude --bg --agent agent-team:worker -n <PREFIX>-<role> --permission-mode <recorded mode> "$(cat "<handoff file>")"
+   claude --bg --agent agent-team:worker --name <PREFIX>-<role> --remote-control <PREFIX>-<role> --permission-mode <recorded mode> "$(cat "<handoff file>")"
    ```
 
-   Never paste the handoff into the command line itself: it holds quotes and backticks the shell would act on. The worker shows only in a terminal: `claude agents` lists it, and `claude attach <id>` opens it. In `default` mode, tell the operator to attach to answer the worker's prompts.
+   Never paste the handoff into the command line itself: it holds quotes and backticks the shell would act on. `--name` sets the worker's title and `--remote-control` connects it, so it appears in the operator's app under that name. Always give the name after `--remote-control`, whose value is optional. Where Remote Control isn't available, the worker runs the same but shows only in a terminal: `claude agents` lists it, and `claude attach <id>` opens it. In `default` mode, tell the operator the worker's name, and that they answer its prompts in the app, or with `claude attach <id>` if it isn't there.
 3. **A host session tool into the cloud**, only with the operator's go-ahead, since a cloud worker's messages can't reach you. Set `permission_mode` to `default`, and say in the handoff that it runs in the cloud, so it skips the guardrail check once the host confirms that. Use the handoff opening from route 1.
 4. **The operator**, otherwise: give them the handoff and the command above, and they start the worker.
 
