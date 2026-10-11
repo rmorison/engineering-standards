@@ -13,9 +13,9 @@ claude plugin marketplace add rmorison/engineering-standards
 claude plugin install agent-team@engineering-standards
 ```
 
-To pin a version, add the marketplace at a ref, as you pin the hooks: `claude plugin marketplace add rmorison/engineering-standards@<ref>`. The adoption line can pin the workflow document too. Each role reads the workflow at the URL in that line, so a pin holds.
+The adoption line can pin the workflow document to a commit, as you pin the hooks. Each role reads the workflow at the URL in that line, and `start-team` reads the roles at the same ref when it starts a session from their URLs, so a pin holds. A session started with `--agent` loads its role from the installed plugin instead, so `start-team` warns when the installed version differs from the one at the pin. To install the plugin at the pin, add the marketplace from a source at it, then update the plugin, which also moves it back to an older version: `claude plugin marketplace add rmorison/engineering-standards@<branch-or-tag>`, or for a commit, a local clone checked out at it (`claude plugin marketplace add <path>`), then `claude plugin update agent-team@engineering-standards`. `@` takes a branch or a tag, not a commit (observed on 2.1.296).
 
-To pick up a newer version, run `claude plugin marketplace update engineering-standards` and then `claude plugin update agent-team@engineering-standards`. Claude Code caches an installed plugin by its version, so whoever changes anything in `plugins/agent-team/` also raises the version in its `.claude-plugin/plugin.json`; otherwise the update reports the plugin current and keeps the old copy (observed on 2.1.293).
+To pick up a newer version, run `claude plugin marketplace update engineering-standards` and then `claude plugin update agent-team@engineering-standards`. Claude Code caches an installed plugin by its version, so whoever changes anything in `plugins/agent-team/` also raises the version in its `.claude-plugin/plugin.json`; otherwise the update reports the plugin current and keeps the old copy (observed on 2.1.293). CI fails a pull request that changes the plugin without raising it (check 12 in `scripts/check-template-kit.mjs`).
 
 To stop using it, follow the workflow's "To decline or stop", then run `claude plugin uninstall agent-team@engineering-standards`. Nothing in your repository depends on the plugin.
 

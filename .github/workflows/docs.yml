@@ -85,14 +85,19 @@ jobs:
   check-template-kit:
     runs-on: ubuntu-latest
     steps:
+      # Check 12 diffs the plugins against HEAD^1: on a pull request that is the
+      # base branch's tip (the checkout is the merge commit), and on a push to
+      # main the commit before. Depth 2 fetches it; without it the check fails.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Check template kit
-        run: node scripts/check-template-kit.mjs
+        run: node scripts/check-template-kit.mjs --base HEAD^1
 
   # NEVER move this job to pull_request_target, give it secrets, or grant it a
   # write token: it runs a script the pull request can edit, which is safe only
