@@ -70,7 +70,7 @@ Try the routes in order, and take the first that works. The lead's routes put th
 **Route A, the Claude Code CLI.** Use this when `claude` is on PATH and this session can run shell commands. Write the filled opening prompt to `<board path>/opening-prompt.md`. Check it was written and isn't empty (`test -s`); if it wasn't, Route A didn't work. Then run this from the main checkout. Always pass `--permission-mode`, `default` included: without it, the session takes this machine's own `defaultMode`, which can be higher than the rule's mode.
 
 ```bash
-claude --bg --agent agent-team:lead -n <project>-lead --permission-mode <mode> "$(cat "<board path>/opening-prompt.md")"
+claude --bg --agent agent-team:lead --name <project>-lead --remote-control <project>-lead --permission-mode <mode> "$(cat "<board path>/opening-prompt.md")"
 ```
 
 Never paste the prompt into the command line itself. The command prints the session's id. Any failure means Route A didn't work: a non-zero exit, a refusal such as "Workspace not trusted" in a directory that never accepted the trust prompt, or a lead that `claude agents --json` doesn't list within a minute. Tell the operator what happened, stop any session it did start (`claude stop <id>`), and go to Route B. Don't retry.

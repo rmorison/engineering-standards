@@ -22,7 +22,7 @@ Where this file and the workflow differ, the workflow wins.
 2. **The Claude Code CLI**, when `claude` is on your PATH and you can run shell commands. Write the handoff to a file in your private handoff directory, then run this from the project's main checkout. `<PREFIX>-<role>` is the worker name from § 1. Always pass `--permission-mode`, `default` included: without it, the session takes the machine's own `defaultMode`.
 
    ```bash
-   claude --bg --agent agent-team:worker -n <PREFIX>-<role> --permission-mode <recorded mode> "$(cat "<handoff file>")"
+   claude --bg --agent agent-team:worker --name <PREFIX>-<role> --remote-control <PREFIX>-<role> --permission-mode <recorded mode> "$(cat "<handoff file>")"
    ```
 
    Never paste the handoff into the command line itself: it holds quotes and backticks the shell would act on. The worker shows only in a terminal: `claude agents` lists it, and `claude attach <id>` opens it. In `default` mode, tell the operator to attach to answer the worker's prompts.
