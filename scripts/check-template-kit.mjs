@@ -1294,6 +1294,12 @@ function checkVersionPlumbing() {
     gitIn(root, 'checkout', '-q', '--', '.');
     write(`${rel}/agents/new.md`, 'new\n');
     expect('an untracked new file with no version raised', true);
+    rmSync(join(root, rel, 'agents'), { recursive: true, force: true });
+    gitIn(root, 'rm', '-q', `${rel}/README.md`);
+    expect('a deleted file with no version raised', true);
+    gitIn(root, 'reset', '-q', '--hard');
+    gitIn(root, 'mv', `${rel}/README.md`, 'moved.md');
+    expect('a file moved out of the plugin with no version raised', true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
