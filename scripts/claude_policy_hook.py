@@ -143,6 +143,7 @@ MCP_TOOLS = [
 MCP_BRANCH_WRITES = re.compile(r"^(push_files|create_or_update_file|delete_file)$")
 
 OPT_OUT_KEY = "agentpolicy.allowdefaultpush"  # git compares keys case-insensitively
+OPT_OUT_NOUN = "setting agentpolicy.allowDefaultPush"  # the policy canary's denial
 DEFAULT_PUSH_NOUN = "pushing to the default branch"
 
 
@@ -315,7 +316,7 @@ def git_command(cmd):
                 or (w.startswith("--config-env=") and opt_out_key(w[len("--config-env="):]))
                 or (w.startswith("-c") and not w.startswith("--") and len(w) > 2
                     and opt_out_key(w[2:]))):
-            decide(OPT_OUT, "setting agentpolicy.allowDefaultPush")
+            decide(OPT_OUT, OPT_OUT_NOUN)
         step = 2 if w in GIT_WITH_VALUE else 1
         prefix += words[i:i + step]
         i += step
@@ -332,7 +333,7 @@ def git_config(rest):
     if not any(r.casefold() == OPT_OUT_KEY for r in rest):
         return
     if any(r in CONFIG_WRITES for r in rest):
-        decide(OPT_OUT, "setting agentpolicy.allowDefaultPush")
+        decide(OPT_OUT, OPT_OUT_NOUN)
     if any(r in CONFIG_READS for r in rest):
         return
     positional = []
@@ -346,7 +347,7 @@ def git_config(rest):
         j += 1
     keys = [k for k, p in enumerate(positional) if p.casefold() == OPT_OUT_KEY]
     if keys and keys[0] + 1 < len(positional):
-        decide(OPT_OUT, "setting agentpolicy.allowDefaultPush")
+        decide(OPT_OUT, OPT_OUT_NOUN)
 
 
 class Clone:
@@ -506,8 +507,7 @@ FALLBACK = [
      "a gh command that may change repository settings"),
     (re.compile(r"\bgh\b[^\n;&|]*\bapi\b"), SETTINGS,
      "a gh api call that cannot be split into words"),
-    (re.compile(r"agentpolicy\.allowdefaultpush", re.I), OPT_OUT,
-     "setting agentpolicy.allowDefaultPush"),
+    (re.compile(r"agentpolicy\.allowdefaultpush", re.I), OPT_OUT, OPT_OUT_NOUN),
     (re.compile(r"\bgit\b[^\n;&|]*\bpush\b"), DEFAULT_PUSH,
      "a push that cannot be split into words, so its destination cannot be checked"),
 ]
@@ -538,6 +538,19 @@ def check_command(command, cwd):
             git_command(cmd)
 
 
+# The permission modes Claude Code names in a hook's input. The policy canary's denial reports
+# the session's mode from the host's own field, so a session can confirm its mode without a
+# notice in its context (process/agent-team-workflow.md, § 4, the mode check). Any other value,
+# or none, reads as unknown, so nothing from the input is echoed.
+PERMISSION_MODES = {"default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"}
+
+
+def permission_mode(data):
+    """The session's permission mode as the host gave it to this hook, or "unknown"."""
+    mode = data.get("permission_mode") if isinstance(data, dict) else None
+    return mode if isinstance(mode, str) and mode in PERMISSION_MODES else "unknown"
+
+
 def main():
     if sys.argv[1:] == ["--whoami"]:
         r = role()
@@ -545,6 +558,7 @@ def main():
         print(f"policy hook: role {r or 'none'} ({ROLE_VAR} "
               f"{'is set' if r else 'is not set'}); granted: {', '.join(granted) or 'nothing'}.")
         return 0
+    data = None
     try:
         try:
             data = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))
@@ -570,6 +584,8 @@ def main():
         if DEFAULT_PUSH_NOUN in str(reason):
             hint = (" A clone that commits straight to its default branch can be exempted by a "
                     "person, outside the session: git config --local agentpolicy.allowDefaultPush true.")
+        if OPT_OUT_NOUN in str(reason):
+            hint += f" (permission mode: {permission_mode(data)})"
         sys.stderr.write(f"policy hook: denied: {reason}. {STOP}{hint}\n")
         return 2
     except Exception as error:  # fail closed, naming nothing from the input

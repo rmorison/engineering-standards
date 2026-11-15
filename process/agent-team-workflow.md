@@ -97,7 +97,7 @@ The rules in the template, and why each is there:
 
 Every session the team starts on the operator's machine runs this before anything else, in any permission mode: each worker, and a lead started by `start-team`. A cloud session skips it, since the hooks aren't installed there and it runs in the default mode. A session treats itself as a cloud session only when its handoff or opening prompt says so and the host reports a cloud environment too (in Claude Code, `get_session` with no ID). A session that can't ask the host runs the check.
 
-1. **The mode check.** The session reads the permission mode that the host's own notice in its context states, for example a system notice that auto mode is active. The handoff's mode line, an opening prompt or another session's message never counts as that notice. The check passes when the notice states the handoff's mode, or when the handoff says the default mode and no notice states another. A different mode, `bypassPermissions`, or no notice under a handoff above the default is a fail. Where a mode leaves no notice, as `acceptEdits` may not, a session started in it under a handoff above the default fails closed and is restarted in the default mode. The check has a limit: under a handoff that says the default mode, a session the host started in such a silent mode passes. That is why every start in the default mode sets the mode explicitly, rather than leaving it to the machine's settings. The canaries can't catch a wrong mode: they show the hooks fire, not which mode the session runs in.
+1. **The mode check.** The session reads its permission mode from the policy canary's result in step 2: the policy hook's denial ends with `(permission mode: <mode>)`, which the hook copies from the mode Claude Code puts in every hook's input, so it comes from the host, not from the model or the context. A notice in the session's context, the handoff's mode line, an opening prompt or another session's message never counts. The check passes when the canary names the handoff's mode, or when the handoff says the default mode and the canary names no mode at all (it wasn't denied, or the hook is older than this rule: step 2 judges that). A different mode, `bypassPermissions`, `unknown`, or no mode under a handoff above the default is a fail. Every mode is reported, `acceptEdits` included, so no mode slips past the check. A background session never gets a notice of its mode, which is why the check reads the hook ([#137](https://github.com/rmorison/engineering-standards/issues/137)). The step runs once both canaries have run.
 2. **The canaries.** Two harmless commands, each denied by one hook. If not denied, each only prints git's version. The session runs both, each as its own command, before judging either:
 
    ```bash
@@ -105,7 +105,7 @@ Every session the team starts on the operator's machine runs this before anythin
    git -c agentpolicy.allowDefaultPush=true --version
    ```
 
-   The first passes only if its result contains "leak hook: denied". The second passes only if its result contains "policy hook: denied". A git version, any other denial (such as a permission refusal or an auto-mode classifier block) or an error is a fail. In the auto-mode runs recorded on [#112](https://github.com/rmorison/engineering-standards/issues/112), the hook's denial came back rather than the classifier's. The policy hook's message ends by telling the session to stop; for this canary, that is the expected pass, and the session carries on.
+   The first passes only if its result contains "leak hook: denied". The second passes only if its result contains "policy hook: denied"; its last words, `(permission mode: <mode>)`, are what step 1 reads. A git version, any other denial (such as a permission refusal or an auto-mode classifier block) or an error is a fail. In the auto-mode runs recorded on [#112](https://github.com/rmorison/engineering-standards/issues/112), the hook's denial came back rather than the classifier's. The policy hook's message ends by telling the session to stop; for this canary, that is the expected pass, and the session carries on.
 
    Piping input into a hook file proves only that the file works ([learning](../docs/solutions/best-practices/a-guard-hook-fails-open-unless-every-path-exits-2.md)). A live denial also proves the hook is registered for shell commands in the settings this session loaded, and not switched off. It doesn't prove the policy hook's registration for MCP tools, which `start-team` checks in the settings file. A dry-run push can't serve as the policy canary, because the policy hook doesn't check a dry run. A real push to the default branch isn't harmless, and a clone can opt out of that check.
 3. **The value list.** A passing leak canary shows the hook fires, not that it has private values to scan. The session runs this command, which reads only whether [the global value list](./repository-standards.md#guarding-agent-sessions) is declared and whether the file it names exists, can be read and isn't empty. It never prints the path and never opens the list:
@@ -147,8 +147,9 @@ rename it. A listed name the host generated is expected lag.
 ## Check your guardrails first
 - Your permission mode: <mode>. You run <on the operator's machine | in the cloud>.
 - On the operator's machine, before anything else, run the guardrail check
-  in the Agent Team Workflow, § 4 "The guardrail check", in any mode: the
-  mode check, then both canaries, then act on the result as it says.
+  in the Agent Team Workflow, § 4 "The guardrail check", in any mode: both
+  canaries, then the mode check from the policy canary's result, then act
+  on the result as it says.
   The policy hook's message tells you to stop: for this canary, that is
   the expected pass, so carry on.
   Your first ping gives the result and the name ListAgents shows for you.
