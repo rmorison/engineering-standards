@@ -26,14 +26,24 @@ permissions:
 jobs:
   agent-hooks:
     runs-on: ubuntu-latest
+    # The hooks support Python 3.10 or later, standard library only. Pinned, not
+    # the runner's python3, so a runner image change cannot move the suites
+    # under them (#139): 3.10 proves the floor, 3.14 a current release.
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.14']
     steps:
       - uses: actions/checkout@v4
 
-      # The runner's python3; the hooks need 3.10 or later and the standard
-      # library only. Each suite runs the hook against scratch HOMEs and scratch
-      # repositories with invented values; no real value list is read.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # Each suite runs the hook against scratch HOMEs and scratch repositories
+      # with invented values; no real value list is read.
       - name: Prove the leak hook
-        run: python3 scripts/test_claude_leak_hook.py
+        run: python scripts/test_claude_leak_hook.py
 
       - name: Prove the policy hook
-        run: python3 scripts/test_claude_policy_hook.py
+        run: python scripts/test_claude_policy_hook.py
