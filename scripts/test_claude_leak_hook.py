@@ -125,7 +125,7 @@ class Sandbox:
         path.write_bytes(content)
         return str(path)
 
-    def hook(self, command, cwd=None, tool="Bash", stdin=None, env=None):
+    def hook(self, command, cwd=None, tool="Bash", stdin=None, env=None, hook=HOOK):
         if stdin is None:
             stdin = json.dumps({
                 "session_id": "test",
@@ -135,7 +135,7 @@ class Sandbox:
                 "tool_input": {"command": command, "description": "fixture"},
             })
         try:
-            proc = subprocess.run([sys.executable, str(HOOK)], input=stdin.encode(),
+            proc = subprocess.run([sys.executable, str(hook)], input=stdin.encode(),
                                   capture_output=True, env=dict(self.env, **(env or {})),
                                   cwd=str(cwd or self.work), timeout=HOOK_TIMEOUT)
         except subprocess.TimeoutExpired:
@@ -764,9 +764,18 @@ def fixtures(sb):
     sb.declare(standard)
     check("git missing from PATH denies outbound", sb.hook("gh issue comment 1 --body hi",
           env={"PATH": str(sb.root / "empty")}), "deny", "could not be run")
-    # JSON nested past the parser's recursion limit raises RecursionError, an
-    # error the hook does not expect, so this exercises its catch-all.
-    check("an unexpected hook error denies", sb.hook("", stdin="[" * 100000), "deny", "the hook failed")
+    # A copy of the hook with a crash planted in decide() exercises its catch-all.
+    # Not deeply nested JSON: whether that raises RecursionError or JSONDecodeError
+    # depends on the Python version and the stack size (#139).
+    planted = sb.root / "planted_hook.py"
+    source = HOOK.read_text()
+    anchor = "def decide(command, cwd):\n"
+    planted.write_text(source.replace(anchor, anchor + "    raise RuntimeError('planted')\n", 1))
+    if anchor not in source:
+        bad("an unexpected hook error denies", f"the hook has no {anchor.strip()!r} to plant a crash in")
+    else:
+        check("an unexpected hook error denies", sb.hook("gh issue view 1", hook=planted), "deny",
+              "the hook failed (RuntimeError)")
 
     # --- List states (R6, R7, AE5) ----------------------------------------------
     out_cmd = "gh issue comment 1 --body hello"
