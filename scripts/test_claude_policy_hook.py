@@ -619,6 +619,10 @@ def fixtures(sb):
         "gh pr merge 12 --adm?n",
         "gh pr merge 12 --admi[n]",
         "gh pr merge 12 --a*",
+        "shopt -s extglob\ngh pr merge 12 --@(admin)",
+        "gh pr merge 12 --+(admin)",
+        "gh pr merge 12 --!(squash|merge|rebase)",
+        "gh pr merge 12 --squash -t 'feat: x (#12)'",
         "gh pr merge 12 --squash -t 'cost $5'",  # a quoted $ can't be told apart
     ]:
         check(f"U4 deny a word the shell could expand, Track 2 lead: {command!r}",
