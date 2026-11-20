@@ -249,8 +249,8 @@ def gh_pr_merge(cmd):
     if any(EXPANDS.search(w) for w in cmd.words[1:]):
         decide(MERGE, "a gh pr merge with a word the shell could expand, so it cannot be "
                "checked; write the number and flags out, put a body that needs $, `, {, }, "
-               "*, ?, [, ], (, ) or ~ in a file for -F, and reword a subject that needs one or "
-               "leave it out" if granted(PR_MERGE) else noun)
+               "*, ?, [, ], (, ) or ~, or ends in !, + or @, in a file for -F, and reword a "
+               "subject that needs one or leave it out" if granted(PR_MERGE) else noun)
     decide(PR_MERGE, noun)
 
 

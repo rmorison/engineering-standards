@@ -631,6 +631,9 @@ def fixtures(sb):
     ]:
         check(f"U4 deny a word the shell could expand, Track 2 lead: {command!r}",
               sb.bash(command, env=lead2), "deny", "could expand", stop=LEAD_STOP)
+    check("U4 deny, Track 2 lead: a subject ending in + is named in the advice",
+          sb.bash('gh pr merge 12 --squash -t "Support C++"', env=lead2), "deny",
+          "ends in !, + or @", stop=LEAD_STOP)
     check("U4 allow, Track 2 lead: a subject or body from a file",
           sb.bash("gh pr merge 12 --squash -t 'Fix the cost' -F body.md", env=lead2), "allow")
     # Every other route to a merge stays denied, granted to no role, and the
