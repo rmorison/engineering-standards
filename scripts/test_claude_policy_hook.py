@@ -7,13 +7,14 @@ Code does, and checks the exit code (2 denies, 0 allows) and a fragment of the
 message. An allowed call must print nothing.
 
 Every fixture runs in a temporary directory, with HOME and GIT_CONFIG_GLOBAL
-pointed at temporary files and CLAUDE_AGENT_ROLE unset unless a fixture sets
-it. The clones are local repositories with a made-up origin that is never
+pointed at temporary files and CLAUDE_AGENT_ROLE and CLAUDE_MERGE_TRACK unset
+unless a fixture sets them. The clones are local repositories with a made-up origin that is never
 contacted: nothing here pushes, merges, or changes a setting anywhere. Nothing
 here installs a hook or reads a value list.
 
 Labels such as R5, AE4 and KTD3 in section comments refer to
-docs/plans/2026-10-05-2058-feat-agent-policy-hook-plan.md.
+docs/plans/2026-10-05-2058-feat-agent-policy-hook-plan.md; "U4" sections refer to
+docs/plans/2026-11-20-0053-feat-coordinator-and-merge-authority-plan.md (R6, AE3).
 
 Usage:  python3 scripts/test_claude_policy_hook.py [hook]
 The optional argument runs the fixtures against another script in place of the
@@ -148,14 +149,14 @@ class Sandbox:
             **(extra or {}),
         }), env=env, hook=hook)
 
-    def mcp(self, tool, tool_input):
+    def mcp(self, tool, tool_input, env=None):
         return self.run(json.dumps({
             "session_id": "test",
             "cwd": str(self.work),
             "hook_event_name": "PreToolUse",
             "tool_name": tool,
             "tool_input": tool_input,
-        }))
+        }), env=env)
 
     def cleanup(self):
         shutil.rmtree(self.root, ignore_errors=True)
@@ -567,7 +568,7 @@ def fixtures(sb):
     ]:
         check(f"R7 allow: {tool}", sb.mcp(tool, tool_input), "allow")
 
-    # --- R8, KTD3: one decision point; no role is granted anything (AE6) -------------
+    # --- R8, KTD3: one decision point; a role outside the grant grants nothing (AE6) --
     for role in ["principal", "maintainer", "operator", "worker", "lead", ""]:
         check(f"KTD3 deny with CLAUDE_AGENT_ROLE={role!r}",
               sb.bash("gh pr merge 12", env={"CLAUDE_AGENT_ROLE": role}), "deny", MERGE)
@@ -583,6 +584,77 @@ def fixtures(sb):
         ok()
     else:
         bad("KTD3 --whoami with no role", f"exit {rc}: {out!r}")
+
+    # --- U4, R6, AE3: a Track 2 lead may run gh pr merge, without --admin -------------
+    lead2 = {"CLAUDE_AGENT_ROLE": "lead", "CLAUDE_MERGE_TRACK": "2"}
+    for command in [
+        "gh pr merge 12 --squash",
+        "gh pr merge --auto 12 --squash",
+        "gh -R o/r pr merge 12 --rebase -d",
+        "gh pr merge 12 --merge --match-head-commit abc123",
+        "gh pr merge 12 --disable-auto",
+        "sh -c 'gh pr merge 12 --squash'",
+    ]:
+        check(f"U4 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
+    for command in [
+        "gh pr merge 12 --admin",
+        "gh pr merge 12 --admin --squash",
+        "gh pr merge 12 --admin=false --squash",
+        "gh -R o/r pr merge --admin 12",
+        "gh pr merge 12 --squash -- --admin",
+        "sh -c 'gh pr merge 12 --admin'",
+    ]:
+        check(f"U4 deny --admin, Track 2 lead: {command!r}", sb.bash(command, env=lead2),
+              "deny", "with --admin")
+    # Every other route to a merge stays denied, granted to no role.
+    for command, frag in [
+        ("gh api -X PUT repos/o/r/pulls/12/merge", MERGE),
+        ("gh api graphql -F query=@merge.graphql -f id=x", "mergePullRequest"),
+        ("gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }'",
+         "enablePullRequestAutoMerge"),
+        ("gh pr merge 12 --squash '", MERGE),  # cannot be split: the fallback
+        ("gh repo edit --enable-auto-merge", SETTINGS),
+        ("gh api -X PUT repos/o/r/rulesets/1 -f name=x", "rulesets"),
+        ("git -c agentpolicy.allowDefaultPush=true --version", OPT_OUT),
+    ]:
+        check(f"U4 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny", frag)
+    check("U4 deny, Track 2 lead: git push origin trunk",
+          sb.bash("git push origin trunk", cwd=sb.trunk, env=lead2), "deny", PUSH)
+    check("U4 deny, Track 2 lead: MCP merge_pull_request",
+          sb.mcp("mcp__github__merge_pull_request", {"pullNumber": 12}, env=lead2), "deny", MERGE)
+    # Any other role, or a lead not on Track 2, is denied both forms with today's message.
+    sessions = [("coordinator", "2"), ("worker", "2"), ("principal", "2"), ("Lead", "2"),
+                ("", "2"), ("lead", None), ("lead", ""), ("lead", "1"), ("lead", "two"),
+                ("lead", " 2"), ("lead", "2 "), ("lead", "Track 2")]
+    for role, track in sessions:
+        env = {"CLAUDE_AGENT_ROLE": role}
+        if track is not None:
+            env["CLAUDE_MERGE_TRACK"] = track
+        for command in ["gh pr merge 12 --squash", "gh pr merge 12 --admin"]:
+            rc, out, err = result = sb.bash(command, env=env)
+            name = f"U4 deny role={role!r} track={track!r}: {command!r}"
+            if "with --admin" in err:
+                bad(name, "the denial names --admin, not today's message", result)
+            else:
+                check(name, result, "deny", MERGE)
+    check("U4 deny: a track set in the command, not the environment",
+          sb.bash("CLAUDE_MERGE_TRACK=2 gh pr merge 12 --squash",
+                  env={"CLAUDE_AGENT_ROLE": "lead"}), "deny", MERGE)
+    for name, env, want in [
+        ("names the coordinator, granted nothing", {"CLAUDE_AGENT_ROLE": "coordinator",
+                                                     "CLAUDE_MERGE_TRACK": "2"},
+         ["role coordinator", "track 2", "granted: nothing"]),
+        ("a Track 2 lead is granted pr-merge", lead2, ["role lead", "track 2", "granted: pr-merge"]),
+        ("a lead with no track is granted nothing", {"CLAUDE_AGENT_ROLE": "lead"},
+         ["role lead", "track 1", "granted: nothing"]),
+        ("an unknown role is named as unknown", {"CLAUDE_AGENT_ROLE": "principal"},
+         ["role principal", "unknown", "granted: nothing"]),
+    ]:
+        rc, out, _ = sb.run("", env=env, args=["--whoami"])
+        if rc == 0 and all(w in out for w in want):
+            ok()
+        else:
+            bad(f"U4 --whoami {name}", f"exit {rc}: {out!r}")
 
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"

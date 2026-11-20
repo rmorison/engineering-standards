@@ -26,9 +26,11 @@ prompts.
 
 Everything the hook denies is listed once, in the tables under "What is
 denied", and every policy denial goes through decide(). That is the one place a
-role could later be granted an action (GRANTS); today nothing is granted, and a
-missing or unknown role never grants anything. A call the hook cannot check is
-denied outside it, so no grant ever lets an unchecked call through.
+role is granted an action (GRANTS). One row grants anything: a lead whose
+session declares Track 2 of the workflow's merge authority may run gh pr merge
+without --admin. A missing or unknown role, or a missing or unknown track,
+never grants anything. A call the hook cannot check is denied outside it, so no
+grant ever lets an unchecked call through.
 
 It parses commands with the leak hook's parser, imported from the same
 directory, so both scripts must be installed. Without the leak hook, every call
@@ -64,7 +66,8 @@ except Exception as error:  # fail closed: the parser is required
 # The categories a role could one day be granted, and the rows that map each
 # command form to one of them with the words a denial uses.
 
-MERGE = "merge"
+MERGE = "merge"  # every merge route; granted to no role
+PR_MERGE = "pr-merge"  # gh pr merge with no --admin, the one form a role can be granted
 SETTINGS = "settings"
 RULESETS = "rulesets"
 PROTECTION = "branch-protection"
@@ -149,11 +152,20 @@ DEFAULT_PUSH_NOUN = "pushing to the default branch"
 
 # --- Deciding ------------------------------------------------------------------------
 
-# Roles granted a category. Empty: no role is granted anything. A later grant is
-# one row, such as "principal": {MERGE}, plus CLAUDE_AGENT_ROLE=principal in the
-# environment the session's Claude Code process starts with.
-GRANTS = {}
+# Roles, each with the categories it is granted and the merge track each grant
+# needs. Both come only from the environment the session's Claude Code process
+# starts with: CLAUDE_AGENT_ROLE and CLAUDE_MERGE_TRACK. A role not listed here,
+# or a grant whose track the session doesn't declare, grants nothing. The
+# project's ruleset, not this table, is what makes a Track 2 merge safe
+# (process/repository-standards.md, Guarding Repository Authority).
+TRACK_1, TRACK_2 = "1", "2"
+GRANTS = {
+    "lead": {PR_MERGE: TRACK_2},
+    "coordinator": {},
+    "worker": {},
+}
 ROLE_VAR = "CLAUDE_AGENT_ROLE"
+TRACK_VAR = "CLAUDE_MERGE_TRACK"
 
 
 def role():
@@ -161,9 +173,23 @@ def role():
     return os.environ.get(ROLE_VAR) or None
 
 
+def track():
+    """The session's merge track, read only from the hook's own environment.
+
+    Only the exact value 2 is Track 2; a missing, empty or unrecognised value is Track 1.
+    """
+    return TRACK_2 if os.environ.get(TRACK_VAR) == TRACK_2 else TRACK_1
+
+
+def granted(category):
+    """Whether the session's role is granted the category on the session's track."""
+    grants = GRANTS.get(role(), {})
+    return category in grants and grants[category] == track()
+
+
 def decide(category, noun):
     """The one decision point: raises Deny unless the session's role is granted the category."""
-    if category in GRANTS.get(role(), ()):
+    if granted(category):
         return
     raise Deny(noun)
 
@@ -183,6 +209,23 @@ def skip_flags(words, with_value):
     return words
 
 
+def admin_flag(word):
+    """gh's --admin, which merges past the branch rules; pflag also takes --admin=<bool>."""
+    return word == "--admin" or word.startswith("--admin=")
+
+
+def gh_pr_merge(cmd):
+    """gh pr merge: a Track 2 lead may run it, never with --admin."""
+    noun = GH_COMMANDS[("pr", "merge")][1]
+    # Any word counts, even a value or one after --, so nothing that reads as
+    # --admin is let through.
+    if any(admin_flag(w) for w in cmd.words[1:]):
+        if granted(PR_MERGE):
+            raise Deny(noun + " with --admin, which bypasses the branch rules")
+        decide(MERGE, noun)
+    decide(PR_MERGE, noun)
+
+
 def gh_command(cmd):
     """Checks one gh command. Raises Deny."""
     words = skip_flags(cmd.words[1:], GH_WITH_VALUE)
@@ -190,7 +233,9 @@ def gh_command(cmd):
         return
     group, rest = words[0], skip_flags(words[1:], GH_WITH_VALUE)
     verb = rest[0] if rest else ""
-    if (group, verb) in GH_COMMANDS:
+    if (group, verb) == ("pr", "merge"):
+        gh_pr_merge(cmd)
+    elif (group, verb) in GH_COMMANDS:
         decide(*GH_COMMANDS[(group, verb)])
     elif group == "repo" and verb == "deploy-key":
         sub = skip_flags(rest[1:], GH_WITH_VALUE)
@@ -554,9 +599,12 @@ def permission_mode(data):
 def main():
     if sys.argv[1:] == ["--whoami"]:
         r = role()
-        granted = sorted(GRANTS.get(r, ()))
+        known = "" if r is None or r in GRANTS else ", an unknown role"
+        held = sorted(c for c in GRANTS.get(r, {}) if granted(c))
         print(f"policy hook: role {r or 'none'} ({ROLE_VAR} "
-              f"{'is set' if r else 'is not set'}); granted: {', '.join(granted) or 'nothing'}.")
+              f"{'is set' if r else 'is not set'}{known}); track {track()} ({TRACK_VAR} "
+              f"{'is set' if os.environ.get(TRACK_VAR) else 'is not set'}); "
+              f"granted: {', '.join(held) or 'nothing'}.")
         return 0
     data = None
     try:
