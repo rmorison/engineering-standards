@@ -210,7 +210,8 @@ Build only once a comment opening "Signed off by the operator" is on
   show you the template. Bring it up to date after every review round.
 - Related: one line, closing #<ISSUE> only if this pull request completes it.
 - <On a Track 2 project: open the pull request as a draft; the lead marks it
-  ready after the Done gate.>
+  ready after the Done gate. If the ticket changes a file under
+  .github/workflows/, stop and say so on the issue; the operator lands it.>
 - Local checks: <commands>. A local pass proves only your tool versions:
   name them in the pull request body, and after pushing, read CI
   conclusions on your head until they are green.
@@ -418,10 +419,10 @@ An agent identity, a GitHub App, authors every pull request, and the operator ap
 3. The lead marks the pull request ready for review, and GitHub requests the code owner's review. It reaches the operator's review queue and their phone, if their notifications are set to, so the lead's ready message is optional ([§ 6](#6-operator-interaction)).
 4. The operator approves the head on GitHub.
 5. The lead confirms the approval is on the current head, CI has passed there, and every pull request this one waits on has merged, in its own project or another as the merge order says.
-6. The lead merges, never with an administrator bypass.
+6. The lead merges, never with an administrator bypass. If GitHub refuses the merge for any reason other than a missing approval, the lead says what was refused on the pull request and stops; it never loosens a rule to get past it.
 7. The lead logs the merge on its board. It doesn't message the operator.
 
-**Rebasing to merge in order.** The lead may rebase an approved pull request onto the new default branch to keep the merge order, when the rebase has no conflict. A rebase that needs a conflict resolved is ticket work, so it goes to the pull request's worker. After either, GitHub's rules decide whether the approval holds, and the lead doesn't second-guess them. If GitHub keeps the approval on the new head, the lead merges once CI passes. If GitHub dismisses it, the lead asks for the operator's review again. In the spike, a rebase with no content change kept the approval, and a push that changed content dismissed it; a rebase that resolves a conflict wasn't tried.
+**Rebasing to merge in order.** The lead may rebase an approved pull request onto the new default branch to keep the merge order, when the rebase has no conflict. A rebase that needs a conflict resolved is ticket work, so it goes to the pull request's worker, or to a new worker if that one has been archived. After either, GitHub's rules decide whether the approval holds, and the lead doesn't second-guess them. If GitHub keeps the approval on the new head, the lead merges once CI passes. If GitHub dismisses it, the lead asks for the operator's review again. In the spike, a rebase with no content change kept the approval, and a push that changed content dismissed it; a rebase that resolves a conflict wasn't tried.
 
 **What goes back to the operator: a change to a workflow file.** The standard recommends giving the App no Workflows permission, as best security practice. In the spike, the App's push of a workflow file was then refused, so on Track 2 a worker whose ticket changes a file under `.github/workflows/` stops and says so on the issue, and the operator lands that change themselves. The operator sets the App's permissions and may choose otherwise.
 
