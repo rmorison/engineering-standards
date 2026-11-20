@@ -62,7 +62,7 @@ LEAD_STOP = ("A Track 2 lead merges only with gh pr merge, written out in full a
 sys.dont_write_bytecode = True  # no __pycache__ beside the installed hooks
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 try:
-    from claude_leak_hook import EXPORTERS, Deny, option, parse
+    from claude_leak_hook import EXPORTERS, SHELLS, Deny, option, parse
 except Exception as error:  # fail closed: the parser is required
     sys.stderr.write(f"policy hook: denied: claude_leak_hook.py could not be imported "
                      f"({type(error).__name__}); install both hooks. {STOP}\n")
@@ -584,13 +584,25 @@ TRACK_NAMERS = EXPORTERS | {"let", "for", "select", "read", "mapfile", "readarra
                             "getopts", "wait"}
 # declare/typeset -p print it, export -n removes the export (declare -n is a nameref).
 TRACK_READS = {"declare": {"-p"}, "typeset": {"-p"}, "export": {"-p", "-n"}}
-BRACES = re.compile(r"[{},]")
+BRACE = re.compile(r"(?<!\$)\{([^{}]*,[^{}]*)\}")  # an innermost {a,b} group, not ${...}
+MAX_FORMS = 256
 
 
 def forms(word):
-    """The word, and the word with brace expansion's braces and commas removed, so
-    that CLAUDE_MERGE_TRAC{K,} and {CLAUDE_MERGE_TRACK,} read as the name."""
-    return [word] if "{" not in word or "${" in word else [word, BRACES.sub("", word)]
+    """The word, and what brace expansion makes of it, so that CLAUDE_MERGE_TRAC{K,}
+    and CLAUDE_MERGE_{TRACK,X} read as the name. Past MAX_FORMS, the rest are
+    left unexpanded."""
+    out, todo = [word], [word]
+    while todo and len(out) < MAX_FORMS:
+        w = todo.pop()
+        m = BRACE.search(w)
+        if not m:
+            continue
+        for alt in m.group(1).split(","):
+            new = w[:m.start()] + alt + w[m.end():]
+            out.append(new)
+            todo.append(new)
+    return out
 
 
 def searches(cmd):
@@ -615,8 +627,14 @@ def track_command(cmd):
     named = [f for w in args if not w.startswith("-") for f in forms(w)]
     if cmd.program in TRACK_NAMERS and any(TRACK_NAME.search(f) for f in named):
         options = {w for w in args if w.startswith("-")}
-        if not (options and options <= TRACK_READS.get(cmd.program, set())):
+        reads = options and options <= TRACK_READS.get(cmd.program, set())
+        if not reads or any("=" in f for f in named):  # export -n r=NAME points a nameref
             decide(TRACK, TRACK_NOUN)
+    # A here-string or heredoc fed to a shell runs as a script.
+    if (cmd.program in SHELLS | {"source", "."}
+            and any(op in ("<<<", "<<") for op, _ in cmd.redirects)
+            and TRACK_WRITE.search(" ".join([cmd.raw_text] + [t for _, t in cmd.redirects]))):
+        decide(TRACK, TRACK_NOUN)
     if cmd.program == "printf":
         for i, w in enumerate(args):
             nxt = forms(args[i + 1]) if i + 1 < len(args) else []
@@ -654,7 +672,7 @@ FALLBACK = [
      "a gh api call that cannot be split into words"),
     (re.compile(r"agentpolicy\.allowdefaultpush", re.I), OPT_OUT, OPT_OUT_NOUN),
     (re.compile(TRACK_WRITE.pattern + r"|" + TRACK_JSON_KEY.pattern + r"|\b("
-                + "|".join(sorted(TRACK_NAMERS)) + r"|printf)\b[^\n;&|]*\bCLAUDE_MERGE_TRACK\b"),
+                + "|".join(sorted(TRACK_NAMERS)) + r"|printf)\b[^\n;&|]*" + TRACK_ID),
      TRACK, TRACK_NOUN),
     (re.compile(r"\bgit\b[^\n;&|]*\bpush\b"), DEFAULT_PUSH,
      "a push that cannot be split into words, so its destination cannot be checked"),

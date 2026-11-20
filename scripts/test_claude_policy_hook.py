@@ -782,6 +782,13 @@ def fixtures(sb):
         "set -a; read {CLAUDE_MERGE_TRACK,} <<< 2; claude -p x",
         "export CLAUDE_MERGE_TRAC{K,}=2; claude -p x",
         "printf -v {CLAUDE_MERGE_TRACK,} 2",
+        "export CLAUDE_MERGE_{TRACK,X}=2; claude -p x",
+        "export {X,CLAUDE_MERGE_TRACK}=2; claude -p x",
+        "export CLAUDE_{MERGE,X}_{TRACK,Y}=2; claude -p x",
+        "declare -n r; export -n r=CLAUDE_MERGE_TRACK; r=2; export r; claude -p x",
+        "bash <<< 'CLAUDE_MERGE_TRACK=2 claude -p x'",
+        "source /dev/stdin <<< 'CLAUDE_MERGE_TRACK=2'",
+        "bash <<'EOF'\nCLAUDE_MERGE_TRACK=2 claude -p x\nEOF",
         "claude -p x --settings '{\"env\":{\"CLAUDE_MERGE_\\u0054RACK\":\"2\"}}'",
         "((CLAUDE_MERGE_TRACK++)); echo '",  # cannot be split: the fallback
         "(( CLAUDE_MERGE_TRACK *= 1 )); echo '",  # cannot be split: the fallback
@@ -813,6 +820,8 @@ def fixtures(sb):
         "git log -S CLAUDE_MERGE_TRACK -- scripts",
         "unset -v -- CLAUDE_MERGE_TRACK",
         "echo ${CLAUDE_MERGE_TRACK-=} ${CLAUDE_MERGE_TRACK/=/x}",
+        "echo {a,b}=1 CLAUDE_MERGE_TRACK",
+        "cat <<'EOF' > notes.md\nThe operator sets CLAUDE_MERGE_TRACK=2.\nEOF",
     ]:
         check(f"U4 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 
