@@ -62,7 +62,7 @@ LEAD_STOP = ("A Track 2 lead merges only with gh pr merge, written out in full a
 sys.dont_write_bytecode = True  # no __pycache__ beside the installed hooks
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 try:
-    from claude_leak_hook import Deny, option, parse
+    from claude_leak_hook import EXPORTERS, Deny, option, parse
 except Exception as error:  # fail closed: the parser is required
     sys.stderr.write(f"policy hook: denied: claude_leak_hook.py could not be imported "
                      f"({type(error).__name__}); install both hooks. {STOP}\n")
@@ -81,6 +81,7 @@ RULESETS = "rulesets"
 PROTECTION = "branch-protection"
 DEFAULT_PUSH = "default-push"
 OPT_OUT = "policy-opt-out"
+TRACK = "merge-track"  # setting CLAUDE_MERGE_TRACK, which only the operator does
 
 # gh <group> <verb>. None as the verb set means every verb but those in READ_VERBS.
 GH_COMMANDS = {
@@ -553,6 +554,27 @@ def deny_push(cmd, prefix, defaults, noun):
     decide(DEFAULT_PUSH, noun)
 
 
+# --- The merge track ----------------------------------------------------------------
+#
+# A session that set CLAUDE_MERGE_TRACK for a child it starts could make that
+# child a Track 2 lead, so only the operator sets it, outside any session. This
+# is best effort: the ruleset that requires the operator's approval is the guard.
+
+TRACK_NOUN = "setting CLAUDE_MERGE_TRACK, which only the operator sets"
+TRACK_SET = re.compile(r"^CLAUDE_MERGE_TRACK\+?=")
+TRACK_NAMERS = EXPORTERS | {"printf", "read", "mapfile", "readarray"}  # a word that names it
+
+
+def track_command(cmd):
+    """Denies a command that sets CLAUDE_MERGE_TRACK, in any form the parser reads."""
+    if (any(TRACK_SET.match(a) for a in cmd.assigns)
+            or (cmd.words and TRACK_SET.match(cmd.words[0]))
+            or (cmd.program in TRACK_NAMERS
+                and any(w.split("=", 1)[0].removesuffix("+") == TRACK_VAR
+                        for w in cmd.words[1:]))):
+        decide(TRACK, TRACK_NOUN)
+
+
 # --- MCP tools -----------------------------------------------------------------------
 
 
@@ -581,6 +603,8 @@ FALLBACK = [
     (re.compile(r"\bgh\b[^\n;&|]*\bapi\b"), SETTINGS,
      "a gh api call that cannot be split into words"),
     (re.compile(r"agentpolicy\.allowdefaultpush", re.I), OPT_OUT, OPT_OUT_NOUN),
+    (re.compile(r"CLAUDE_MERGE_TRACK\+?=|\b(" + "|".join(sorted(TRACK_NAMERS))
+                + r")\b[^\n;&|]*\bCLAUDE_MERGE_TRACK\b"), TRACK, TRACK_NOUN),
     (re.compile(r"\bgit\b[^\n;&|]*\bpush\b"), DEFAULT_PUSH,
      "a push that cannot be split into words, so its destination cannot be checked"),
 ]
@@ -605,6 +629,7 @@ def check_command(command, cwd):
     for cmd in commands:
         cmd.raw_text = command
         cmd.heredoc_files = heredoc_files
+        track_command(cmd)
         if cmd.program == "gh":
             gh_command(cmd)
         elif cmd.program == "git":

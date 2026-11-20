@@ -675,7 +675,7 @@ def fixtures(sb):
                 check(name, result, "deny", MERGE)
     check("U4 deny: a track set in the command, not the environment",
           sb.bash("CLAUDE_MERGE_TRACK=2 gh pr merge 12 --squash",
-                  env={"CLAUDE_AGENT_ROLE": "lead"}), "deny", MERGE)
+                  env={"CLAUDE_AGENT_ROLE": "lead"}), "deny", "setting CLAUDE_MERGE_TRACK")
     for name, env, want in [
         ("names the coordinator, granted nothing", {"CLAUDE_AGENT_ROLE": "coordinator",
                                                      "CLAUDE_MERGE_TRACK": "2"},
@@ -691,6 +691,46 @@ def fixtures(sb):
             ok()
         else:
             bad(f"U4 --whoami {name}", f"exit {rc}: {out!r}")
+
+    # --- U4, from #144's review: only the operator sets CLAUDE_MERGE_TRACK ---------
+    # A session that set it for a child could start a Track 2 lead. Every form the
+    # parser reads is denied to every role; env -u and the role alone stay allowed.
+    TRACK_SET = "setting CLAUDE_MERGE_TRACK"
+    for command in [
+        "CLAUDE_AGENT_ROLE=lead CLAUDE_MERGE_TRACK=2 claude -p x",
+        "CLAUDE_MERGE_TRACK=1 claude -p x",
+        "env CLAUDE_MERGE_TRACK=2 claude -p x",
+        "env -i PATH=/usr/bin CLAUDE_MERGE_TRACK=2 claude -p x",
+        "sudo CLAUDE_MERGE_TRACK=2 claude -p x",
+        "export CLAUDE_MERGE_TRACK=2; claude -p x",
+        "export CLAUDE_MERGE_TRACK",
+        "declare -x CLAUDE_MERGE_TRACK=2",
+        "typeset -x CLAUDE_MERGE_TRACK=2",
+        "readonly CLAUDE_MERGE_TRACK=2",
+        "local CLAUDE_MERGE_TRACK=2",
+        "CLAUDE_MERGE_TRACK=2; export CLAUDE_MERGE_TRACK; claude -p x",
+        "CLAUDE_MERGE_TRACK+=2 claude -p x",
+        "printf -v CLAUDE_MERGE_TRACK 2",
+        "read CLAUDE_MERGE_TRACK <<< 2",
+        "sh -c 'CLAUDE_MERGE_TRACK=2 claude -p x'",
+        "env -S 'CLAUDE_MERGE_TRACK=2 claude -p x'",
+        "if true; then export CLAUDE_MERGE_TRACK=2; fi",
+        "claude -p 'x\nCLAUDE_MERGE_TRACK=2 claude -p y '\"",  # cannot be split: the fallback
+    ]:
+        for role, env in [("none", {}), ("worker", {"CLAUDE_AGENT_ROLE": "worker"}),
+                          ("Track 2 lead", lead2)]:
+            check(f"U4 deny setting the track, {role}: {command!r}", sb.bash(command, env=env),
+                  "deny", TRACK_SET)
+    for command in [
+        "env -u CLAUDE_MERGE_TRACK CLAUDE_AGENT_ROLE=worker claude --bg --agent agent-team:worker",
+        "env --unset=CLAUDE_MERGE_TRACK claude -p x",
+        "CLAUDE_AGENT_ROLE=worker claude -p x",
+        "unset CLAUDE_MERGE_TRACK",
+        "echo \"$CLAUDE_MERGE_TRACK\"",
+        "grep -n CLAUDE_MERGE_TRACK process/repository-standards.md",
+        "git commit -q -m 'docs: only the operator sets CLAUDE_MERGE_TRACK=2'",
+    ]:
+        check(f"U4 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
