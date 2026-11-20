@@ -384,13 +384,13 @@ The hook then allows pushes to the default branch from that clone. It still deni
 
 **Roles.** Every policy denial goes through one decision point in the script, with a table of roles, what each is granted, and the merge track each grant needs. The table has one grant, described next. `coordinator` and `worker` are rows with no grants, and any other role, or none, is granted nothing. The hook reads the role only from `CLAUDE_AGENT_ROLE` in its own environment, which is the environment the session's Claude Code process starts with. It never reads the role from the command. A call the hook cannot check, such as an unreadable GraphQL query or input that is not a command, is denied outside that table, so no role is ever let through unchecked. `python3 "$HOME/.claude/hooks/claude_policy_hook.py" --whoami` prints the role, the track and what is granted.
 
-**A Track 2 lead merges.** A project picks one of two merge tracks. On Track 1, the default, the operator merges. On Track 2, an agent identity authors each pull request, the operator approves it on GitHub, and the project's lead merges after that approval. A session declares its track in `CLAUDE_MERGE_TRACK`, in the same environment as its role:
+**A Track 2 lead merges.** A project picks one of two merge tracks. On Track 1, the default, the operator merges. On Track 2, an agent identity authors each pull request, the operator approves it on GitHub, and the project's lead merges after that approval. A session's track is in `CLAUDE_MERGE_TRACK`, in the same environment as its role. Only the operator sets it, when starting the lead, outside any agent session:
 
 ```bash
 CLAUDE_AGENT_ROLE=lead CLAUDE_MERGE_TRACK=2 claude
 ```
 
-Only the exact value `2` is Track 2. A missing, empty or unrecognised value, such as `1`, `two` or ` 2`, is Track 1. Like the role, the hook reads the track only from its own environment, so `CLAUDE_MERGE_TRACK=2 gh pr merge 12` inside a session changes nothing.
+Only the exact value `2` is Track 2. A missing, empty or unrecognised value, such as `1`, `two` or ` 2`, is Track 1. Like the role, the hook reads the track only from its own environment, so setting it in a command never changes what that session is granted.
 
 A process inherits its parent's environment, so a session started from a Track 2 lead's shell, such as a worker started with `claude --bg`, is a Track 2 lead to the hook unless its start command says otherwise. Start every session with its own role and with the track unset:
 
@@ -399,6 +399,14 @@ env -u CLAUDE_MERGE_TRACK CLAUDE_AGENT_ROLE=worker claude --bg --agent agent-tea
 ```
 
 `--whoami` in the new session shows what it holds.
+
+**Only the operator sets the track.** A session that set `CLAUDE_MERGE_TRACK` for a child it starts, as in `CLAUDE_AGENT_ROLE=lead CLAUDE_MERGE_TRACK=2 claude -p …`, would make that child a Track 2 lead. So the hook denies every agent command that sets it, to every role, in every form it parses:
+- an assignment, alone or before a command (`=` or `+=`);
+- `env` or `sudo` with `CLAUDE_MERGE_TRACK=…`;
+- `export`, `declare`, `typeset`, `readonly` or `local` naming it;
+- `printf -v` and `read` naming it.
+
+The same forms are denied inside `sh -c` and `env -S`, and in a command the hook can't split into words. `env -u CLAUDE_MERGE_TRACK`, `unset` and reading the variable stay allowed. So does setting `CLAUDE_AGENT_ROLE`, since a role without the track is granted nothing. This guard is best effort: a script, an interpreter or a file the session writes and then runs can still set the variable, by the same routes listed under what the hook does not see. The ruleset that requires the operator's approval on the head is the real guard ([D3 of the merge authority plan](../docs/plans/2026-11-20-0053-feat-coordinator-and-merge-authority-plan.md)).
 
 The one grant: a `lead` session on Track 2 may run `gh pr merge`, with `--auto`, `--disable-auto`, `--squash`, `--merge`, `--rebase` and its other flags, except `--admin`. A `gh pr merge` with any word that reads `--admin` or `--admin=…` is denied to every role, because it merges past the branch rules. So is one with a word the shell could still expand, by a substitution (`$PR`, `$(…)`), a brace (`--{admin,squash}`), a glob (`--adm?n`), an extended glob (`--@(admin)`) or a tilde (`~`, `~-`, `~1`, which read variables an earlier command can set), since that could become `--admin`. The hook sees words after their quotes are removed, so a quoted `$` or parenthesis counts too. The lead writes the number and flags out. A body that needs `$`, a backtick, a brace, a bracket, a parenthesis, `*`, `?` or `~`, or a word ending in `!`, `+` or `@` (such as `LGTM!` or `C++`), goes in a file for `-F`. A subject that needs one is reworded or left out, so GitHub's default is used.
 
