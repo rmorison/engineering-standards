@@ -615,9 +615,16 @@ def fixtures(sb):
         "gh pr merge 12 `echo --admin`",
         'bash -c "gh pr merge 12 \\$X"',
         'gh pr merge "$PR" --squash',
+        "gh pr merge 12 --{admin,squash}",
+        "gh pr merge 12 --adm?n",
+        "gh pr merge 12 --admi[n]",
+        "gh pr merge 12 --a*",
+        "gh pr merge 12 --squash -t 'cost $5'",  # a quoted $ can't be told apart
     ]:
-        check(f"U4 deny built at run time, Track 2 lead: {command!r}",
-              sb.bash(command, env=lead2), "deny", "built when it runs", stop=LEAD_STOP)
+        check(f"U4 deny a word the shell could expand, Track 2 lead: {command!r}",
+              sb.bash(command, env=lead2), "deny", "could expand", stop=LEAD_STOP)
+    check("U4 allow, Track 2 lead: a subject or body from a file",
+          sb.bash("gh pr merge 12 --squash -t 'Fix the cost' -F body.md", env=lead2), "allow")
     # Every other route to a merge stays denied, granted to no role, and the
     # Track 2 lead is told the one way it may merge.
     for command, frag in [

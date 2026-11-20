@@ -228,18 +228,26 @@ def admin_flag(word):
     return word == "--admin" or word.startswith("--admin=")
 
 
+# Characters by which the shell can still turn a word into another: substitution,
+# brace expansion, globs and extended globs.
+EXPANDS = re.compile(r"[$`{}*?\[\]()]")
+
+
 def gh_pr_merge(cmd):
     """gh pr merge: a Track 2 lead may run it, never with --admin."""
     noun = GH_COMMANDS[("pr", "merge")][1]
     # Any word counts, even a value or one after --, so nothing that reads as
-    # --admin is let through. A word built when the command runs could become
-    # --admin, so it can't be checked.
+    # --admin is let through. A word the shell could still expand, by a
+    # substitution, a brace or a glob, could become --admin, so it can't be
+    # checked. The words have lost their quotes, so a quoted $ counts too.
     if any(admin_flag(w) for w in cmd.words[1:]):
         decide(MERGE, noun + " with --admin, which bypasses the branch rules"
                if granted(PR_MERGE) else noun)
-    if any("$" in w or "`" in w for w in cmd.words[1:]):
-        decide(MERGE, "a gh pr merge whose words are built when it runs, so it cannot be "
-               "checked; write the number and flags out" if granted(PR_MERGE) else noun)
+    if any(EXPANDS.search(w) for w in cmd.words[1:]):
+        decide(MERGE, "a gh pr merge with a word the shell could expand, so it cannot be "
+               "checked; write the number and flags out, and put a subject or body that "
+               "needs $, `, {, }, *, ?, [, ], ( or ) in a file for -F"
+               if granted(PR_MERGE) else noun)
     decide(PR_MERGE, noun)
 
 
