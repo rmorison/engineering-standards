@@ -79,8 +79,10 @@ Try the routes in order, and take the first that works. The lead's routes put th
 **Route A, the Claude Code CLI.** Use this when `claude` is on PATH and this session can run shell commands. Write the filled opening prompt to `<board path>/opening-prompt.md`. Check it was written and isn't empty (`test -s`); if it wasn't, Route A didn't work. Then run this from the main checkout. Always pass `--permission-mode`, `default` included: without it, the session takes this machine's own `defaultMode`, which can be higher than the rule's mode.
 
 ```bash
-claude --bg --agent agent-team:lead --name <project>-lead --remote-control <project>-lead --permission-mode <mode> "$(cat "<board path>/opening-prompt.md")"
+env -u CLAUDE_MERGE_TRACK CLAUDE_AGENT_ROLE=lead claude --bg --agent agent-team:lead --name <project>-lead --remote-control <project>-lead --permission-mode <mode> "$(cat "<board path>/opening-prompt.md")"
 ```
+
+`env -u CLAUDE_MERGE_TRACK CLAUDE_AGENT_ROLE=lead` gives the lead its own role and no merge track, so it never inherits one from this session. Never add the track yourself: for a project the operator has put on Track 2, give the operator this command, and they add the track (the workflow's § 11).
 
 `--name` sets the title the app shows, and `--remote-control` with the same name connects the session to Remote Control, so the lead appears in the operator's app with no further step. That was observed on Claude Code 2.1.296 ([#123](https://github.com/rmorison/engineering-standards/issues/123)); the Claude Code docs describe `--remote-control` for interactive sessions only. Always give the name after `--remote-control`: its value is optional, so without one the next word would be read as the name. Where Remote Control isn't available, the lead still starts and runs, but isn't in the app, and neither `claude agents` nor ListAgents shows the difference. Step 9 says what to tell the operator.
 
