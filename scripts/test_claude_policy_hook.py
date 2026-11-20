@@ -763,6 +763,12 @@ def fixtures(sb):
         "tmux new -d -e CLAUDE_MERGE_TRACK=2 claude",
         "systemd-run --user -E CLAUDE_MERGE_TRACK=2 claude",
         "claude -p x --settings '{\"env\":{\"CLAUDE_MERGE_TRACK\":\"2\"}}'",
+        "set -a; let CLAUDE_MERGE_TRACK++ CLAUDE_MERGE_TRACK++; claude -p x",
+        "set -a; let 'CLAUDE_MERGE_TRACK = 2'; claude -p x",
+        "set -a; (( CLAUDE_MERGE_TRACK = 2 )); claude -p x",
+        "set -a; getopts 2 CLAUDE_MERGE_TRACK -2; claude -p x",
+        "sleep 1 & wait -p CLAUDE_MERGE_TRACK",
+        "set -a; declare -n r; r=CLAUDE_MERGE_TRACK; r=2; claude -p x",
         "claude -p 'x\nCLAUDE_MERGE_TRACK=2 claude -p y '\"",  # cannot be split: the fallback
     ]:
         for role, env in [("none", {}), ("worker", {"CLAUDE_AGENT_ROLE": "worker"}),
@@ -781,6 +787,8 @@ def fixtures(sb):
         "typeset -p CLAUDE_MERGE_TRACK",
         "export -n CLAUDE_MERGE_TRACK",
         "printf '%s\\n' CLAUDE_MERGE_TRACK",
+        "grep -n '\"CLAUDE_MERGE_TRACK\":' .claude/settings.json",
+        "X=$CLAUDE_MERGE_TRACK; echo \"$X\"",
     ]:
         check(f"U4 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 

@@ -565,29 +565,32 @@ TRACK_NOUN = "setting CLAUDE_MERGE_TRACK, which only the operator sets"
 # A word that assigns it, wherever it stands (after a wrapper the parser doesn't
 # know, as an option's value such as tmux -e or systemd-run -E): NAME=, NAME+=.
 TRACK_ASSIGN = re.compile(r"^CLAUDE_MERGE_TRACK\+?=")
-# An assigning expansion anywhere in a word, ${NAME=v} or ${NAME:=v}, and a JSON
-# key such as a settings file's env block passed inline to claude --settings.
-TRACK_INSIDE = re.compile(r"\$\{CLAUDE_MERGE_TRACK:?=|\"CLAUDE_MERGE_TRACK\"\s*:")
-# Commands whose words name a variable to set: a name, NAME=v, or a nameref's
-# target (declare -n r=NAME). Each one's read-only options are allowed.
-TRACK_NAMERS = EXPORTERS | {"let", "for", "select", "read", "mapfile", "readarray"}
+# An assigning expansion anywhere in a word: ${NAME=v} or ${NAME:=v}.
+TRACK_EXPANSION = re.compile(r"\$\{CLAUDE_MERGE_TRACK:?=")
+# A settings env block passed inline to claude --settings.
+TRACK_JSON_KEY = re.compile(r"\"CLAUDE_MERGE_TRACK\"\s*:")
+# The name as an identifier, not read as $NAME or ${NAME}.
+TRACK_NAME = re.compile(r"(?<![$A-Za-z0-9_{])CLAUDE_MERGE_TRACK(?![A-Za-z0-9_])")
+# Builtins whose words can name a variable they set: as a name, NAME=v, an
+# arithmetic expression (let), a nameref's target, or getopts' and wait -p's NAME.
+TRACK_NAMERS = EXPORTERS | {"let", "for", "select", "read", "mapfile", "readarray",
+                            "getopts", "wait"}
 # declare/typeset -p print it, export -n removes the export (declare -n is a nameref).
 TRACK_READS = {"declare": {"-p"}, "typeset": {"-p"}, "export": {"-p", "-n"}}
 
 
-def names_track(word):
-    name, eq, value = word.partition("=")
-    return name.removesuffix("+") == TRACK_VAR or (eq and value == TRACK_VAR)
-
-
 def track_command(cmd):
-    """Denies a command that sets CLAUDE_MERGE_TRACK, in any form the parser reads."""
-    words = cmd.words
-    if (any(TRACK_ASSIGN.match(w) for w in cmd.assigns + words)
-            or any(TRACK_INSIDE.search(w) for w in words)):
+    """Denies a command that sets CLAUDE_MERGE_TRACK, in any form the parser reads.
+
+    Best effort, and broad: text that starts NAME= is denied even as an argument."""
+    words, args = cmd.words, cmd.words[1:]
+    if (any(TRACK_ASSIGN.match(w) or TRACK_EXPANSION.search(w) for w in cmd.assigns + words)
+            or (words and words[0] == TRACK_VAR)  # (( NAME = 2 )), split at its parentheses
+            or any(TRACK_NAME.search(a.split("=", 1)[1]) for a in cmd.assigns)  # r=NAME
+            or (cmd.program == "claude" and any(TRACK_JSON_KEY.search(w) for w in args))):
         decide(TRACK, TRACK_NOUN)
-    args = words[1:]
-    if cmd.program in TRACK_NAMERS and any(names_track(w) for w in args if not w.startswith("-")):
+    if cmd.program in TRACK_NAMERS and any(TRACK_NAME.search(w) for w in args
+                                           if not w.startswith("-")):
         options = {w for w in args if w.startswith("-")}
         if not (options and options <= TRACK_READS.get(cmd.program, set())):
             decide(TRACK, TRACK_NOUN)
