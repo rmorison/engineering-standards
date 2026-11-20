@@ -789,6 +789,14 @@ def fixtures(sb):
         "bash <<< 'CLAUDE_MERGE_TRACK=2 claude -p x'",
         "source /dev/stdin <<< 'CLAUDE_MERGE_TRACK=2'",
         "bash <<'EOF'\nCLAUDE_MERGE_TRACK=2 claude -p x\nEOF",
+        "export {" + "," * 300 + "}CLAUDE_MERGE_TRAC{K,}=2; claude -p x",
+        "export {" + "a," * 300 + "}CLAUDE_MERGE_{TRACK,X}=2; claude -p x",
+        "export CLAUDE_MERGE_TRAC{K..K}=2; claude -p x",
+        "export CLAUDE_MERGE_TRAC{J..L}=2; claude -p x",
+        "cat <<'EOF' | bash\nCLAUDE_MERGE_TRACK=2 claude -p x\nEOF",
+        "bash <<< 'export CLAUDE_MERGE_TRAC{K,}=2; claude -p x'",
+        "bash <<< 'declare -n r=CLAUDE_MERGE_TRACK; r=2; export r; claude -p x'",
+        "bash <<< 'printf -v CLAUDE_MERGE_TRACK 2; export CLAUDE_MERGE_TRACK; claude -p x'",
         "claude -p x --settings '{\"env\":{\"CLAUDE_MERGE_\\u0054RACK\":\"2\"}}'",
         "((CLAUDE_MERGE_TRACK++)); echo '",  # cannot be split: the fallback
         "(( CLAUDE_MERGE_TRACK *= 1 )); echo '",  # cannot be split: the fallback
@@ -822,6 +830,7 @@ def fixtures(sb):
         "echo ${CLAUDE_MERGE_TRACK-=} ${CLAUDE_MERGE_TRACK/=/x}",
         "echo {a,b}=1 CLAUDE_MERGE_TRACK",
         "cat <<'EOF' > notes.md\nThe operator sets CLAUDE_MERGE_TRACK=2.\nEOF",
+        "bash -s <<< 'make test'; echo CLAUDE_MERGE_TRACK",
     ]:
         check(f"U4 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 

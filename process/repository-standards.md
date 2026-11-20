@@ -401,13 +401,13 @@ env -u CLAUDE_MERGE_TRACK CLAUDE_AGENT_ROLE=worker claude --bg --agent agent-tea
 `--whoami` in the new session shows what it holds.
 
 **Only the operator sets the track.** A session that set `CLAUDE_MERGE_TRACK` for a child it starts, as in `CLAUDE_AGENT_ROLE=lead CLAUDE_MERGE_TRACK=2 claude -p …`, would make that child a Track 2 lead. So the hook denies every agent command that sets it, to every role, in every form it parses:
-- the name followed by an assignment operator (`=`, `+=`, `:=` and the others), or with `++` or `--` against it, anywhere in the command's words, also when brace expansion builds it (`CLAUDE_MERGE_TRAC{K,}=2`, `CLAUDE_MERGE_{TRACK,X}=2`). That covers an assignment alone or before a command, after `env`, `sudo`, `xargs` or `setsid`, or as an option's value such as `tmux -e`. It also covers `let`, `(( ))`, `$(( ))`, an array subscript, `${CLAUDE_MERGE_TRACK:=…}` and `${v:CLAUDE_MERGE_TRACK=…}`;
+- the name followed by an assignment operator (`=`, `+=`, `:=` and the others), or with `++` or `--` against it, anywhere in the command's words, also when brace expansion builds it (`CLAUDE_MERGE_TRAC{K,}=2`, `CLAUDE_MERGE_{TRACK,X}=2`, `CLAUDE_MERGE_TRAC{J..L}=2`). A word with more than 256 brace forms that holds part of the name counts as setting it. That covers an assignment alone or before a command, after `env`, `sudo`, `xargs` or `setsid`, or as an option's value such as `tmux -e`. It also covers `let`, `(( ))`, `$(( ))`, an array subscript, `${CLAUDE_MERGE_TRACK:=…}` and `${v:CLAUDE_MERGE_TRACK=…}`;
 - a JSON key `"CLAUDE_MERGE_TRACK":`, after decoding `\u` escapes, as in a settings `env` block passed inline to `claude --settings`, in any command but a search (`grep`, `rg`, `ag`, `ack`, `git grep`);
 - an assignment whose value names it, which points a nameref at it (`r=CLAUDE_MERGE_TRACK`);
 - `export`, `declare`, `typeset`, `readonly`, `local`, `let`, `for`, `select`, `read`, `mapfile`, `readarray`, `getopts` or `wait` with a word that names it, as in `declare -n r=CLAUDE_MERGE_TRACK` or `getopts 2 CLAUDE_MERGE_TRACK`;
 - `printf -v CLAUDE_MERGE_TRACK`.
 
-The same forms are denied inside `sh -c` and `env -S`, in a here-string or heredoc fed to a shell or `source`, and in a command the hook can't split into words. These stay allowed:
+The same forms are denied inside `sh -c` and `env -S`, and in a command the hook can't split into words. A here-string or heredoc that a shell or `source` runs, directly or through a pipe, is denied if its text names the variable at all, since that text is a script. These stay allowed:
 - `env -u CLAUDE_MERGE_TRACK`, `unset`, `declare -p`, and `export -n` with no assignment;
 - reading it as `$CLAUDE_MERGE_TRACK`, `${CLAUDE_MERGE_TRACK}`, `${#…}`, `${!…}`, or an expansion such as `${CLAUDE_MERGE_TRACK-=}` that doesn't assign;
 - naming it without an assignment in another command's arguments, as `grep` does;
