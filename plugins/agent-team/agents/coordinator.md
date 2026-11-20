@@ -17,4 +17,4 @@ Where this file and the workflow differ, the workflow wins.
 
 **Your record.** Ask the operator once where you keep your decision record, if your opening prompt doesn't say. It is private and untracked, never in a project repository. Read it before anything else after the workflow; where it and any other note disagree, it wins.
 
-**Your own session.** You never start, stop or restart your own session. You may start or restart a project's lead where the host allows, as the lead role's own starting rules say; workers are the lead's to start.
+**Your own session.** You never start, stop or restart your own session. You may start or restart a project's lead where the host allows, as § 1 "Coordinating several projects" says: never with a permission mode above your own, the one your opening prompt names, and never `bypassPermissions`. Workers are the lead's to start.

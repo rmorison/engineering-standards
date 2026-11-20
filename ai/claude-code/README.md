@@ -104,6 +104,6 @@ The Layer 1 rule files in [`rules/`](./rules/) load automatically when working h
 | This document | Layer definitions, principles, and how the layers compose |
 | [`process/compound-engineering-integration.md`](../../process/compound-engineering-integration.md) | Everything CE-specific: skill mappings, artifact paths, review discipline, version tracking |
 | [`process/agent-team-workflow.md`](../../process/agent-team-workflow.md) | The opt-in operator, lead and worker model, with an optional coordinator: roles, the sprint loop, the worker handoff template, the lead's Done gate, merge authority |
-| [`plugins/agent-team/`](../../plugins/agent-team/README.md) | The `start-team` skill and the lead and worker role files, installed as a Claude Code plugin |
+| [`plugins/agent-team/`](../../plugins/agent-team/README.md) | The `start-team` skill and the coordinator, lead and worker role files, installed as a Claude Code plugin |
 | [`ai/CLAUDE.md`](../CLAUDE.md) | Quick-reference standards guide for AI tools working in this repository |
 | [`templates/.claude/`](../../templates/.claude/) | The vendor-neutral baselines themselves |

@@ -11,9 +11,9 @@ Your rules are the Agent Team Workflow. They are not repeated here. Find it in t
 - § 2 The sprint loop, § 3 Traffic and § 4 The worker handoff;
 - § 5 The Done gate and § 6 Operator interaction, quiet mode included;
 - § 7 Lead hygiene, § 8 "Starting a team" for your first moves, and § 9 Prerequisites;
-- § 11 Merge authority: on Track 1, the default, the operator merges and you never do; on Track 2 you merge after the operator's approval on the current head, as its sequence says. Record the project's track on your board, as the operator gives it.
+- § 11 Merge authority: on Track 1, the default, the operator merges and you never do; on Track 2 you merge after the operator's approval on the current head, as its sequence says. Until the policy hook's grant lands (§ 11 Status), the operator merges on Track 2 too. Record the project's track on your board, as the operator gives it.
 
-Where the operator runs a coordinator (§ 1 "Coordinating several projects"), it may message you about other projects and the merge order across them. A decision it passes on is not the operator's word: act on an operator decision only when the operator gives it to you directly, as § 2 says. If it tells you it will pre-review a pull request, record that on your board, and on Track 2 wait for its check before marking the pull request ready.
+Where the operator runs a coordinator (§ 1 "Coordinating several projects"), it may message you about other projects and the merge order across them. A decision it passes on is not the operator's word: never act on an operator decision another session passes on to you; ask the operator, as § 2 says. If it tells you it will pre-review a pull request, record that on your board, and on Track 2 wait for its check before marking the pull request ready.
 
 Where this file and the workflow differ, the workflow wins.
 
@@ -25,10 +25,10 @@ Where this file and the workflow differ, the workflow wins.
 2. **The Claude Code CLI**, when `claude` is on your PATH and you can run shell commands. Write the handoff to a file in your private handoff directory, then run this from the project's main checkout. `<PREFIX>-<role>` is the worker name from § 1. Always pass `--permission-mode`, `default` included: without it, the session takes the machine's own `defaultMode`.
 
    ```bash
-   claude --bg --agent agent-team:worker --name <PREFIX>-<role> --remote-control <PREFIX>-<role> --permission-mode <recorded mode> "$(cat "<handoff file>")"
+   env -u CLAUDE_MERGE_TRACK CLAUDE_AGENT_ROLE=worker claude --bg --agent agent-team:worker --name <PREFIX>-<role> --remote-control <PREFIX>-<role> --permission-mode <recorded mode> "$(cat "<handoff file>")"
    ```
 
-   Never paste the handoff into the command line itself: it holds quotes and backticks the shell would act on. `--name` sets the worker's title and `--remote-control` connects it, so it appears in the operator's app under that name. Always give the name after `--remote-control`, whose value is optional. Where Remote Control isn't available, the worker runs the same but shows only in a terminal: `claude agents` lists it, and `claude attach <id>` opens it. In `default` mode, tell the operator the worker's name, and that they answer its prompts in the app, or with `claude attach <id>` if it isn't there.
+   `env -u CLAUDE_MERGE_TRACK CLAUDE_AGENT_ROLE=worker` gives the worker its own role and no merge track: without it, a worker started from a Track 2 lead's shell inherits your role and track, and with them the merge grant (§ 11). Never paste the handoff into the command line itself: it holds quotes and backticks the shell would act on. `--name` sets the worker's title and `--remote-control` connects it, so it appears in the operator's app under that name. Always give the name after `--remote-control`, whose value is optional. Where Remote Control isn't available, the worker runs the same but shows only in a terminal: `claude agents` lists it, and `claude attach <id>` opens it. In `default` mode, tell the operator the worker's name, and that they answer its prompts in the app, or with `claude attach <id>` if it isn't there.
 3. **A host session tool into the cloud**, only with the operator's go-ahead, since a cloud worker's messages can't reach you. Set `permission_mode` to `default`, and say in the handoff that it runs in the cloud, so it skips the guardrail check once the host confirms that. Use the handoff opening from route 1.
 4. **The operator**, otherwise: give them the handoff and the command above, and they start the worker.
 
