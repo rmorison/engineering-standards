@@ -2,14 +2,17 @@
 """A Claude Code PreToolUse hook: agent sessions don't merge or change repository settings.
 
 process/repository-standards.md owns the rules this enforces (Guarding Repository
-Authority). It assumes a human in the loop, the operator, who signs off on work,
-merges in the GitHub web UI and owns repository settings. Every agent session
-posts as the operator's account, so GitHub cannot tell a session from the
-operator; this hook is what keeps the merge and the settings with the operator.
+Authority). It assumes a human in the loop, the operator, who signs off on work
+and owns repository settings. On Track 1, the default, the operator also merges
+in the GitHub web UI, and sessions post as the operator's account, so GitHub
+cannot tell a session from the operator; this hook is what keeps the merge and
+the settings with the operator. On Track 2, a ruleset requires the operator's
+approval on the head, and a lead session may merge with gh pr merge after it.
 
 It is installed at user scope beside scripts/claude_leak_hook.py, runs before
-every Bash command and every MCP tool call, and applies to every agent session:
-there is no role marker to go missing. It exits 2 to deny, with the reason on
+every Bash command and every MCP tool call, and applies to every agent session.
+A session with no role, or no track, is denied everything below, so a marker
+that goes missing never lets anything through. It exits 2 to deny, with the reason on
 standard error, and 0 to allow. It never returns a permission decision of its
 own, so an allowed command still goes through the session's normal permission
 prompts.
@@ -26,9 +29,11 @@ prompts.
 
 Everything the hook denies is listed once, in the tables under "What is
 denied", and every policy denial goes through decide(). That is the one place a
-role could later be granted an action (GRANTS); today nothing is granted, and a
-missing or unknown role never grants anything. A call the hook cannot check is
-denied outside it, so no grant ever lets an unchecked call through.
+role is granted an action (GRANTS). One row grants anything: a lead whose
+session declares Track 2 of the workflow's merge authority may run gh pr merge
+without --admin. A missing or unknown role, or a missing or unknown track,
+never grants anything. A call the hook cannot check is denied outside it, so no
+grant ever lets an unchecked call through.
 
 It parses commands with the leak hook's parser, imported from the same
 directory, so both scripts must be installed. Without the leak hook, every call
@@ -48,11 +53,16 @@ import sys
 STOP = ("Agent sessions don't merge, push to a default branch or change repository settings; "
         "the operator does that in the GitHub web UI. Say what you need in the issue or "
         "pull request, and stop.")
+# A Track 2 lead denied a merge route: it may merge, but only one way.
+LEAD_STOP = ("A Track 2 lead merges only with gh pr merge, written out in full and without "
+             "--admin, once the operator has approved the current head on GitHub. Merging any "
+             "other way, pushing to a default branch and changing repository settings are the "
+             "operator's, in the GitHub web UI; say what you need in the pull request, and stop.")
 
 sys.dont_write_bytecode = True  # no __pycache__ beside the installed hooks
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 try:
-    from claude_leak_hook import Deny, option, parse
+    from claude_leak_hook import EXPORTERS, SHELLS, Deny, option, parse
 except Exception as error:  # fail closed: the parser is required
     sys.stderr.write(f"policy hook: denied: claude_leak_hook.py could not be imported "
                      f"({type(error).__name__}); install both hooks. {STOP}\n")
@@ -61,15 +71,17 @@ except Exception as error:  # fail closed: the parser is required
 
 # --- What is denied ------------------------------------------------------------------
 #
-# The categories a role could one day be granted, and the rows that map each
-# command form to one of them with the words a denial uses.
+# The categories a role can be granted, and the rows that map each command
+# form to one of them with the words a denial uses.
 
-MERGE = "merge"
+MERGE = "merge"  # every merge route; granted to no role
+PR_MERGE = "pr-merge"  # gh pr merge with no --admin, the one form a role can be granted
 SETTINGS = "settings"
 RULESETS = "rulesets"
 PROTECTION = "branch-protection"
 DEFAULT_PUSH = "default-push"
 OPT_OUT = "policy-opt-out"
+TRACK = "merge-track"  # setting CLAUDE_MERGE_TRACK, which only the operator does
 
 # gh <group> <verb>. None as the verb set means every verb but those in READ_VERBS.
 GH_COMMANDS = {
@@ -149,11 +161,20 @@ DEFAULT_PUSH_NOUN = "pushing to the default branch"
 
 # --- Deciding ------------------------------------------------------------------------
 
-# Roles granted a category. Empty: no role is granted anything. A later grant is
-# one row, such as "principal": {MERGE}, plus CLAUDE_AGENT_ROLE=principal in the
-# environment the session's Claude Code process starts with.
-GRANTS = {}
+# Roles, each with the categories it is granted and the merge track each grant
+# needs. Both come only from the environment the session's Claude Code process
+# starts with: CLAUDE_AGENT_ROLE and CLAUDE_MERGE_TRACK. A role not listed here,
+# or a grant whose track the session doesn't declare, grants nothing. The
+# project's ruleset, not this table, is what makes a Track 2 merge safe
+# (process/repository-standards.md, Guarding Repository Authority).
+TRACK_1, TRACK_2 = "1", "2"
+GRANTS = {
+    "lead": {PR_MERGE: TRACK_2},
+    "coordinator": {},
+    "worker": {},
+}
 ROLE_VAR = "CLAUDE_AGENT_ROLE"
+TRACK_VAR = "CLAUDE_MERGE_TRACK"
 
 
 def role():
@@ -161,10 +182,30 @@ def role():
     return os.environ.get(ROLE_VAR) or None
 
 
+def track():
+    """The session's merge track, read only from the hook's own environment.
+
+    Only the exact value 2 is Track 2; a missing, empty or unrecognised value is Track 1.
+    """
+    return TRACK_2 if os.environ.get(TRACK_VAR) == TRACK_2 else TRACK_1
+
+
+def granted(category):
+    """Whether the session's role is granted the category on the session's track."""
+    grants = GRANTS.get(role(), {})
+    return category in grants and grants[category] == track()
+
+
+class LeadMergeDeny(Deny):
+    """A merge route denied to a session that may merge by gh pr merge."""
+
+
 def decide(category, noun):
     """The one decision point: raises Deny unless the session's role is granted the category."""
-    if category in GRANTS.get(role(), ()):
+    if granted(category):
         return
+    if category == MERGE and granted(PR_MERGE):
+        raise LeadMergeDeny(noun)
     raise Deny(noun)
 
 
@@ -183,6 +224,38 @@ def skip_flags(words, with_value):
     return words
 
 
+def admin_flag(word):
+    """gh's --admin, which merges past the branch rules; pflag also takes --admin=<bool>."""
+    return word == "--admin" or word.startswith("--admin=")
+
+
+# Characters by which the shell can still turn a word into another: substitution,
+# brace expansion, globs, extended globs and the tilde (~, ~-, ~+, ~1 read
+# variables an earlier command can set). The parser splits an unquoted
+# extended glob such as --@(admin) at its parenthesis, leaving a word that ends
+# in the glob's @, +, ! (or ?, *), so a word ending in one counts too.
+EXPANDS = re.compile(r"[$`{}*?\[\]()~]|[@+!]$")
+
+
+def gh_pr_merge(cmd):
+    """gh pr merge: a Track 2 lead may run it, never with --admin."""
+    noun = GH_COMMANDS[("pr", "merge")][1]
+    # Any word counts, even a value or one after --, so nothing that reads as
+    # --admin is let through. A word the shell could still expand, by a
+    # substitution, a brace or a glob, could become --admin, so it can't be
+    # checked. The words have lost their quotes, so a quoted $ counts too.
+    if any(admin_flag(w) for w in cmd.words[1:]):
+        decide(MERGE, noun + " with --admin, which bypasses the branch rules"
+               if granted(PR_MERGE) else noun)
+    if any(EXPANDS.search(w) for w in cmd.words[1:]):
+        decide(MERGE, "a gh pr merge with a word the shell could expand, so it cannot be "
+               "checked; write the number and flags out, put a body that needs $, `, {, }, "
+               "*, ?, [, ], (, ) or ~, or ends in !, + or @, in a file for -F named without ~, "
+               "and reword a "
+               "subject that needs one or leave it out" if granted(PR_MERGE) else noun)
+    decide(PR_MERGE, noun)
+
+
 def gh_command(cmd):
     """Checks one gh command. Raises Deny."""
     words = skip_flags(cmd.words[1:], GH_WITH_VALUE)
@@ -190,7 +263,9 @@ def gh_command(cmd):
         return
     group, rest = words[0], skip_flags(words[1:], GH_WITH_VALUE)
     verb = rest[0] if rest else ""
-    if (group, verb) in GH_COMMANDS:
+    if (group, verb) == ("pr", "merge"):
+        gh_pr_merge(cmd)
+    elif (group, verb) in GH_COMMANDS:
         decide(*GH_COMMANDS[(group, verb)])
     elif group == "repo" and verb == "deploy-key":
         sub = skip_flags(rest[1:], GH_WITH_VALUE)
@@ -480,6 +555,141 @@ def deny_push(cmd, prefix, defaults, noun):
     decide(DEFAULT_PUSH, noun)
 
 
+# --- The merge track ----------------------------------------------------------------
+#
+# A session that set CLAUDE_MERGE_TRACK for a child it starts could make that
+# child a Track 2 lead, so only the operator sets it, outside any session. This
+# is best effort: the ruleset that requires the operator's approval is the guard.
+
+TRACK_NOUN = "setting CLAUDE_MERGE_TRACK, which only the operator sets"
+# The name as an identifier, not read as $NAME, ${NAME}, ${#NAME} or ${!NAME}.
+TRACK_ID = r"(?<![$A-Za-z0-9_{#!])CLAUDE_MERGE_TRACK(?![A-Za-z0-9_])"
+TRACK_NAME = re.compile(TRACK_ID)
+# The name followed by an assignment operator, or with ++ or -- against it: an
+# assignment, a let or (( )) expression, an array subscript or ${v:NAME=2}. It
+# is matched in a command's words joined, since the parser splits
+# (( NAME = 2 )) into words, so prose that reads NAME= matches too. Inside
+# ${NAME...} only = and := assign; ${NAME-=} and ${NAME/=/x} read.
+TRACK_WRITE = re.compile(r"\$\{CLAUDE_MERGE_TRACK:?="
+                         r"|(?<![$A-Za-z0-9_#!{])CLAUDE_MERGE_TRACK\s*(:|[-+*/%&|^]|<<|>>)?=(?!=)"
+                         r"|" + TRACK_ID + r"(\+\+|--)|(?<![-+])(\+\+|--)CLAUDE_MERGE_TRACK\b")
+# A settings env block, as passed inline to claude --settings, in any command
+# but a search for the key. JSON \u escapes are decoded first.
+TRACK_JSON_KEY = re.compile(r"\"CLAUDE_MERGE_TRACK\"\s*:")
+JSON_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
+TRACK_SEARCHES = {"grep", "egrep", "fgrep", "rg", "ag", "ack"}
+# Builtins whose words can name a variable they set: as a name, NAME=v, an
+# arithmetic expression (let), a nameref's target, or getopts' and wait -p's NAME.
+TRACK_NAMERS = EXPORTERS | {"let", "for", "select", "read", "mapfile", "readarray",
+                            "getopts", "wait"}
+# declare/typeset -p print it, export -n removes the export (declare -n is a nameref).
+TRACK_READS = {"declare": {"-p"}, "typeset": {"-p"}, "export": {"-p", "-n"}}
+# An innermost brace group, not ${...}: {a,b} or a sequence {x..y} or {x..y..n}.
+BRACE = re.compile(r"(?<!\$)\{([^{}]*,[^{}]*|-?\w+\.\.-?\w+(\.\.-?\d+)?)\}")
+MAX_FORMS = 256
+NUMBER = re.compile(r"-?[0-9]{1,18}")
+
+
+def alternatives(group):
+    """What one brace group expands to; a sequence as bash reads it, or itself."""
+    if "," in group:
+        return group.split(",")
+    a, b = group.split("..")[:2]
+    if NUMBER.fullmatch(a) and NUMBER.fullmatch(b):
+        lo, hi = sorted((int(a), int(b)))
+        return [str(n) for n in range(lo, min(hi, lo + MAX_FORMS) + 1)]
+    if len(a) == 1 and len(b) == 1:
+        lo, hi = sorted((ord(a), ord(b)))
+        return [chr(c) for c in range(lo, min(hi, lo + MAX_FORMS) + 1)]
+    return ["{" + group + "}"]
+
+
+def forms(word):
+    """The word, and what brace expansion makes of it, so that CLAUDE_MERGE_TRAC{K,}
+    and CLAUDE_MERGE_{TRACK,X} read as the name. A word with more forms than
+    MAX_FORMS that assigns (holds =) can't be checked, so it reads as setting it."""
+    out, todo = [word], [word]
+    while todo:
+        w = todo.pop()
+        m = BRACE.search(w)
+        if not m:
+            continue
+        for alt in alternatives(m.group(1)):
+            new = w[:m.start()] + alt + w[m.end():]
+            if new == w:
+                continue
+            out.append(new)
+            todo.append(new)
+        if len(out) > MAX_FORMS:
+            if "=" in word:
+                out.append(TRACK_VAR + "=")  # too many to check: count it as a write
+            break
+    return out
+
+
+def searches(cmd):
+    if cmd.program in TRACK_SEARCHES:
+        return True
+    sub = skip_flags(cmd.words[1:], GIT_WITH_VALUE) if cmd.program == "git" else []
+    return bool(sub) and sub[0] == "grep"
+
+
+def names_track(text):
+    """Whether script text names the variable at all, after brace expansion: as a
+    write, an identifier or a JSON key."""
+    tokens = [f for t in re.split(r"[\s;&|()]+", text) for f in forms(t)]
+    return (any(TRACK_NAME.search(f) or TRACK_WRITE.search(f) for f in tokens)
+            or TRACK_WRITE.search(text)
+            or TRACK_JSON_KEY.search(JSON_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), text)))
+
+
+STDIN_SHELLS = SHELLS | {"source", "."}
+# A heredoc piped into a shell on the command's first line, through any stages or
+# wrappers: cat <<EOF | bash, cat <<EOF | tee f | sudo bash.
+HEREDOC_TO_SHELL = re.compile(r"<<-?[^\n]*\|[^\n]*?(^|[\s/])(" + "|".join(sorted(SHELLS))
+                              + r"|source|\.)(\s|$)")
+
+
+def track_stdin(commands, command):
+    """Denies a here-string or heredoc a shell or source runs, on its own command or
+    piped in on the first line, when its text names the variable. Broad, since that
+    text is a script."""
+    shells = [c for c in commands if c.program in STDIN_SHELLS]
+    texts = [t for c in shells for op, t in c.redirects if op == "<<<"]
+    first, _, rest = command.partition("\n")
+    if (any(op == "<<" for c in shells for op, _ in c.redirects)
+            or (shells and HEREDOC_TO_SHELL.search(first))):
+        texts.append(rest)
+    if any(names_track(t) for t in texts):
+        decide(TRACK, TRACK_NOUN)
+
+
+def track_command(cmd):
+    """Denies a command that sets CLAUDE_MERGE_TRACK, in any form the parser reads.
+
+    Best effort, and broad: text that reads NAME= is denied even as an argument."""
+    words, args = cmd.words, cmd.words[1:]
+    every = [f for w in cmd.assigns + words for f in forms(w)]
+    text = " ".join(every)
+    if (TRACK_WRITE.search(text)
+            or any(TRACK_NAME.search(f) for a in cmd.assigns for f in forms(a.split("=", 1)[1]))
+            or (not searches(cmd)
+                and TRACK_JSON_KEY.search(JSON_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), text)))):
+        decide(TRACK, TRACK_NOUN)
+    named = [f for w in args if not w.startswith("-") for f in forms(w)]
+    if cmd.program in TRACK_NAMERS and any(TRACK_NAME.search(f) for f in named):
+        options = {w for w in args if w.startswith("-")}
+        reads = options and options <= TRACK_READS.get(cmd.program, set())
+        if not reads or any("=" in f for f in named):  # export -n r=NAME points a nameref
+            decide(TRACK, TRACK_NOUN)
+    if cmd.program == "printf":
+        for i, w in enumerate(args):
+            nxt = forms(args[i + 1]) if i + 1 < len(args) else []
+            if (w == "-v" and TRACK_VAR in nxt) or TRACK_VAR in [f.removeprefix("-v") for f in forms(w)
+                                                                 if f.startswith("-v")]:
+                decide(TRACK, TRACK_NOUN)
+
+
 # --- MCP tools -----------------------------------------------------------------------
 
 
@@ -508,6 +718,9 @@ FALLBACK = [
     (re.compile(r"\bgh\b[^\n;&|]*\bapi\b"), SETTINGS,
      "a gh api call that cannot be split into words"),
     (re.compile(r"agentpolicy\.allowdefaultpush", re.I), OPT_OUT, OPT_OUT_NOUN),
+    (re.compile(TRACK_WRITE.pattern + r"|" + TRACK_JSON_KEY.pattern + r"|\b("
+                + "|".join(sorted(TRACK_NAMERS)) + r"|printf)\b[^\n;&|]*" + TRACK_ID),
+     TRACK, TRACK_NOUN),
     (re.compile(r"\bgit\b[^\n;&|]*\bpush\b"), DEFAULT_PUSH,
      "a push that cannot be split into words, so its destination cannot be checked"),
 ]
@@ -529,9 +742,11 @@ def check_command(command, cwd):
             if cmd.program == "tee":
                 targets += [w for w in cmd.words[1:] if not w.startswith("-")]
             heredoc_files.update(os.path.normpath(os.path.join(cmd.cwd, t)) for t in targets)
+    track_stdin(commands, command)
     for cmd in commands:
         cmd.raw_text = command
         cmd.heredoc_files = heredoc_files
+        track_command(cmd)
         if cmd.program == "gh":
             gh_command(cmd)
         elif cmd.program == "git":
@@ -554,9 +769,12 @@ def permission_mode(data):
 def main():
     if sys.argv[1:] == ["--whoami"]:
         r = role()
-        granted = sorted(GRANTS.get(r, ()))
+        known = "" if r is None or r in GRANTS else ", an unknown role"
+        held = sorted(c for c in GRANTS.get(r, {}) if granted(c))
         print(f"policy hook: role {r or 'none'} ({ROLE_VAR} "
-              f"{'is set' if r else 'is not set'}); granted: {', '.join(granted) or 'nothing'}.")
+              f"{'is set' if r else 'is not set'}{known}); track {track()} ({TRACK_VAR} "
+              f"{'is set' if os.environ.get(TRACK_VAR) else 'is not set'}); "
+              f"granted: {', '.join(held) or 'nothing'}.")
         return 0
     data = None
     try:
@@ -586,7 +804,8 @@ def main():
                     "person, outside the session: git config --local agentpolicy.allowDefaultPush true.")
         if OPT_OUT_NOUN in str(reason):
             hint += f" (permission mode: {permission_mode(data)})"
-        sys.stderr.write(f"policy hook: denied: {reason}. {STOP}{hint}\n")
+        stop = LEAD_STOP if isinstance(reason, LeadMergeDeny) else STOP
+        sys.stderr.write(f"policy hook: denied: {reason}. {stop}{hint}\n")
         return 2
     except Exception as error:  # fail closed, naming nothing from the input
         sys.stderr.write(f"policy hook: denied: the hook failed ({type(error).__name__}) "
