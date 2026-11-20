@@ -41,6 +41,7 @@ STANDARD = ROOT / "process" / "repository-standards.md"
 HOOK_TIMEOUT = 20  # seconds; one call takes well under one
 
 STOP = "the operator does that in the GitHub web UI"
+LEAD_STOP = "A Track 2 lead merges only with gh pr merge"
 RESIDUAL_DOC = (
     "the residual is now denied: update the residual list in "
     "process/repository-standards.md (Guarding Repository Authority) and move this fixture"
@@ -162,14 +163,15 @@ class Sandbox:
         shutil.rmtree(self.root, ignore_errors=True)
 
 
-def check(name, result, want, frag=None, on_fail=None):
+def check(name, result, want, frag=None, on_fail=None, stop=None):
     """want is 'deny' or 'allow' (exit 0 and no output at all)."""
     rc, out, err = result
+    stop = stop or STOP
     if want == "deny":
         if rc != 2:
             return bad(name, on_fail or f"exit {rc}, expected 2 (deny)", result)
-        if STOP not in err:
-            return bad(name, f"the denial does not say {STOP!r}", result)
+        if stop not in err:
+            return bad(name, f"the denial does not say {stop!r}", result)
         if frag and frag not in err:
             return bad(name, f"the denial does not say {frag!r}", result)
     else:
@@ -605,14 +607,32 @@ def fixtures(sb):
         "sh -c 'gh pr merge 12 --admin'",
     ]:
         check(f"U4 deny --admin, Track 2 lead: {command!r}", sb.bash(command, env=lead2),
-              "deny", "with --admin")
-    # Every other route to a merge stays denied, granted to no role.
+              "deny", "with --admin", stop=LEAD_STOP)
+    # A word built when the command runs could become --admin.
+    for command in [
+        "F=--admin; gh pr merge 12 $F",
+        'gh pr merge 12 "$(echo --admin)"',
+        "gh pr merge 12 `echo --admin`",
+        'bash -c "gh pr merge 12 \\$X"',
+        'gh pr merge "$PR" --squash',
+    ]:
+        check(f"U4 deny built at run time, Track 2 lead: {command!r}",
+              sb.bash(command, env=lead2), "deny", "built when it runs", stop=LEAD_STOP)
+    # Every other route to a merge stays denied, granted to no role, and the
+    # Track 2 lead is told the one way it may merge.
     for command, frag in [
         ("gh api -X PUT repos/o/r/pulls/12/merge", MERGE),
         ("gh api graphql -F query=@merge.graphql -f id=x", "mergePullRequest"),
         ("gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }'",
          "enablePullRequestAutoMerge"),
         ("gh pr merge 12 --squash '", MERGE),  # cannot be split: the fallback
+    ]:
+        check(f"U4 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny", frag,
+              stop=LEAD_STOP)
+    check("U4 deny, Track 2 lead: MCP merge_pull_request",
+          sb.mcp("mcp__github__merge_pull_request", {"pullNumber": 12}, env=lead2), "deny", MERGE,
+          stop=LEAD_STOP)
+    for command, frag in [
         ("gh repo edit --enable-auto-merge", SETTINGS),
         ("gh api -X PUT repos/o/r/rulesets/1 -f name=x", "rulesets"),
         ("git -c agentpolicy.allowDefaultPush=true --version", OPT_OUT),
@@ -620,8 +640,6 @@ def fixtures(sb):
         check(f"U4 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny", frag)
     check("U4 deny, Track 2 lead: git push origin trunk",
           sb.bash("git push origin trunk", cwd=sb.trunk, env=lead2), "deny", PUSH)
-    check("U4 deny, Track 2 lead: MCP merge_pull_request",
-          sb.mcp("mcp__github__merge_pull_request", {"pullNumber": 12}, env=lead2), "deny", MERGE)
     # Any other role, or a lead not on Track 2, is denied both forms with today's message.
     sessions = [("coordinator", "2"), ("worker", "2"), ("principal", "2"), ("Lead", "2"),
                 ("", "2"), ("lead", None), ("lead", ""), ("lead", "1"), ("lead", "two"),
@@ -633,8 +651,8 @@ def fixtures(sb):
         for command in ["gh pr merge 12 --squash", "gh pr merge 12 --admin"]:
             rc, out, err = result = sb.bash(command, env=env)
             name = f"U4 deny role={role!r} track={track!r}: {command!r}"
-            if "with --admin" in err:
-                bad(name, "the denial names --admin, not today's message", result)
+            if "with --admin" in err or LEAD_STOP in err:
+                bad(name, "the denial is a Track 2 lead's, not today's message", result)
             else:
                 check(name, result, "deny", MERGE)
     check("U4 deny: a track set in the command, not the environment",

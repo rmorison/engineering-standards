@@ -2,14 +2,17 @@
 """A Claude Code PreToolUse hook: agent sessions don't merge or change repository settings.
 
 process/repository-standards.md owns the rules this enforces (Guarding Repository
-Authority). It assumes a human in the loop, the operator, who signs off on work,
-merges in the GitHub web UI and owns repository settings. Every agent session
-posts as the operator's account, so GitHub cannot tell a session from the
-operator; this hook is what keeps the merge and the settings with the operator.
+Authority). It assumes a human in the loop, the operator, who signs off on work
+and owns repository settings. On Track 1, the default, the operator also merges
+in the GitHub web UI, and sessions post as the operator's account, so GitHub
+cannot tell a session from the operator; this hook is what keeps the merge and
+the settings with the operator. On Track 2, a ruleset requires the operator's
+approval on the head, and a lead session may merge with gh pr merge after it.
 
 It is installed at user scope beside scripts/claude_leak_hook.py, runs before
-every Bash command and every MCP tool call, and applies to every agent session:
-there is no role marker to go missing. It exits 2 to deny, with the reason on
+every Bash command and every MCP tool call, and applies to every agent session.
+A session with no role, or no track, is denied everything below, so a marker
+that goes missing never lets anything through. It exits 2 to deny, with the reason on
 standard error, and 0 to allow. It never returns a permission decision of its
 own, so an allowed command still goes through the session's normal permission
 prompts.
@@ -50,6 +53,11 @@ import sys
 STOP = ("Agent sessions don't merge, push to a default branch or change repository settings; "
         "the operator does that in the GitHub web UI. Say what you need in the issue or "
         "pull request, and stop.")
+# A Track 2 lead denied a merge route: it may merge, but only one way.
+LEAD_STOP = ("A Track 2 lead merges only with gh pr merge, written out in full and without "
+             "--admin, once the operator has approved the current head on GitHub. Merging any "
+             "other way, pushing to a default branch and changing repository settings are the "
+             "operator's, in the GitHub web UI; say what you need in the pull request, and stop.")
 
 sys.dont_write_bytecode = True  # no __pycache__ beside the installed hooks
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -63,8 +71,8 @@ except Exception as error:  # fail closed: the parser is required
 
 # --- What is denied ------------------------------------------------------------------
 #
-# The categories a role could one day be granted, and the rows that map each
-# command form to one of them with the words a denial uses.
+# The categories a role can be granted, and the rows that map each command
+# form to one of them with the words a denial uses.
 
 MERGE = "merge"  # every merge route; granted to no role
 PR_MERGE = "pr-merge"  # gh pr merge with no --admin, the one form a role can be granted
@@ -187,10 +195,16 @@ def granted(category):
     return category in grants and grants[category] == track()
 
 
+class LeadMergeDeny(Deny):
+    """A merge route denied to a session that may merge by gh pr merge."""
+
+
 def decide(category, noun):
     """The one decision point: raises Deny unless the session's role is granted the category."""
     if granted(category):
         return
+    if category == MERGE and granted(PR_MERGE):
+        raise LeadMergeDeny(noun)
     raise Deny(noun)
 
 
@@ -218,11 +232,14 @@ def gh_pr_merge(cmd):
     """gh pr merge: a Track 2 lead may run it, never with --admin."""
     noun = GH_COMMANDS[("pr", "merge")][1]
     # Any word counts, even a value or one after --, so nothing that reads as
-    # --admin is let through.
+    # --admin is let through. A word built when the command runs could become
+    # --admin, so it can't be checked.
     if any(admin_flag(w) for w in cmd.words[1:]):
-        if granted(PR_MERGE):
-            raise Deny(noun + " with --admin, which bypasses the branch rules")
-        decide(MERGE, noun)
+        decide(MERGE, noun + " with --admin, which bypasses the branch rules"
+               if granted(PR_MERGE) else noun)
+    if any("$" in w or "`" in w for w in cmd.words[1:]):
+        decide(MERGE, "a gh pr merge whose words are built when it runs, so it cannot be "
+               "checked; write the number and flags out" if granted(PR_MERGE) else noun)
     decide(PR_MERGE, noun)
 
 
@@ -634,7 +651,8 @@ def main():
                     "person, outside the session: git config --local agentpolicy.allowDefaultPush true.")
         if OPT_OUT_NOUN in str(reason):
             hint += f" (permission mode: {permission_mode(data)})"
-        sys.stderr.write(f"policy hook: denied: {reason}. {STOP}{hint}\n")
+        stop = LEAD_STOP if isinstance(reason, LeadMergeDeny) else STOP
+        sys.stderr.write(f"policy hook: denied: {reason}. {stop}{hint}\n")
         return 2
     except Exception as error:  # fail closed, naming nothing from the input
         sys.stderr.write(f"policy hook: denied: the hook failed ({type(error).__name__}) "
