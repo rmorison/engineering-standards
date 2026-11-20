@@ -621,6 +621,10 @@ def fixtures(sb):
         "gh pr merge 12 --a*",
         "shopt -s extglob\ngh pr merge 12 --@(admin)",
         "gh pr merge 12 --+(admin)",
+        "HOME=--admin; gh pr merge 12 ~",
+        "OLDPWD=--admin; gh pr merge 12 --squash ~-",
+        "pushd -n /tmp; DIRSTACK[1]=--admin; gh pr merge 12 ~1",
+        'bash -c "HOME=--admin; gh pr merge 12 --squash ~"',
         "gh pr merge 12 --!(squash|merge|rebase)",
         "gh pr merge 12 --squash -t 'feat: x (#12)'",
         "gh pr merge 12 --squash -t 'cost $5'",  # a quoted $ can't be told apart
