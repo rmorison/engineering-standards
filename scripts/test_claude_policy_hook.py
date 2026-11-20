@@ -779,6 +779,12 @@ def fixtures(sb):
         "set -a; v=x; : ${v:CLAUDE_MERGE_TRACK=2}; claude -p x",
         "tmux new -d \"CLAUDE_MERGE_TRACK=2 claude -p x\"",
         "gh pr comment 1 --body 'the lead runs with CLAUDE_MERGE_TRACK=2'",  # prose: broad on purpose
+        "set -a; read {CLAUDE_MERGE_TRACK,} <<< 2; claude -p x",
+        "export CLAUDE_MERGE_TRAC{K,}=2; claude -p x",
+        "printf -v {CLAUDE_MERGE_TRACK,} 2",
+        "claude -p x --settings '{\"env\":{\"CLAUDE_MERGE_\\u0054RACK\":\"2\"}}'",
+        "((CLAUDE_MERGE_TRACK++)); echo '",  # cannot be split: the fallback
+        "(( CLAUDE_MERGE_TRACK *= 1 )); echo '",  # cannot be split: the fallback
         "claude -p 'x\nCLAUDE_MERGE_TRACK=2 claude -p y '\"",  # cannot be split: the fallback
     ]:
         for role, env in [("none", {}), ("worker", {"CLAUDE_AGENT_ROLE": "worker"}),
@@ -802,6 +808,11 @@ def fixtures(sb):
         "X=${#CLAUDE_MERGE_TRACK}; Y=${!CLAUDE_MERGE_TRACK}; Z=${CLAUDE_MERGE_TRACK:-1}",
         "test \"$CLAUDE_MERGE_TRACK\" = 2 && echo two",
         "rg -n '\"CLAUDE_MERGE_TRACK\":' .",
+        "git grep -n '\"CLAUDE_MERGE_TRACK\":'",
+        "grep -rn CLAUDE_MERGE_TRACK --include=*.py .",
+        "git log -S CLAUDE_MERGE_TRACK -- scripts",
+        "unset -v -- CLAUDE_MERGE_TRACK",
+        "echo ${CLAUDE_MERGE_TRACK-=} ${CLAUDE_MERGE_TRACK/=/x}",
     ]:
         check(f"U4 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 

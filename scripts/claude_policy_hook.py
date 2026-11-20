@@ -565,22 +565,39 @@ TRACK_NOUN = "setting CLAUDE_MERGE_TRACK, which only the operator sets"
 # The name as an identifier, not read as $NAME, ${NAME}, ${#NAME} or ${!NAME}.
 TRACK_ID = r"(?<![$A-Za-z0-9_{#!])CLAUDE_MERGE_TRACK(?![A-Za-z0-9_])"
 TRACK_NAME = re.compile(TRACK_ID)
-# The name followed by an assignment operator, or with ++ or -- on either side:
-# an assignment, a let or (( )) expression, an array subscript, ${NAME:=v} or
-# ${v:NAME=2}. It is matched in a command's words joined, since the parser
-# splits (( NAME = 2 )) into words, so prose that reads NAME= matches too.
-TRACK_WRITE = re.compile(r"(?<![$A-Za-z0-9_#!])CLAUDE_MERGE_TRACK\s*(:|[-+*/%&|^]|<<|>>)?=(?!=)"
-                         r"|" + TRACK_ID + r"\s*(\+\+|--)|(\+\+|--)\s*CLAUDE_MERGE_TRACK\b")
+# The name followed by an assignment operator, or with ++ or -- against it: an
+# assignment, a let or (( )) expression, an array subscript or ${v:NAME=2}. It
+# is matched in a command's words joined, since the parser splits
+# (( NAME = 2 )) into words, so prose that reads NAME= matches too. Inside
+# ${NAME...} only = and := assign; ${NAME-=} and ${NAME/=/x} read.
+TRACK_WRITE = re.compile(r"\$\{CLAUDE_MERGE_TRACK:?="
+                         r"|(?<![$A-Za-z0-9_#!{])CLAUDE_MERGE_TRACK\s*(:|[-+*/%&|^]|<<|>>)?=(?!=)"
+                         r"|" + TRACK_ID + r"(\+\+|--)|(?<![-+])(\+\+|--)CLAUDE_MERGE_TRACK\b")
 # A settings env block, as passed inline to claude --settings, in any command
-# but a search for the key.
+# but a search for the key. JSON \u escapes are decoded first.
 TRACK_JSON_KEY = re.compile(r"\"CLAUDE_MERGE_TRACK\"\s*:")
-TRACK_SEARCHES = {"grep", "egrep", "fgrep", "rg"}
+JSON_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
+TRACK_SEARCHES = {"grep", "egrep", "fgrep", "rg", "ag", "ack"}
 # Builtins whose words can name a variable they set: as a name, NAME=v, an
 # arithmetic expression (let), a nameref's target, or getopts' and wait -p's NAME.
 TRACK_NAMERS = EXPORTERS | {"let", "for", "select", "read", "mapfile", "readarray",
                             "getopts", "wait"}
 # declare/typeset -p print it, export -n removes the export (declare -n is a nameref).
 TRACK_READS = {"declare": {"-p"}, "typeset": {"-p"}, "export": {"-p", "-n"}}
+BRACES = re.compile(r"[{},]")
+
+
+def forms(word):
+    """The word, and the word with brace expansion's braces and commas removed, so
+    that CLAUDE_MERGE_TRAC{K,} and {CLAUDE_MERGE_TRACK,} read as the name."""
+    return [word] if "{" not in word or "${" in word else [word, BRACES.sub("", word)]
+
+
+def searches(cmd):
+    if cmd.program in TRACK_SEARCHES:
+        return True
+    sub = skip_flags(cmd.words[1:], GIT_WITH_VALUE) if cmd.program == "git" else []
+    return bool(sub) and sub[0] == "grep"
 
 
 def track_command(cmd):
@@ -588,19 +605,23 @@ def track_command(cmd):
 
     Best effort, and broad: text that reads NAME= is denied even as an argument."""
     words, args = cmd.words, cmd.words[1:]
-    text = " ".join(cmd.assigns + words)
+    every = [f for w in cmd.assigns + words for f in forms(w)]
+    text = " ".join(every)
     if (TRACK_WRITE.search(text)
-            or any(TRACK_NAME.search(a.split("=", 1)[1]) for a in cmd.assigns)  # r=NAME
-            or (cmd.program not in TRACK_SEARCHES and TRACK_JSON_KEY.search(text))):
+            or any(TRACK_NAME.search(f) for a in cmd.assigns for f in forms(a.split("=", 1)[1]))
+            or (not searches(cmd)
+                and TRACK_JSON_KEY.search(JSON_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), text)))):
         decide(TRACK, TRACK_NOUN)
-    if cmd.program in TRACK_NAMERS and any(TRACK_NAME.search(w) for w in args
-                                           if not w.startswith("-")):
+    named = [f for w in args if not w.startswith("-") for f in forms(w)]
+    if cmd.program in TRACK_NAMERS and any(TRACK_NAME.search(f) for f in named):
         options = {w for w in args if w.startswith("-")}
         if not (options and options <= TRACK_READS.get(cmd.program, set())):
             decide(TRACK, TRACK_NOUN)
     if cmd.program == "printf":
         for i, w in enumerate(args):
-            if (w == "-v" and i + 1 < len(args) and args[i + 1] == TRACK_VAR) or w == "-v" + TRACK_VAR:
+            nxt = forms(args[i + 1]) if i + 1 < len(args) else []
+            if (w == "-v" and TRACK_VAR in nxt) or TRACK_VAR in [f.removeprefix("-v") for f in forms(w)
+                                                                 if f.startswith("-v")]:
                 decide(TRACK, TRACK_NOUN)
 
 
@@ -632,8 +653,9 @@ FALLBACK = [
     (re.compile(r"\bgh\b[^\n;&|]*\bapi\b"), SETTINGS,
      "a gh api call that cannot be split into words"),
     (re.compile(r"agentpolicy\.allowdefaultpush", re.I), OPT_OUT, OPT_OUT_NOUN),
-    (re.compile(r"CLAUDE_MERGE_TRACK\"?\s*(\+|:)?[=:]|\b(" + "|".join(sorted(TRACK_NAMERS))
-                + r"|printf)\b[^\n;&|]*\bCLAUDE_MERGE_TRACK\b"), TRACK, TRACK_NOUN),
+    (re.compile(TRACK_WRITE.pattern + r"|" + TRACK_JSON_KEY.pattern + r"|\b("
+                + "|".join(sorted(TRACK_NAMERS)) + r"|printf)\b[^\n;&|]*\bCLAUDE_MERGE_TRACK\b"),
+     TRACK, TRACK_NOUN),
     (re.compile(r"\bgit\b[^\n;&|]*\bpush\b"), DEFAULT_PUSH,
      "a push that cannot be split into words, so its destination cannot be checked"),
 ]
