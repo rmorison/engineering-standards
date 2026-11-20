@@ -644,8 +644,9 @@ def names_track(text):
 
 
 STDIN_SHELLS = SHELLS | {"source", "."}
-# A heredoc piped into a shell on the command's first line: cat <<EOF | bash.
-HEREDOC_TO_SHELL = re.compile(r"<<-?[^|\n]*\|\s*(\S*/)?(" + "|".join(sorted(SHELLS))
+# A heredoc piped into a shell on the command's first line, through any stages or
+# wrappers: cat <<EOF | bash, cat <<EOF | tee f | sudo bash.
+HEREDOC_TO_SHELL = re.compile(r"<<-?[^\n]*\|[^\n]*?(^|[\s/])(" + "|".join(sorted(SHELLS))
                               + r"|source|\.)(\s|$)")
 
 
