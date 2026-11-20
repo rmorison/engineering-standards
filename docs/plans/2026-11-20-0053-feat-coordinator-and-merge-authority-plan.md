@@ -10,7 +10,7 @@ origin: https://github.com/rmorison/engineering-standards/issues/135
 
 # A Coordinator Role Above the Leads, and Agent Merges on the Operator's Approval - Plan
 
-**Status: DRAFT.** Started by the coordinator described here, at the operator's request. Every decision below is
+**Status: DRAFT; open questions resolved by the operator on #141.** Started by the coordinator described here, at the operator's request. Every decision below is
 **PROPOSED** and waits for the operator's sign-off on #135.
 
 ## Goal Capsule
@@ -33,7 +33,7 @@ origin: https://github.com/rmorison/engineering-standards/issues/135
   `.github/workflows/claude.yml`'s trigger. No change to the leak hook.
 - Stop conditions: stop and comment on #135 if a unit needs the operator's real token, a real App private key,
   a change to a live repository's rules, or any host-specific detail in the repository; or if the pilot (U7)
-  shows GitHub doing anything other than what the #113 spike observed.
+  shows a branch rule letting a merge through without the operator's approval on the head.
 - Finishes the work: one PR per unit group (U1 to U3 docs and role; U4 hook; U5 and U6 runbook and action),
   each `Part of #135` or `Part of #113`. The pilot report closes #113. The operator merges every PR in this
   plan: Track 2 does not apply to its own rollout.
@@ -101,7 +101,8 @@ approval request reaches the operator with the gate done and the order right.
 - R7. No session can read the App's private key. Sessions get short-lived installation tokens from a helper,
   scoped to one repository and to the permissions their role needs. The standard defines the helper's contract,
   not its host setup.
-- R8. A worker started by a lead gets the worker role and a token that can't merge, whatever the lead holds.
+- R8. A worker started by a lead gets the worker role, whatever the lead holds. GitHub's branch rules, not token
+  scoping, are what stop a worker's merge: the required code-owner approval and approval of the most recent push.
 - R9. A Track 2 project's operator gets the ready-to-merge news from GitHub: a review request from the App,
   which reaches their review queue and phone. The lead's ready message to the operator becomes optional.
 - R10. Nothing host-specific or secret lands in the repository: no tokens, key paths, account names or recovery
@@ -119,8 +120,9 @@ approval request reaches the operator with the gate done and the order right.
 - AE3 (R6). In a `lead` session declaring Track 2, the hook allows `gh pr merge 12 --squash` and denies
   `gh pr merge 12 --admin`. In a `coordinator` or `worker` session, or a `lead` session with no track declared,
   it denies both with today's message.
-- AE4 (R7, R8). A lead's token can merge in its own repository and nowhere else. A worker's token can push
-  branches and open pull requests, and its merge is refused by GitHub even if the hook were missing.
+- AE4 (R7, R8). A lead's token reaches its own repository and nowhere else. A worker pushes a commit after the
+  operator's approval; the approval is dismissed and GitHub refuses any merge until the operator approves again,
+  even if the hook were missing.
 - AE5 (R9). The App requests the operator's review on PR 12. The operator's phone shows it. The operator approves,
   and the lead merges and reports in its log, with no message sent to the operator.
 
@@ -136,10 +138,11 @@ approval request reaches the operator with the gate done and the order right.
   projects (AE1) and checks the Done gate on sensitive pull requests before the review request goes out. A
   dedicated integration agent stays future work: the spike showed rebases keep the approval, so leads can merge
   in order without one.
-- **D3. One private GitHub App for all agents, with role separation by token scope and by the hook.** This is the
-  #113 review's recommendation. Workers get tokens without the merge-capable scope where GitHub's permissions allow
-  that split; where it doesn't (push and merge share Contents: write), the ruleset's required code-owner approval
-  plus the hook carry it. A second App for leads stays optional hardening for sensitive projects.
+- **D3. One private GitHub App for all agents. Branch rules are the control; the hook is the second line.** This
+  is the #113 review's recommendation. The standard doesn't try to scope a worker's token so it can't merge
+  (push and merge share Contents: write): the ruleset's required code-owner approval and approval of the most
+  recent push are what branch protection is there for (operator, on #141). A second App for leads stays optional
+  hardening for sensitive projects.
 - **D4. The operator is the only code owner of a Track 2 repository.** The ruleset requires one code-owner
   approval, dismisses stale approvals and requires approval of the most recent reviewable push, as the spike
   set it up.
@@ -158,15 +161,21 @@ approval request reaches the operator with the gate done and the order right.
   review still runs on agent-authored pull requests. It is limited to that App's bot login, never to bots in
   general.
 
-## Open Questions (for the pilot, U7)
+## Resolved Questions (operator, on #141)
 
-1. Does a rebase that resolves a conflict keep or dismiss the approval? The spike tested only a clean rebase. If
-   it keeps it, the lead must treat a conflict resolution as a content change and ask again.
-2. Can the App merge a pull request that contains a workflow change a worker pushed? The App has no Workflows
-   permission, so the expected answer is no, and such a pull request goes back to the operator to merge.
-3. Can a worker's token be scoped to exclude merging at all? If not, D3's fallback (ruleset plus hook) carries it.
-4. How does a long-lived lead keep `gh` on a fresh token: a `gh` wrapper that calls the helper, or refreshing
-   `GH_TOKEN` on a schedule? The pilot picks the one that fails closed.
+1. **A rebase that resolves a conflict.** GitHub's branch rules decide. With approval of the most recent
+   reviewable push required, the lead doesn't second-guess the rule: if GitHub keeps the approval, the lead may
+   merge; if it dismisses it, the lead asks again. The pilot records which it was.
+2. **Workflow changes.** The standard recommends giving the App no Workflows permission, as best security
+   practice, so a pull request that changes a workflow goes back to the operator. The operator sets the App's
+   permissions and may choose otherwise.
+3. **A worker's token and merging.** Not scoped in the token; branch rules carry it (D3).
+4. **Keeping `gh` on a fresh token (the coordinator's call).** A `gh` wrapper, first on the session's `PATH`,
+   asks the helper for a token on every call and runs the real `gh` with it in `GH_TOKEN`. Git goes through the
+   same wrapper by `gh`'s credential helper. The helper may cache a token until a few minutes before it expires;
+   no session stores one. If the helper is down or refuses, the wrapper exits non-zero without running `gh`, so
+   a session fails closed and never falls back to another credential. A timed refresh was the other option. It
+   needs a timer in every session and leaves a window where a stale or wrong token sits in the environment.
 
 ---
 
@@ -182,7 +191,7 @@ approval request reaches the operator with the gate done and the order right.
 - **U3. Merge authority, two tracks.** New § 11 in the workflow: the two tracks, the Track 2 sequence (Done gate,
   ready comment, App requests the operator's review, operator approves the head, lead confirms the approval is on
   the current head, lead merges, lead logs), the rebase rule, and what goes back to the operator (workflow
-  changes, a conflict resolution if Q1 says so). § 9's "One posting account" becomes "A posting identity", with
+  changes, under the recommended App permissions). § 9's "One posting account" becomes "A posting identity", with
   each track's prerequisite. § 6's "pull request ready to merge" message becomes optional under Track 2 (R9).
 - **U4. The policy hook grant.** One row in the grants table: `lead` may run `gh pr merge` without `--admin`,
   `--auto` stays allowed, only when the session's environment declares Track 2. Fixtures for AE3, each seen to fail
@@ -191,13 +200,13 @@ approval request reaches the operator with the gate done and the order right.
 - **U5. Token helper contract and setup runbook.** `docs/runbooks/agent-merge-setup.md`: creating the App and its
   permissions (Contents, Pull requests, Checks read, Metadata; no Workflows, no Administration), the ruleset
   recipe from the spike, the CODEOWNERS line, the helper contract (inputs, scope rules, refusal cases, one-hour
-  lifetime), and an example setup with the key out of the agent account's reach. Placeholders only.
+  lifetime), the `gh` wrapper (resolved question 4) with its fail-closed test, and an example setup with the key out of the agent account's reach. Placeholders only.
 - **U6. The Claude action trigger.** `.github/workflows/claude.yml` accepts the configured App's bot login as an
   author on a Track 2 repository (D8), with the owner-only rule unchanged for everyone else. The starter kit's copy
   follows.
 - **U7. Pilot.** The operator picks one low-risk project and moves it to Track 2 by the runbook. One unit of real
-  work goes through it. The open questions are answered from what was observed and posted on #113, which then
-  closes. The workflow's Track 2 text says "piloted" until this report exists.
+  work goes through it, including one conflict-resolving rebase after approval. What GitHub did is posted on
+  #113, which then closes. The workflow's Track 2 text says "piloted" until this report exists.
 
 Order: U1 to U3 together (docs only), then U4, then U5 and U6, then U7. U4 can be reviewed while the docs are in
 review; it grants nothing until a session declares Track 2.
@@ -212,9 +221,10 @@ review; it grants nothing until a session declares Track 2.
 
 ## Risks
 
-- **A wider blast radius per token.** A lead's token can merge. Mitigations: one-hour tokens scoped to one
-  repository, a ruleset that requires the operator's approval on the head, and the hook's grant limited to
-  `lead` and to declared Track 2 sessions.
+- **A wider blast radius per token.** Any agent token can merge where GitHub's rules allow it. Mitigations:
+  one-hour tokens scoped to one repository, a ruleset that requires the operator's approval on the head, and the
+  hook's grant limited to `lead` and to declared Track 2 sessions. A repository without that ruleset must stay
+  on Track 1: the runbook's last step checks it is enforced.
 - **The private key is the new high-value secret.** If an agent session can read it, it can mint tokens. D5 keeps
   it out of the agent account's reach, and the runbook says how to check that.
 - **Approval fatigue.** One tap per pull request is still one tap. The coordinator's digest batches requests in
