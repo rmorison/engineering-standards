@@ -4,6 +4,7 @@ A Claude Code plugin that starts an agent team in one step, for projects that fo
 
 - **`start-team`**, a skill. From a session in your project, run `/agent-team:start-team` or ask for an agent team. It checks the workflow's prerequisites and adds the adoption line to `CLAUDE.md` or `AGENTS.md`. Then it starts `<project>-lead` in the lead role, or makes the current session the lead where no session can be started, and tells you what happens next.
 - **`lead`** and **`worker`**, two roles that each run as a whole session (`claude --agent agent-team:lead`). They link to the workflow's rules rather than copying them. Don't dispatch them as subagents.
+- **`coordinator`**, an optional third role for an operator running several projects: one session above the project leads, as the workflow's "Coordinating several projects" describes. `start-team` doesn't start it. Start it yourself, from wherever you keep its decision record, with `claude --agent agent-team:coordinator --name <name>`; it runs the workflow's guardrail check first, as a lead does. Like the others, it links to the workflow and is never dispatched as a subagent.
 
 ## Install
 

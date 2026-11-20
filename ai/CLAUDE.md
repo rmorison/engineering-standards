@@ -186,6 +186,7 @@ Full operational details: [`process/compound-engineering-integration.md`](../pro
 - [AI Architecture (six-layer model)](./claude-code/README.md)
 - [ADR-0001: Six-Layer AI Architecture](../docs/engineering/adr/0001-six-layer-ai-architecture.md)
 - [ADR-0002: Agent-Team Roles](../docs/engineering/adr/0002-agent-team-roles.md)
+- [ADR-0003: Coordinator and Merge Authority](../docs/engineering/adr/0003-coordinator-and-merge-authority.md)
 - [Compound Engineering Integration](../process/compound-engineering-integration.md)
 - [Documentation Standards](../process/documentation-standards.md)
 - [Feature Development Workflow](../process/feature-development-workflow.md)

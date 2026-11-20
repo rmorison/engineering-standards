@@ -8,7 +8,7 @@
     {
       "name": "agent-team",
       "source": "./plugins/agent-team",
-      "description": "Start an agent team in one step: a start-team skill and the lead and worker roles of the Agent Team Workflow"
+      "description": "Start an agent team in one step: a start-team skill and the coordinator, lead and worker roles of the Agent Team Workflow"
     }
   ]
 }
