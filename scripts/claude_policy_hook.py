@@ -584,24 +584,46 @@ TRACK_NAMERS = EXPORTERS | {"let", "for", "select", "read", "mapfile", "readarra
                             "getopts", "wait"}
 # declare/typeset -p print it, export -n removes the export (declare -n is a nameref).
 TRACK_READS = {"declare": {"-p"}, "typeset": {"-p"}, "export": {"-p", "-n"}}
-BRACE = re.compile(r"(?<!\$)\{([^{}]*,[^{}]*)\}")  # an innermost {a,b} group, not ${...}
+# An innermost brace group, not ${...}: {a,b} or a sequence {x..y} or {x..y..n}.
+BRACE = re.compile(r"(?<!\$)\{([^{}]*,[^{}]*|-?\w+\.\.-?\w+(\.\.-?\d+)?)\}")
 MAX_FORMS = 256
+TRACK_PARTS = ("CLAUDE", "MERGE", "TRAC")
+
+
+def alternatives(group):
+    """What one brace group expands to; a sequence as bash reads it, or itself."""
+    if "," in group:
+        return group.split(",")
+    a, b = group.split("..")[:2]
+    if a.lstrip("-").isdigit() and b.lstrip("-").isdigit():
+        lo, hi = sorted((int(a), int(b)))
+        return [str(n) for n in range(lo, min(hi, lo + MAX_FORMS) + 1)]
+    if len(a) == 1 and len(b) == 1:
+        lo, hi = sorted((ord(a), ord(b)))
+        return [chr(c) for c in range(lo, min(hi, lo + MAX_FORMS) + 1)]
+    return ["{" + group + "}"]
 
 
 def forms(word):
     """The word, and what brace expansion makes of it, so that CLAUDE_MERGE_TRAC{K,}
-    and CLAUDE_MERGE_{TRACK,X} read as the name. Past MAX_FORMS, the rest are
-    left unexpanded."""
+    and CLAUDE_MERGE_{TRACK,X} read as the name. A word with more forms than
+    MAX_FORMS that names part of the variable reads as setting it."""
     out, todo = [word], [word]
-    while todo and len(out) < MAX_FORMS:
+    while todo:
         w = todo.pop()
         m = BRACE.search(w)
         if not m:
             continue
-        for alt in m.group(1).split(","):
+        for alt in alternatives(m.group(1)):
             new = w[:m.start()] + alt + w[m.end():]
+            if new == w:
+                continue
             out.append(new)
             todo.append(new)
+        if len(out) > MAX_FORMS:
+            if any(part in word for part in TRACK_PARTS):
+                out.append(TRACK_VAR + "=")  # too many to check: count it as a write
+            break
     return out
 
 
@@ -610,6 +632,27 @@ def searches(cmd):
         return True
     sub = skip_flags(cmd.words[1:], GIT_WITH_VALUE) if cmd.program == "git" else []
     return bool(sub) and sub[0] == "grep"
+
+
+def names_track(text):
+    """Whether script text names the variable at all, after brace expansion: as a
+    write, an identifier or a JSON key."""
+    tokens = [f for t in re.split(r"[\s;&|()]+", text) for f in forms(t)]
+    return (any(TRACK_NAME.search(f) or TRACK_WRITE.search(f) for f in tokens)
+            or TRACK_WRITE.search(text)
+            or TRACK_JSON_KEY.search(JSON_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), text)))
+
+
+def track_stdin(commands, command):
+    """Denies a here-string or heredoc a shell or source runs, directly or through a
+    pipe, when its text names the variable. Broad, since that text is a script."""
+    if not any(c.program in SHELLS | {"source", "."} for c in commands):
+        return
+    texts = [t for c in commands for op, t in c.redirects if op == "<<<"]
+    if any(op == "<<" for c in commands for op, _ in c.redirects):
+        texts.append(command.split("\n", 1)[1] if "\n" in command else "")
+    if any(names_track(t) for t in texts):
+        decide(TRACK, TRACK_NOUN)
 
 
 def track_command(cmd):
@@ -630,11 +673,6 @@ def track_command(cmd):
         reads = options and options <= TRACK_READS.get(cmd.program, set())
         if not reads or any("=" in f for f in named):  # export -n r=NAME points a nameref
             decide(TRACK, TRACK_NOUN)
-    # A here-string or heredoc fed to a shell runs as a script.
-    if (cmd.program in SHELLS | {"source", "."}
-            and any(op in ("<<<", "<<") for op, _ in cmd.redirects)
-            and TRACK_WRITE.search(" ".join([cmd.raw_text] + [t for _, t in cmd.redirects]))):
-        decide(TRACK, TRACK_NOUN)
     if cmd.program == "printf":
         for i, w in enumerate(args):
             nxt = forms(args[i + 1]) if i + 1 < len(args) else []
@@ -695,6 +733,7 @@ def check_command(command, cwd):
             if cmd.program == "tee":
                 targets += [w for w in cmd.words[1:] if not w.startswith("-")]
             heredoc_files.update(os.path.normpath(os.path.join(cmd.cwd, t)) for t in targets)
+    track_stdin(commands, command)
     for cmd in commands:
         cmd.raw_text = command
         cmd.heredoc_files = heredoc_files
