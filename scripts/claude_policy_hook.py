@@ -229,10 +229,11 @@ def admin_flag(word):
 
 
 # Characters by which the shell can still turn a word into another: substitution,
-# brace expansion, globs and extended globs. The parser splits an unquoted
+# brace expansion, globs, extended globs and the tilde (~, ~-, ~+, ~1 read
+# variables an earlier command can set). The parser splits an unquoted
 # extended glob such as --@(admin) at its parenthesis, leaving a word that ends
 # in the glob's @, +, ! (or ?, *), so a word ending in one counts too.
-EXPANDS = re.compile(r"[$`{}*?\[\]()]|[@+!]$")
+EXPANDS = re.compile(r"[$`{}*?\[\]()~]|[@+!]$")
 
 
 def gh_pr_merge(cmd):
@@ -248,7 +249,7 @@ def gh_pr_merge(cmd):
     if any(EXPANDS.search(w) for w in cmd.words[1:]):
         decide(MERGE, "a gh pr merge with a word the shell could expand, so it cannot be "
                "checked; write the number and flags out, put a body that needs $, `, {, }, "
-               "*, ?, [, ], ( or ) in a file for -F, and reword a subject that needs one or "
+               "*, ?, [, ], (, ) or ~ in a file for -F, and reword a subject that needs one or "
                "leave it out" if granted(PR_MERGE) else noun)
     decide(PR_MERGE, noun)
 
