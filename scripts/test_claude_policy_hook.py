@@ -140,6 +140,31 @@ class Sandbox:
         return (proc.returncode, proc.stdout.decode("utf-8", "replace"),
                 proc.stderr.decode("utf-8", "replace"))
 
+    def merge_rule_only(self, command, env=None):
+        """Runs only the hook's gh rule on a command, past its other rules: "denied",
+        "allowed", or what went wrong."""
+        probe = (
+            "import sys\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "import importlib.util\n"
+            "spec = importlib.util.spec_from_file_location('hook', sys.argv[2])\n"
+            "hook = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(hook)\n"
+            "for cmd in hook.parse(sys.argv[3], sys.argv[1])[0]:\n"
+            "    cmd.raw_text, cmd.heredoc_files = sys.argv[3], set()\n"
+            "    try:\n"
+            "        hook.gh_command(cmd)\n"
+            "    except hook.Deny:\n"
+            "        print('denied')\n"
+            "        sys.exit(0)\n"
+            "print('allowed')\n")
+        proc = subprocess.run([sys.executable, "-c", probe, str(Path(HOOK).parent), str(HOOK),
+                               command], capture_output=True, env=dict(self.env, **(env or {})),
+                              cwd=str(self.work), timeout=HOOK_TIMEOUT)
+        out = proc.stdout.decode("utf-8", "replace").strip()
+        return out if out in ("denied", "allowed") else (
+            f"exit {proc.returncode}: {proc.stderr.decode('utf-8', 'replace').strip()}")
+
     def bash(self, command, cwd=None, env=None, hook=None, extra=None):
         return self.run(json.dumps({
             "session_id": "test",
@@ -634,6 +659,9 @@ def fixtures(sb):
     check("U4 deny, Track 2 lead: a subject ending in + is named in the advice",
           sb.bash('gh pr merge 12 --squash -t "Support C++"', env=lead2), "deny",
           "ends in !, + or @", stop=LEAD_STOP)
+    check("U4 deny, Track 2 lead: a body file named with ~ is named in the advice",
+          sb.bash("gh pr merge 12 --squash -F ~/body.md", env=lead2), "deny",
+          "named without ~", stop=LEAD_STOP)
     check("U4 allow, Track 2 lead: a subject or body from a file",
           sb.bash("gh pr merge 12 --squash -t 'Fix the cost' -F body.md", env=lead2), "allow")
     # Every other route to a merge stays denied, granted to no role, and the
@@ -676,6 +704,14 @@ def fixtures(sb):
     check("U4 deny: a track set in the command, not the environment",
           sb.bash("CLAUDE_MERGE_TRACK=2 gh pr merge 12 --squash",
                   env={"CLAUDE_AGENT_ROLE": "lead"}), "deny", "setting CLAUDE_MERGE_TRACK")
+    # The track rule denies that command first, so check the merge rule on its own:
+    # it must deny the same command to a lead whose environment has no track.
+    verdict = sb.merge_rule_only("CLAUDE_MERGE_TRACK=2 gh pr merge 12 --squash",
+                                 env={"CLAUDE_AGENT_ROLE": "lead"})
+    if verdict == "denied":
+        ok()
+    else:
+        bad("U4 the merge rule ignores a track set in the command", verdict)
     for name, env, want in [
         ("names the coordinator, granted nothing", {"CLAUDE_AGENT_ROLE": "coordinator",
                                                      "CLAUDE_MERGE_TRACK": "2"},
@@ -715,6 +751,18 @@ def fixtures(sb):
         "sh -c 'CLAUDE_MERGE_TRACK=2 claude -p x'",
         "env -S 'CLAUDE_MERGE_TRACK=2 claude -p x'",
         "if true; then export CLAUDE_MERGE_TRACK=2; fi",
+        "X+=1 CLAUDE_MERGE_TRACK=2 claude -p x",
+        "set -a; let CLAUDE_MERGE_TRACK=2; claude -p x",
+        "set -a; : ${CLAUDE_MERGE_TRACK:=2}; claude -p x",
+        "set -a; : ${CLAUDE_MERGE_TRACK=2}; claude -p x",
+        "set -a; for CLAUDE_MERGE_TRACK in 2; do claude -p x; done",
+        "declare -n r=CLAUDE_MERGE_TRACK; export r=2; claude -p x",
+        "printf -vCLAUDE_MERGE_TRACK 2",
+        "xargs env CLAUDE_MERGE_TRACK=2 claude -p x </dev/null",
+        "setsid env CLAUDE_MERGE_TRACK=2 claude -p x",
+        "tmux new -d -e CLAUDE_MERGE_TRACK=2 claude",
+        "systemd-run --user -E CLAUDE_MERGE_TRACK=2 claude",
+        "claude -p x --settings '{\"env\":{\"CLAUDE_MERGE_TRACK\":\"2\"}}'",
         "claude -p 'x\nCLAUDE_MERGE_TRACK=2 claude -p y '\"",  # cannot be split: the fallback
     ]:
         for role, env in [("none", {}), ("worker", {"CLAUDE_AGENT_ROLE": "worker"}),
@@ -729,6 +777,10 @@ def fixtures(sb):
         "echo \"$CLAUDE_MERGE_TRACK\"",
         "grep -n CLAUDE_MERGE_TRACK process/repository-standards.md",
         "git commit -q -m 'docs: only the operator sets CLAUDE_MERGE_TRACK=2'",
+        "declare -p CLAUDE_MERGE_TRACK",
+        "typeset -p CLAUDE_MERGE_TRACK",
+        "export -n CLAUDE_MERGE_TRACK",
+        "printf '%s\\n' CLAUDE_MERGE_TRACK",
     ]:
         check(f"U4 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 
