@@ -792,6 +792,7 @@ def fixtures(sb):
         "export {" + "," * 300 + "}CLAUDE_MERGE_TRAC{K,}=2; claude -p x",
         "export {" + "a," * 300 + "}CLAUDE_MERGE_{TRACK,X}=2; claude -p x",
         "export CLAUDE_MERGE_TRAC{K..K}=2; claude -p x",
+        "export {" + "," * 300 + "}{C,}LAUDE_{M,}ERGE_{T,}RACK=2; claude -p x",
         "export CLAUDE_MERGE_TRAC{J..L}=2; claude -p x",
         "cat <<'EOF' | bash\nCLAUDE_MERGE_TRACK=2 claude -p x\nEOF",
         "bash <<< 'export CLAUDE_MERGE_TRAC{K,}=2; claude -p x'",
@@ -831,6 +832,10 @@ def fixtures(sb):
         "echo {a,b}=1 CLAUDE_MERGE_TRACK",
         "cat <<'EOF' > notes.md\nThe operator sets CLAUDE_MERGE_TRACK=2.\nEOF",
         "bash -s <<< 'make test'; echo CLAUDE_MERGE_TRACK",
+        "echo {²..3}",
+        "touch CLAUDE{1..300}.md",
+        "echo {1..300}TRACE",
+        "cat <<'EOF' > notes.md\nCLAUDE_MERGE_TRACK docs\nEOF\nbash build.sh",
     ]:
         check(f"U4 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 

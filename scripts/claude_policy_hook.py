@@ -587,7 +587,7 @@ TRACK_READS = {"declare": {"-p"}, "typeset": {"-p"}, "export": {"-p", "-n"}}
 # An innermost brace group, not ${...}: {a,b} or a sequence {x..y} or {x..y..n}.
 BRACE = re.compile(r"(?<!\$)\{([^{}]*,[^{}]*|-?\w+\.\.-?\w+(\.\.-?\d+)?)\}")
 MAX_FORMS = 256
-TRACK_PARTS = ("CLAUDE", "MERGE", "TRAC")
+NUMBER = re.compile(r"-?[0-9]{1,18}")
 
 
 def alternatives(group):
@@ -595,7 +595,7 @@ def alternatives(group):
     if "," in group:
         return group.split(",")
     a, b = group.split("..")[:2]
-    if a.lstrip("-").isdigit() and b.lstrip("-").isdigit():
+    if NUMBER.fullmatch(a) and NUMBER.fullmatch(b):
         lo, hi = sorted((int(a), int(b)))
         return [str(n) for n in range(lo, min(hi, lo + MAX_FORMS) + 1)]
     if len(a) == 1 and len(b) == 1:
@@ -607,7 +607,7 @@ def alternatives(group):
 def forms(word):
     """The word, and what brace expansion makes of it, so that CLAUDE_MERGE_TRAC{K,}
     and CLAUDE_MERGE_{TRACK,X} read as the name. A word with more forms than
-    MAX_FORMS that names part of the variable reads as setting it."""
+    MAX_FORMS that assigns (holds =) can't be checked, so it reads as setting it."""
     out, todo = [word], [word]
     while todo:
         w = todo.pop()
@@ -621,7 +621,7 @@ def forms(word):
             out.append(new)
             todo.append(new)
         if len(out) > MAX_FORMS:
-            if any(part in word for part in TRACK_PARTS):
+            if "=" in word:
                 out.append(TRACK_VAR + "=")  # too many to check: count it as a write
             break
     return out
@@ -643,14 +643,22 @@ def names_track(text):
             or TRACK_JSON_KEY.search(JSON_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), text)))
 
 
+STDIN_SHELLS = SHELLS | {"source", "."}
+# A heredoc piped into a shell on the command's first line: cat <<EOF | bash.
+HEREDOC_TO_SHELL = re.compile(r"<<-?[^|\n]*\|\s*(\S*/)?(" + "|".join(sorted(SHELLS))
+                              + r"|source|\.)(\s|$)")
+
+
 def track_stdin(commands, command):
-    """Denies a here-string or heredoc a shell or source runs, directly or through a
-    pipe, when its text names the variable. Broad, since that text is a script."""
-    if not any(c.program in SHELLS | {"source", "."} for c in commands):
-        return
-    texts = [t for c in commands for op, t in c.redirects if op == "<<<"]
-    if any(op == "<<" for c in commands for op, _ in c.redirects):
-        texts.append(command.split("\n", 1)[1] if "\n" in command else "")
+    """Denies a here-string or heredoc a shell or source runs, on its own command or
+    piped in on the first line, when its text names the variable. Broad, since that
+    text is a script."""
+    shells = [c for c in commands if c.program in STDIN_SHELLS]
+    texts = [t for c in shells for op, t in c.redirects if op == "<<<"]
+    first, _, rest = command.partition("\n")
+    if (any(op == "<<" for c in shells for op, _ in c.redirects)
+            or (shells and HEREDOC_TO_SHELL.search(first))):
+        texts.append(rest)
     if any(names_track(t) for t in texts):
         decide(TRACK, TRACK_NOUN)
 
