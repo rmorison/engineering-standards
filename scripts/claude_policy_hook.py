@@ -250,7 +250,8 @@ def gh_pr_merge(cmd):
     if any(EXPANDS.search(w) for w in cmd.words[1:]):
         decide(MERGE, "a gh pr merge with a word the shell could expand, so it cannot be "
                "checked; write the number and flags out, put a body that needs $, `, {, }, "
-               "*, ?, [, ], (, ) or ~, or ends in !, + or @, in a file for -F, and reword a "
+               "*, ?, [, ], (, ) or ~, or ends in !, + or @, in a file for -F named without ~, "
+               "and reword a "
                "subject that needs one or leave it out" if granted(PR_MERGE) else noun)
     decide(PR_MERGE, noun)
 
@@ -561,18 +562,39 @@ def deny_push(cmd, prefix, defaults, noun):
 # is best effort: the ruleset that requires the operator's approval is the guard.
 
 TRACK_NOUN = "setting CLAUDE_MERGE_TRACK, which only the operator sets"
-TRACK_SET = re.compile(r"^CLAUDE_MERGE_TRACK\+?=")
-TRACK_NAMERS = EXPORTERS | {"printf", "read", "mapfile", "readarray"}  # a word that names it
+# A word that assigns it, wherever it stands (after a wrapper the parser doesn't
+# know, as an option's value such as tmux -e or systemd-run -E): NAME=, NAME+=.
+TRACK_ASSIGN = re.compile(r"^CLAUDE_MERGE_TRACK\+?=")
+# An assigning expansion anywhere in a word, ${NAME=v} or ${NAME:=v}, and a JSON
+# key such as a settings file's env block passed inline to claude --settings.
+TRACK_INSIDE = re.compile(r"\$\{CLAUDE_MERGE_TRACK:?=|\"CLAUDE_MERGE_TRACK\"\s*:")
+# Commands whose words name a variable to set: a name, NAME=v, or a nameref's
+# target (declare -n r=NAME). Each one's read-only options are allowed.
+TRACK_NAMERS = EXPORTERS | {"let", "for", "select", "read", "mapfile", "readarray"}
+# declare/typeset -p print it, export -n removes the export (declare -n is a nameref).
+TRACK_READS = {"declare": {"-p"}, "typeset": {"-p"}, "export": {"-p", "-n"}}
+
+
+def names_track(word):
+    name, eq, value = word.partition("=")
+    return name.removesuffix("+") == TRACK_VAR or (eq and value == TRACK_VAR)
 
 
 def track_command(cmd):
     """Denies a command that sets CLAUDE_MERGE_TRACK, in any form the parser reads."""
-    if (any(TRACK_SET.match(a) for a in cmd.assigns)
-            or (cmd.words and TRACK_SET.match(cmd.words[0]))
-            or (cmd.program in TRACK_NAMERS
-                and any(w.split("=", 1)[0].removesuffix("+") == TRACK_VAR
-                        for w in cmd.words[1:]))):
+    words = cmd.words
+    if (any(TRACK_ASSIGN.match(w) for w in cmd.assigns + words)
+            or any(TRACK_INSIDE.search(w) for w in words)):
         decide(TRACK, TRACK_NOUN)
+    args = words[1:]
+    if cmd.program in TRACK_NAMERS and any(names_track(w) for w in args if not w.startswith("-")):
+        options = {w for w in args if w.startswith("-")}
+        if not (options and options <= TRACK_READS.get(cmd.program, set())):
+            decide(TRACK, TRACK_NOUN)
+    if cmd.program == "printf":
+        for i, w in enumerate(args):
+            if (w == "-v" and i + 1 < len(args) and args[i + 1] == TRACK_VAR) or w == "-v" + TRACK_VAR:
+                decide(TRACK, TRACK_NOUN)
 
 
 # --- MCP tools -----------------------------------------------------------------------
@@ -603,8 +625,8 @@ FALLBACK = [
     (re.compile(r"\bgh\b[^\n;&|]*\bapi\b"), SETTINGS,
      "a gh api call that cannot be split into words"),
     (re.compile(r"agentpolicy\.allowdefaultpush", re.I), OPT_OUT, OPT_OUT_NOUN),
-    (re.compile(r"CLAUDE_MERGE_TRACK\+?=|\b(" + "|".join(sorted(TRACK_NAMERS))
-                + r")\b[^\n;&|]*\bCLAUDE_MERGE_TRACK\b"), TRACK, TRACK_NOUN),
+    (re.compile(r"CLAUDE_MERGE_TRACK\"?\s*(\+|:)?[=:]|\b(" + "|".join(sorted(TRACK_NAMERS))
+                + r"|printf)\b[^\n;&|]*\bCLAUDE_MERGE_TRACK\b"), TRACK, TRACK_NOUN),
     (re.compile(r"\bgit\b[^\n;&|]*\bpush\b"), DEFAULT_PUSH,
      "a push that cannot be split into words, so its destination cannot be checked"),
 ]
