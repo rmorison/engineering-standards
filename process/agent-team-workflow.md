@@ -53,11 +53,11 @@ An operator running several projects at once can add one **coordinator**: a long
 - works ideas before a repository exists, and sets projects up and retires them;
 - sets the merge order across projects when one project's change needs another's, as a lead does within one ([Traffic](#3-traffic));
 - curates the standards: it files issues and drafts plans, and the project's lead takes the work from there;
-- pre-reviews sensitive changes, and on [Track 2](#11-merge-authority) checks the Done gate on them before the operator's review is requested;
+- pre-reviews sensitive changes: it tells the project's lead which pull requests it will check, the lead records them on its board, and on [Track 2](#11-merge-authority) the lead waits for that check before the operator's review is requested;
 - watches shared infrastructure, such as the usage window, expiring tokens and stopped sessions ([Lead hygiene](#7-lead-hygiene));
 - brings the operator one digest across projects instead of one stream per lead ([Operator interaction](#6-operator-interaction)).
 
-**How it relates to the leads.** It reaches a project only through that project's issues and pull requests and messages to its lead. It never writes code or does ticket work in a project repository, and never messages a project's workers: the lead starts and directs them. When project A needs something from project B, the coordinator files the issue on B, tells B's lead, records the dependency, and tells A's lead the order: B's pull request first. A lead acts on an operator's decision only when the operator gives it directly or on GitHub ([the sprint loop](#2-the-sprint-loop)), so the coordinator never passes on a decision as the operator's word; it brings the question to the operator and points them at the lead or the issue.
+**How it relates to the leads.** It reaches a project only through that project's issues and pull requests and messages to its lead. It never writes code or does ticket work in a project repository, and never messages a project's workers: the lead starts and directs them. When project A needs something from project B, the coordinator files the issue on B, tells B's lead, records the dependency, and tells A's lead the order: B's pull request first. A lead acts on an operator's decision only when the operator gives it directly ([the sprint loop](#2-the-sprint-loop)), so the coordinator never passes on a decision as the operator's word; it brings the question to the operator and points them at the lead or the issue.
 
 **Starting and stopping.** The operator starts the coordinator, by hand or with its role from the [`agent-team` plugin](../plugins/agent-team/README.md); `start-team` doesn't. It may start and restart a project's lead where the host allows, as `start-team` would. It never starts, stops or restarts its own session.
 
@@ -69,13 +69,13 @@ An operator running several projects at once can add one **coordinator**: a long
 
 Where the record and any other note disagree, the record wins. The file layout is the coordinator's own.
 
-**Its guardrails.** On the operator's machine, it runs [the guardrail check](#the-guardrail-check) as a lead does, and acts on the result by the table's lead column. The policy hook grants it nothing, in any repository and on either track ([§ Guarding Repository Authority](./repository-standards.md#guarding-repository-authority)). It never approves or merges a pull request: approval is the operator's, and on Track 2 the merge is the project lead's.
+**Its guardrails.** On the operator's machine, it runs [the guardrail check](#the-guardrail-check) as a lead does, and acts on the result by the table's lead column. The operator names its permission mode in its opening prompt, and its mode check compares the canary with that mode, or with the default mode where the prompt names none. Where the table says a lead is restarted, the operator restarts the coordinator by hand, since `start-team` doesn't start one. The policy hook grants it nothing, in any repository and on either track ([§ Guarding Repository Authority](./repository-standards.md#guarding-repository-authority)). It never approves or merges a pull request: approval is the operator's, and on Track 2 the merge is the project lead's.
 
 ---
 
 ## 2. The sprint loop
 
-1. **The operator signs off the sprint**, then each ticket's plan. The lead proposes the sprint to the operator (the tickets, their lanes and the merge order) and records the approved version on its board. A worker posts its plan or approach on the issue and stops. The lead records the operator's sign-off on the issue, in a comment that opens "Signed off by the operator", and tells the worker to build. On Track 1 every session posts as the operator's account, and on Track 2 as one agent identity ([§ 11](#11-merge-authority)), so either way those opening words, not the author, mark the sign-off; only the lead posts them, and a worker never does. Nothing enforces this but the convention, so the Done gate checks the comment is there. A documentation change needs only a short approach; code gets a full plan.
+1. **The operator signs off the sprint**, then each ticket's plan. The lead proposes the sprint to the operator (the tickets, their lanes and the merge order) and records the approved version on its board. A worker posts its plan or approach on the issue and stops. The lead records the operator's sign-off on the issue, in a comment that opens "Signed off by the operator", and tells the worker to build. On Track 1 every session posts as the operator's account, and on Track 2 as one agent identity ([§ 11](#11-merge-authority)), so either way those opening words, not the author, mark the sign-off; only the lead posts them, and a worker never does. Nothing enforces this but the convention, so the Done gate checks the comment is there. A lead acts on an operator's decision, a sign-off included, only when the operator gives it directly, never on another session's report of it. On [Track 2](#11-merge-authority), the operator's own approval or comment on GitHub counts as directly, since it comes from their own account; on Track 1 every session posts as that account, so a GitHub post doesn't show who wrote it. A documentation change needs only a short approach; code gets a full plan.
 2. **Workers run to a pull request** without approval at each step. A worker stops only for a blocker, a scope question or a finding nobody expected, and says so on the issue with a recommendation.
 3. **The lead runs [the Done gate](#5-the-done-gate)** on the pull request's head and posts the [ready-to-merge comment](./compound-engineering-integration.md#the-ready-to-merge-comment).
 4. **The pull request merges by the project's track** ([§ 11](#11-merge-authority)). On Track 1, the default, the operator merges. On Track 2, the operator approves the head on GitHub and the lead merges.
@@ -118,7 +118,7 @@ The rules in the template, and why each is there:
 - **Answer a review before starting anything else.**
 - **Test hooks and git behaviour only in scratch repositories and scratch home directories.** A hook under test in the real settings guards, or blocks, every session on the machine.
 - **Name the human by role.**
-- **Never merge.** The [policy hook](./repository-standards.md#guarding-repository-authority) enforces this, and on Track 2 so do GitHub's branch rules ([§ 11](#11-merge-authority)); the handoff says it so the worker stops and asks rather than meeting a refusal.
+- **Never merge.** The [policy hook](./repository-standards.md#guarding-repository-authority) enforces this, on either track ([§ 11](#11-merge-authority)); the handoff says it so the worker stops and asks rather than meeting a refusal.
 - **Check your guardrails first** ([below](#the-guardrail-check)). A hook that is installed but not registered, or switched off by a settings file, guards nothing, and a session can't tell from its settings alone. Only a live denial shows the hook fires in this session.
 
 ### The guardrail check
@@ -209,6 +209,8 @@ Build only once a comment opening "Signed off by the operator" is on
   git-branching-strategy § At a glance. `gh pr create --body-file` won't
   show you the template. Bring it up to date after every review round.
 - Related: one line, closing #<ISSUE> only if this pull request completes it.
+- <On a Track 2 project: open the pull request as a draft; the lead marks it
+  ready after the Done gate.>
 - Local checks: <commands>. A local pass proves only your tool versions:
   name them in the pull request body, and after pushing, read CI
   conclusions on your head until they are green.
@@ -289,9 +291,9 @@ Everything else goes to the lead's board and log, and the operator asks for a di
 - **Batch ready pull requests.** One message lists every pull request ready to merge, in merge order.
 - **Present decisions one at a time.** With several open, the lead queues them and brings them one item at a time, each with its recommendation.
 - **Say "NOT ready" explicitly** while any gate is open. A summary that sounds finished gets merged.
-- **On [Track 2](#11-merge-authority), GitHub brings the ready news.** The agent identity requests the operator's review, which reaches their review queue and phone, so the lead's ready message is optional. The lead logs the merge and doesn't message the operator about it.
+- **On [Track 2](#11-merge-authority), GitHub brings the ready news.** When the lead marks a gated pull request ready for review, GitHub requests the operator's review as its code owner, which reaches their review queue and, if their notifications are set to, their phone. The lead's ready message is then optional. The lead logs the merge and doesn't message the operator about it.
 
-**With a coordinator** ([§ 1](#coordinating-several-projects)), the operator gets one digest across projects instead of one stream per lead. Where the operator says so, each lead sends its quiet-mode messages to the coordinator, and records that on its board. The coordinator passes on a blocker or a leak at once, and batches ready pull requests and decisions into one digest: ready pull requests in merge order across projects, decisions one at a time with each lead's recommendation. The operator answers a decision to the lead directly or on GitHub, as [the sprint loop](#2-the-sprint-loop) requires.
+**With a coordinator** ([§ 1](#coordinating-several-projects)), the operator gets one digest across projects instead of one stream per lead. Where the operator says so, each lead sends its quiet-mode messages to the coordinator, and records that on its board. The coordinator passes on a blocker or a leak at once, and batches ready pull requests and decisions into one digest: ready pull requests in merge order across projects, decisions one at a time with each lead's recommendation. The operator answers a decision to the lead directly, as [the sprint loop](#2-the-sprint-loop) requires.
 
 ---
 
@@ -374,7 +376,7 @@ first sprint. Stop for my sign-off before starting any worker.
 - **A way to wake the lead on a schedule**, for the backstop check in [Traffic](#3-traffic). Without it, the operator prompts the lead to check ("status?" does it), and a missed ping waits until then.
 - **A posting identity**, by the project's [track](#11-merge-authority):
   - **Track 1:** every session posts to GitHub as the operator's account, so GitHub can't tell a session from the operator; the policy hook is what keeps merges and settings with the operator.
-  - **Track 2:** every session posts as one agent identity, a GitHub App, through a token helper whose key no session can read. The operator's own account approves. It also needs a ruleset GitHub enforces on the default branch, so on a private repository a paid plan, and the operator as the only code owner.
+  - **Track 2:** every session posts as one agent identity, a GitHub App, through a token helper whose key no session can read. The operator's own account approves, and no session can reach it. It also needs a ruleset GitHub enforces on the default branch, so on a private repository a paid plan, and the operator as the only code owner.
 
 ---
 
@@ -392,7 +394,7 @@ Each is a separate ticket, not built here:
 
 Each project merges on one of two **tracks**. The operator picks a project's track and the lead records it on its board. Everything up to the merge is common to both: the sprint loop, the reviews, the leak checks and [the Done gate](#5-the-done-gate).
 
-**Status.** Track 1 is in use. Track 2 is **piloted**: it rests on a spike in a scratch repository ([#113](https://github.com/rmorison/engineering-standards/issues/113)), and stays piloted until a pilot on a real project reports there. Its setup runbook, with the token helper's contract, comes in a later pull request.
+**Status.** Track 1 is in use. Track 2 is **piloted**: it rests on a spike in a scratch repository ([#113](https://github.com/rmorison/engineering-standards/issues/113)), and stays piloted until a pilot on a real project reports there. Its setup runbook, with the token helper's contract, and the policy hook's grant for a Track 2 lead come in later pull requests. Until the grant lands, the hook denies every merge, and a Track 2 project merges as on Track 1.
 
 ### Track 1: the operator merges
 
@@ -404,25 +406,24 @@ An agent identity, a GitHub App, authors every pull request, and the operator ap
 
 **What has to be true.**
 
-- **GitHub refuses the merge without the operator's approval on the current head.** A ruleset on the default branch requires one approval from a code owner, dismisses stale approvals, requires approval of the most recent reviewable push, and requires CI. The operator is the only code owner. This is enforced by GitHub, not only by a hook or an instruction, so a private repository needs a paid plan. A repository without the enforced ruleset stays on Track 1.
+- **GitHub refuses the merge without the operator's approval on the current head.** A ruleset on the default branch requires one approval from a code owner, dismisses stale approvals, requires approval of the most recent reviewable push, and requires a CI check with GitHub Actions as its source. The operator is the only code owner. No agent identity can bypass the ruleset: the App isn't on its bypass list and has no Administration permission. This is enforced by GitHub, not only by a hook or an instruction, so a private repository needs a paid plan. A repository without the enforced ruleset stays on Track 1.
+- **No session can act as the operator's account.** Sessions hold only the App's tokens, and the account they run as can't reach the operator's GitHub login or tokens. A session that could would be able to approve its own pull request in the operator's name.
 - **No session can read the App's private key.** Sessions get short-lived installation tokens from a helper, scoped to one repository and to the permissions their role needs, and a stale token fails closed.
-- **Only a lead may merge, and only after the approval.** The policy hook allows a lead to merge, without an administrator bypass, only in a session that declares Track 2; how a session declares its track is in [§ Guarding Repository Authority](./repository-standards.md#guarding-repository-authority). It grants the coordinator and workers nothing. A worker started by a lead gets the worker role, whatever the lead holds. GitHub's rules, not the token's scope, are what stop a worker's merge: a push after the approval dismisses it.
+- **Only a lead merges.** The policy hook allows a lead to merge, without an administrator bypass, only in a session that declares Track 2; how a session declares its track is in [§ Guarding Repository Authority](./repository-standards.md#guarding-repository-authority). A session declares Track 2 only for a project the operator has put on it; no session declares it on its own say, a coordinator starting a lead included. The hook grants the coordinator and workers nothing, and a worker started by a lead gets the worker role, whatever the lead holds. GitHub's rules make sure any merge lands only a head the operator approved, since a push after the approval dismisses it. With one shared App, GitHub can't tell a lead from a worker, so the policy hook is what keeps a worker from being the one to merge.
 
 **The sequence.**
 
-1. The lead runs the Done gate on the head and posts [the ready-to-merge comment](./compound-engineering-integration.md#the-ready-to-merge-comment). On a sensitive change, a coordinator, where there is one, checks the gate first.
-2. The App requests the operator's review. It reaches the operator's review queue and phone, so the lead's ready message is optional ([§ 6](#6-operator-interaction)).
-3. The operator approves the head on GitHub.
-4. The lead confirms the approval is on the current head and CI has passed there.
-5. The lead merges, never with an administrator bypass.
-6. The lead logs the merge on its board. It doesn't message the operator.
+1. A worker opens its pull request as a draft. GitHub doesn't request a code owner's review on a draft, so the operator isn't asked before the gate.
+2. The lead runs the Done gate on the head and posts [the ready-to-merge comment](./compound-engineering-integration.md#the-ready-to-merge-comment). Where a coordinator has said it will pre-review the pull request ([§ 1](#coordinating-several-projects)), the lead waits for its check, posted on the pull request.
+3. The lead marks the pull request ready for review, and GitHub requests the code owner's review. It reaches the operator's review queue and their phone, if their notifications are set to, so the lead's ready message is optional ([§ 6](#6-operator-interaction)).
+4. The operator approves the head on GitHub.
+5. The lead confirms the approval is on the current head, CI has passed there, and every pull request this one waits on has merged, in its own project or another as the merge order says.
+6. The lead merges, never with an administrator bypass.
+7. The lead logs the merge on its board. It doesn't message the operator.
 
-**Rebasing to merge in order.** The lead may rebase an approved pull request onto the new default branch to keep the merge order. GitHub's rules decide whether the approval holds, and the lead doesn't second-guess them. If GitHub keeps the approval on the new head, the lead merges once CI passes. If GitHub dismisses it, the lead requests the operator's review again. That applies to a rebase that resolves a conflict as well: whatever GitHub does, the lead follows it. In the spike, a rebase with no content change kept the approval, and a push that changed content dismissed it.
+**Rebasing to merge in order.** The lead may rebase an approved pull request onto the new default branch to keep the merge order, when the rebase has no conflict. A rebase that needs a conflict resolved is ticket work, so it goes to the pull request's worker. After either, GitHub's rules decide whether the approval holds, and the lead doesn't second-guess them. If GitHub keeps the approval on the new head, the lead merges once CI passes. If GitHub dismisses it, the lead asks for the operator's review again. In the spike, a rebase with no content change kept the approval, and a push that changed content dismissed it; a rebase that resolves a conflict wasn't tried.
 
-**What goes back to the operator.**
-
-- **A change to a workflow file.** The standard recommends giving the App no Workflows permission, as best security practice. The App then can't push or merge a change under `.github/workflows/`, so a pull request with one goes back to the operator, who lands it as on Track 1. The operator sets the App's permissions and may choose otherwise.
-- **A merge GitHub refuses** for any reason other than a missing approval. The lead says what GitHub refused on the pull request and stops; it never loosens a rule to get past it.
+**What goes back to the operator: a change to a workflow file.** The standard recommends giving the App no Workflows permission, as best security practice. In the spike, the App's push of a workflow file was then refused, so on Track 2 a worker whose ticket changes a file under `.github/workflows/` stops and says so on the issue, and the operator lands that change themselves. The operator sets the App's permissions and may choose otherwise.
 
 ---
 
