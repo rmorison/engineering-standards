@@ -4,6 +4,7 @@ A Claude Code plugin that starts an agent team in one step, for projects that fo
 
 - **`start-team`**, a skill. From a session in your project, run `/agent-team:start-team` or ask for an agent team. It checks the workflow's prerequisites and adds the adoption line to `CLAUDE.md` or `AGENTS.md`. Then it starts `<project>-lead` in the lead role, or makes the current session the lead where no session can be started, and tells you what happens next.
 - **`lead`** and **`worker`**, two roles that each run as a whole session (`claude --agent agent-team:lead`). They link to the workflow's rules rather than copying them. Don't dispatch them as subagents.
+- **`coordinator`**, an optional third role for an operator running several projects: one session above the project leads, as the workflow's "Coordinating several projects" describes. `start-team` doesn't start it. Start it yourself, from wherever you keep its decision record: `env -u CLAUDE_MERGE_TRACK CLAUDE_AGENT_ROLE=coordinator claude --agent agent-team:coordinator --name <name> --permission-mode <mode> "You are the coordinator. Your permission mode is <mode>. Your decision record is in <private path>."` Its guardrail check compares the mode it runs in with the one the prompt names, so pass both. Like the others, it links to the workflow and is never dispatched as a subagent.
 
 ## Install
 
@@ -23,13 +24,13 @@ To stop using it, follow the workflow's "To decline or stop", then run `claude p
 
 `start-team` takes the first of these that works and tells you which it used:
 
-1. **The Claude Code CLI:** `claude --bg --agent agent-team:lead --name <project>-lead --remote-control <project>-lead --permission-mode <mode> "<opening prompt>"` (the full command is in start-team's step 7), run from the project's main checkout. The lead appears in your app as `<project>-lead`, grouped under the repository when the folder has a GitHub remote, and `claude attach <id>` opens it in a terminal. The project must be one where Claude Code's trust prompt was accepted.
+1. **The Claude Code CLI:** `env -u CLAUDE_MERGE_TRACK CLAUDE_AGENT_ROLE=lead claude --bg --agent agent-team:lead --name <project>-lead --remote-control <project>-lead --permission-mode <mode> "<opening prompt>"` (the full command is in start-team's step 7), run from the project's main checkout. The lead appears in your app as `<project>-lead`, grouped under the repository when the folder has a GitHub remote, and `claude attach <id>` opens it in a terminal. The project must be one where Claude Code's trust prompt was accepted.
 2. **A host session tool**, such as `create_session` through Remote Control or Claude Code on the web: a new session titled `<project>-lead`, which loads the lead role from this plugin or from its URL. On your own machine it shows in your app and messages both ways. A cloud session can receive messages but can't send them to local sessions, so you read the lead in the host's session view, and it falls back to its scheduled GitHub check for workers' news.
 3. **The current session**, which becomes the lead and says so. It also prints the command for starting a role-loaded lead later.
 
 ## How the lead starts workers
 
-The lead prefers a host session tool that starts sessions on your own machine, so each worker shows in your app. Otherwise it starts a background session with `claude --bg … --name <name> --remote-control <name>`, which appears in your app too. From a terminal, `claude agents` lists it and `claude attach <id>` opens it. A cloud worker comes last, and only with your go-ahead.
+The lead prefers a host session tool that starts sessions on your own machine, so each worker shows in your app. Otherwise it starts a background session with `env -u CLAUDE_MERGE_TRACK CLAUDE_AGENT_ROLE=worker claude --bg … --name <name> --remote-control <name>`, which appears in your app too. The `env` part gives the worker its own role and no merge track, so it never inherits a Track 2 lead's merge grant. You set the track yourself, only in a Track 2 lead's own start command, and never machine-wide, since a worker started through the host's session tool gets the host's environment; no session the team starts ever sets it. From a terminal, `claude agents` lists it and `claude attach <id>` opens it. A cloud worker comes last, and only with your go-ahead.
 
 ## Remote Control
 

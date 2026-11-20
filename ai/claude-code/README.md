@@ -100,9 +100,10 @@ The Layer 1 rule files in [`rules/`](./rules/) load automatically when working h
 |----------|------|
 | [ADR-0001](../../docs/engineering/adr/0001-six-layer-ai-architecture.md) | The architectural decision and the reasoning behind six layers |
 | [ADR-0002](../../docs/engineering/adr/0002-agent-team-roles.md) | Why the agent team's lead and worker roles are an orchestration pattern over the layers, not a layer |
+| [ADR-0003](../../docs/engineering/adr/0003-coordinator-and-merge-authority.md) | The optional coordinator role above the leads, and why the lead merges on Track 2 |
 | This document | Layer definitions, principles, and how the layers compose |
 | [`process/compound-engineering-integration.md`](../../process/compound-engineering-integration.md) | Everything CE-specific: skill mappings, artifact paths, review discipline, version tracking |
-| [`process/agent-team-workflow.md`](../../process/agent-team-workflow.md) | The opt-in operator, lead and worker model: roles, the sprint loop, the worker handoff template, the lead's Done gate |
-| [`plugins/agent-team/`](../../plugins/agent-team/README.md) | The `start-team` skill and the lead and worker role files, installed as a Claude Code plugin |
+| [`process/agent-team-workflow.md`](../../process/agent-team-workflow.md) | The opt-in operator, lead and worker model, with an optional coordinator: roles, the sprint loop, the worker handoff template, the lead's Done gate, merge authority |
+| [`plugins/agent-team/`](../../plugins/agent-team/README.md) | The `start-team` skill and the coordinator, lead and worker role files, installed as a Claude Code plugin |
 | [`ai/CLAUDE.md`](../CLAUDE.md) | Quick-reference standards guide for AI tools working in this repository |
 | [`templates/.claude/`](../../templates/.claude/) | The vendor-neutral baselines themselves |
