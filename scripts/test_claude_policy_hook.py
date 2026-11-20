@@ -769,6 +769,16 @@ def fixtures(sb):
         "set -a; getopts 2 CLAUDE_MERGE_TRACK -2; claude -p x",
         "sleep 1 & wait -p CLAUDE_MERGE_TRACK",
         "set -a; declare -n r; r=CLAUDE_MERGE_TRACK; r=2; claude -p x",
+        "setsid claude -p x --settings '{\"env\":{\"CLAUDE_MERGE_TRACK\":\"2\"}}'",
+        "xargs claude -p x --settings '{\"env\":{\"CLAUDE_MERGE_TRACK\":\"2\"}}' </dev/null",
+        "npx claude -p x --settings '{\"env\":{\"CLAUDE_MERGE_TRACK\":\"2\"}}'",
+        "set -a; ((++CLAUDE_MERGE_TRACK)); ((++CLAUDE_MERGE_TRACK)); claude -p x",
+        "set -a; (( x = 1, CLAUDE_MERGE_TRACK = 2 )); claude -p x",
+        "set -a; : $(( CLAUDE_MERGE_TRACK++ )); claude -p x",
+        "set -a; a[CLAUDE_MERGE_TRACK=2]=1; claude -p x",
+        "set -a; v=x; : ${v:CLAUDE_MERGE_TRACK=2}; claude -p x",
+        "tmux new -d \"CLAUDE_MERGE_TRACK=2 claude -p x\"",
+        "gh pr comment 1 --body 'the lead runs with CLAUDE_MERGE_TRACK=2'",  # prose: broad on purpose
         "claude -p 'x\nCLAUDE_MERGE_TRACK=2 claude -p y '\"",  # cannot be split: the fallback
     ]:
         for role, env in [("none", {}), ("worker", {"CLAUDE_AGENT_ROLE": "worker"}),
@@ -782,13 +792,16 @@ def fixtures(sb):
         "unset CLAUDE_MERGE_TRACK",
         "echo \"$CLAUDE_MERGE_TRACK\"",
         "grep -n CLAUDE_MERGE_TRACK process/repository-standards.md",
-        "git commit -q -m 'docs: only the operator sets CLAUDE_MERGE_TRACK=2'",
+        "git commit -q -m 'docs: only the operator sets CLAUDE_MERGE_TRACK'",
         "declare -p CLAUDE_MERGE_TRACK",
         "typeset -p CLAUDE_MERGE_TRACK",
         "export -n CLAUDE_MERGE_TRACK",
         "printf '%s\\n' CLAUDE_MERGE_TRACK",
         "grep -n '\"CLAUDE_MERGE_TRACK\":' .claude/settings.json",
         "X=$CLAUDE_MERGE_TRACK; echo \"$X\"",
+        "X=${#CLAUDE_MERGE_TRACK}; Y=${!CLAUDE_MERGE_TRACK}; Z=${CLAUDE_MERGE_TRACK:-1}",
+        "test \"$CLAUDE_MERGE_TRACK\" = 2 && echo two",
+        "rg -n '\"CLAUDE_MERGE_TRACK\":' .",
     ]:
         check(f"U4 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 
