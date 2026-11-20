@@ -10,8 +10,8 @@ origin: https://github.com/rmorison/engineering-standards/issues/135
 
 # A Coordinator Role Above the Leads, and Agent Merges on the Operator's Approval - Plan
 
-**Status: DRAFT; open questions resolved by the operator on #141.** Started by the coordinator described here, at the operator's request. Every decision below is
-**PROPOSED** and waits for the operator's sign-off on #135.
+**Status: signed off by the operator on #141, 2026-11-20 ("good as it stands"; tuning expected). The open questions were resolved there too.** Started by the coordinator described here, at the operator's request. Decisions D1 to D8 were
+proposed here and signed off by the operator on #141.
 
 ## Goal Capsule
 
