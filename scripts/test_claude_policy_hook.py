@@ -1073,6 +1073,24 @@ def fixtures(sb):
         check(f"round 3 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
               "run by xargs, parallel or find", stop=LEAD_STOP)
 
+    # --- #145's round 3b at adb6eba: -Ia is -I with the value a, so the command
+    # starts at the next word, a wrapper here, as getopt reads the bundle.
+    for command, frag in [
+        ("echo 1 | xargs -Ia timeout 5 sh -c 'gh pr merge 12 --admin'", "with --admin"),
+        ("echo 1 | xargs -Ia timeout 5 sh -c 'gh pr merge 12'", "run by xargs, parallel or find"),
+        ("parallel -Ia timeout 5 sh -c 'gh pr merge 12 --admin' ::: x", "with --admin"),
+        ("echo 1 | xargs -Ia timeout 5 sh -c 'git push origin main'", "default branch"),
+        ("parallel -Ia timeout 5 sh -c 'git push origin main' ::: x", "default branch"),
+    ]:
+        check(f"round 3b deny, worker: {command!r}", sb.bash(command, env=worker), "deny")
+        check(f"round 3b deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2),
+              "deny", frag, stop=None if frag == "default branch" else LEAD_STOP)
+    for command in ["parallel -0a args.txt ::: 'gh pr merge 12'", "parallel -ka args.txt ::: 'gh pr merge 12'"]:
+        check(f"round 3b deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
+              "run by xargs, parallel or find", stop=LEAD_STOP)
+    check("round 3b allow: xargs -0n 1 gh pr view", sb.bash("echo 1 | xargs -0n 1 gh pr view", env=worker),
+          "allow")
+
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
     broken.mkdir()

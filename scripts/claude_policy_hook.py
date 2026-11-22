@@ -921,10 +921,20 @@ def first_command(words, with_value):
     while i < len(words) and words[i].startswith("-") and words[i] != "-":
         if words[i] == "--":
             return i + 1
-        # A bundle such as -0a or -ka takes a value when its last letter does.
-        bundled = re.fullmatch(r"-[^-]+", words[i]) and "-" + words[i][-1] in with_value
-        i += 2 if words[i] in with_value or bundled else 1
+        i += 2 if words[i] in with_value or bundle_takes_next(words[i], with_value) else 1
     return i
+
+
+def bundle_takes_next(word, with_value):
+    """Whether a short-option bundle takes the next word as a value, as getopt reads
+    it: the first letter that takes a value takes the rest of the bundle, and the
+    next word only if it is the last letter. So -0a f and -ka f take f; -Ia does not."""
+    if not re.fullmatch(r"-[^-]+", word):
+        return False
+    for j in range(1, len(word)):
+        if "-" + word[j] in with_value:
+            return j == len(word) - 1
+    return False
 
 
 def inner(cmd):
