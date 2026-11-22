@@ -945,7 +945,7 @@ def fixtures(sb):
         ("shopt -s expand_aliases; alias m='gh pr merge 12'\nm", "an alias for gh or git"),
         ("echo 12 | xargs gh pr merge", MERGE),
         ("echo 12 | xargs -n 1 -I{} gh pr merge {}", MERGE),
-        ("find . -maxdepth 0 -exec gh pr merge 12 \;", MERGE),
+        ("find . -maxdepth 0 -exec gh pr merge 12 \\;", MERGE),
         ("parallel gh pr merge ::: 12", MERGE),
         ("parallel ::: 'gh pr merge 12'", MERGE),
         ("bash <<<'gh pr merge 12'", MERGE),

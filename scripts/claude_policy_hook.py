@@ -328,12 +328,12 @@ def normalize(path):
     reads as repos/o/r/pulls/1/merge."""
     path = re.sub(r"^https?://[^/]+/(api/v3/)?", "", path)
     for _ in range(4):  # an escape that decodes to another escape is decoded again
-        path = re.split(r"[?#]", path, 1)[0]
+        path = re.split(r"[?#]", path, maxsplit=1)[0]
         decoded = unquote(path)
         if decoded == path:
             break
         path = decoded
-    path = re.split(r"[?#]", path, 1)[0]
+    path = re.split(r"[?#]", path, maxsplit=1)[0]
     segments = []
     for part in path.split("/"):
         if part == "..":
