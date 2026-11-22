@@ -944,6 +944,60 @@ def lead_runner_merge(words):
                             "grant does not cover; run gh pr merge on its own")
 
 
+def replace_strings(rest):
+    """The strings xargs or parallel replace with an input item: -I R, -IR, --replace=R
+    (-i and a bare --replace mean {}). Parallel's {} forms are caught by their braces."""
+    found = set()
+    for k, w in enumerate(rest):
+        if w in ("-I", "--replace") and k + 1 < len(rest) and w == "-I":
+            found.add(rest[k + 1])
+        elif w.startswith("--replace="):
+            found.add(w[len("--replace="):])
+        elif re.fullmatch(r"-[^-]*[Ii].+", w):  # -IR, -iR, or bundled as -0IR
+            found.add(re.match(r"-[^-]*?[Ii](.+)", w).group(1))
+    return {r for r in found if r}
+
+
+# The gh commands a runner may run: reads only, by command and subcommand.
+RUNNER_GH_READS = {
+    "pr": {"view", "list", "diff", "checks", "status"},
+    "issue": {"view", "list", "status"},
+    "run": {"view", "list"},
+    "repo": {"view"},
+    "release": {"view", "list"},
+    "search": {"code", "commits", "issues", "prs", "repos"},
+    "auth": {"status"},
+}
+# The git commands a runner may run: reads only, the subcommand right after git.
+RUNNER_GIT_READS = {"log", "show", "diff", "grep", "blame", "ls-files", "ls-tree", "status",
+                    "rev-parse", "cat-file", "rev-list"}
+PLAIN_WORD = re.compile(r"[a-z][a-z-]*")
+
+
+def runner_command(name, words, placeholders=()):
+    """What a runner may run of gh and git, which it can add arguments to when it
+    runs: gh only for a read in RUNNER_GH_READS, its command and subcommand written as
+    plain words, and git only for a read in RUNNER_GIT_READS written right after git,
+    with no option before it. Denied for every role otherwise, gh api included."""
+    if not words or os.path.basename(words[0]) not in CHECKED_PROGRAMS:
+        return
+    gh = os.path.basename(words[0]) == "gh"
+
+    def plain(w):
+        return PLAIN_WORD.fullmatch(w) and not any(p in w for p in placeholders)
+
+    if gh:
+        rest = skip_flags(words[1:], GH_WITH_VALUE)
+        ok = (len(rest) >= 2 and plain(rest[0]) and plain(rest[1])
+              and rest[1] in RUNNER_GH_READS.get(rest[0], ()))
+    else:
+        ok = len(words) >= 2 and plain(words[1]) and words[1] in RUNNER_GIT_READS
+    if not ok:
+        raise RunnerDeny(f"{'gh' if gh else 'git'} inside {name} other than a listed read, "
+                         f"written out in full: {name.split()[0]} adds to what it runs, "
+                         "where the hook can't tell what runs")
+
+
 def runner_backstop(name, words, starts):
     """Denies, for every role, gh, git, a shell or a runner anywhere in a runner's words but
     at a start the hook found plainly, and a word holding whitespace with gh or git
@@ -1009,13 +1063,14 @@ def inner(cmd):
             yield from (w for w in rest[end + 1:] if w not in PARALLEL_ENDS)
         # Last, so a denial of the command itself, with its plainer reason, comes first.
         runner_backstop(prog, rest, {start})
+        runner_command(prog, rest[start:end], replace_strings(rest[:start]))
     elif prog == "find":
         # As find reads it: a command ends only at ; or, for -exec and -execdir, at +
         # right after {} (-ok and -okdir take no +), so an -exec inside the command is
         # an argument, not the start of another. With -ok or -okdir anywhere, a + ends
         # nothing, since a value spelled like a primary can hide which one a + is in.
         oks = any(w in ("-ok", "-okdir") for w in words)
-        k, starts = 0, set()
+        k, starts, segments = 0, set(), []
         while k < len(words):
             if words[k] in FIND_EXEC:
                 end = k + 1
@@ -1025,6 +1080,7 @@ def inner(cmd):
                     end += 1
                 if end > k + 1:
                     starts.add(k + 1)
+                    segments.append(words[k + 1:end])
                     yield shlex.join(words[k + 1:end])
                 k = end + 1
             else:
@@ -1038,6 +1094,8 @@ def inner(cmd):
                     and any(os.path.basename(w) in CHECKED_PROGRAMS for w in words[first + 1:])):
                 raise RunnerDeny(RUNNER_NOUN.format("find with more than one -exec"))
             runner_backstop("find -exec", words[first:], {k - first for k in starts})
+            for segment in segments:
+                runner_command("find -exec", segment)
     elif prog == "script":  # each distinct -c command, once
         scripts = list(option(words[1:], {"-c", "--command"}))
         scripts += [words[k + 1] for k, w in enumerate(words[:-1])

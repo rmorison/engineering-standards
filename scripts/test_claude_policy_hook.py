@@ -27,6 +27,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1330,6 +1331,36 @@ def fixtures(sb):
                     "find . -ok rm {} \\;"]:
         for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
             check(f"review of c725ff7 allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
+
+    # --- round 3h: under xargs, parallel or find, gh and git only for a read on the lists
+    # These the lists alone deny: the rephrase message, or the lead's for merge or api.
+    for command in ["echo merge 12 --admin | xargs gh pr", "echo pr merge 12 --admin | xargs gh",
+                    "parallel gh pr ::: merge", "echo push origin main | xargs git",
+                    "echo x | xargs gh api repos/o/r/pulls/12/merge",
+                    "echo 1 | xargs -I{} gh pr edit {}", "echo x | xargs -I X gh pr X",
+                    "parallel gh pr {1} ::: merge", "echo log | xargs -I{} git {}",
+                    "echo a | xargs git send-pack", "echo a | xargs git -c alias.x=y x",
+                    "echo a | xargs -I{} git config {}", "echo a | xargs git http-push",
+                    "echo a | xargs git -C . log"]:
+        lead_words = {"merge", "api"} & set(shlex.split(command.split("|")[-1]))
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            lead = env is lead2 and lead_words
+            check(f"round 3h deny, {label}: {command!r}", sb.bash(command, env=env), "deny",
+                  LEAD_RUNNER if lead else RUNNER_BACKSTOP, stop=LEAD_STOP if lead else RUNNER_STOP)
+    # These an older, plainer rule denies first; pinned here as denied.
+    for command in ["echo x | xargs -I{} gh {} merge 12", "find . -maxdepth 0 -exec gh {} \\;",
+                    "echo x | xargs gh api -X PUT repos/o/r/pulls/12/merge",
+                    "echo 1 | xargs -I{} gh pr merge {}", "echo a | xargs git push",
+                    "find . -maxdepth 0 -exec git push \\;"]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3h deny, {label}: {command!r}", sb.bash(command, env=env), "deny",
+                  stop="policy hook: denied:")
+    for command in ["echo 1 | xargs -I{} gh pr view {}", "parallel -j2 gh pr view ::: 1 2",
+                    "echo 1 | xargs -I{} gh issue view {}", "echo a | xargs -n1 git log -1",
+                    "find . -maxdepth 0 -exec git log {} \\;", "git ls-files | xargs git blame",
+                    "echo a | xargs grep -l TODO", "echo 1 | xargs gh run view"]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3h allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
 
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
