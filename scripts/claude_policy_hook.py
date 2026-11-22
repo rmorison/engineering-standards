@@ -119,7 +119,7 @@ GH_BUILTINS = {"auth", "browse", "codespace", "cs", "gist", "issue", "org", "pr"
                "release", "repo", "cache", "run", "workflow", "agent-task", "alias", "api",
                "attestation", "completion", "config", "copilot", "extension", "extensions",
                "ext", "gpg-key", "label", "preview", "ruleset", "search", "secret", "ssh-key",
-               "status", "variable", "help", "version", "accessibility", "a11y", "co",
+               "status", "variable", "help", "version", "accessibility", "a11y",
                "actions", "environment", "reference", "exit-codes", "formatting", "mintty",
                "licenses"}  # the last line: help topics, which print text
 GH_ALIAS_WRITES = {"set", "import"}
@@ -270,6 +270,10 @@ def gh_pr_merge(cmd):
     # checked. The words have lost their quotes, so a quoted $ counts too.
     if any(admin_flag(w) for w in cmd.words[1:]):
         decide(MERGE, noun + " with --admin, which bypasses the branch rules"
+               if granted(PR_MERGE) else noun)
+    if RUNTIME_ARGS[0]:
+        decide(MERGE, "a gh pr merge run by xargs, parallel or find, which add arguments "
+               "when it runs, so it cannot be checked; run gh pr merge on its own"
                if granted(PR_MERGE) else noun)
     if any(EXPANDS.search(w) for w in cmd.words[1:]):
         decide(MERGE, "a gh pr merge with a word the shell could expand, so it cannot be "
@@ -733,12 +737,23 @@ PATTERN_PROGRAMS = TRACK_SEARCHES | {"sed", "gsed", "perl", "awk", "gawk", "mawk
 GLOBS = re.compile(r"[*?\[{]")
 
 
-def could_name_track(word, unknown=True):
+# Where a word with a subscript, a[$i]=x, sets a shell array element: a bare
+# assignment on its own, or these builtins. After env, sudo or export, or before a
+# command, the subscript's $ counts as for any other name.
+ARRAY_SETTERS = {"declare", "local", "typeset"}
+
+
+def could_name_track(word, unknown=True, array=False):
     """Whether a word could reach a setter as CLAUDE_MERGE_TRACK=value once the shell
-    expands it. With unknown false, a $ or backtick in the name does not count."""
+    expands it. With unknown false, a $ or backtick in the name does not count. With
+    array true, a subscript is an array element's, whatever it holds."""
     candidates = [word]
     if word.startswith("-"):
-        candidates += [word.partition("=")[2], word[2:] if word[1:2] != "-" else ""]
+        attached = [word.partition("=")[2], word[2:] if word[1:2] != "-" else ""]
+        # An option's attached value, as tmux -eNAME=2: the name written out counts.
+        if any(a.partition("=")[0] == TRACK_VAR and "=" in a for a in attached):
+            return True
+        candidates += attached
     for candidate in candidates:
         name, eq, _ = candidate.partition("=")
         if not eq or not name or re.search(r"[\s/]", name):
@@ -747,10 +762,10 @@ def could_name_track(word, unknown=True):
         if GLOBS.search(name) and any(fnmatch.fnmatchcase(TRACK_VAR, f) for f in forms(name)):
             return True
         subscript = ARRAY_ELEMENT.fullmatch(name)
-        if subscript:  # arr[$i]=x sets an element of arr, whatever the subscript
+        if subscript and subscript.group(1) == TRACK_VAR:  # CLAUDE_MERGE_TRACK[0]=2 sets it
+            return True
+        if subscript and array:  # arr[$i]=x sets an element of arr, whatever the subscript
             name = subscript.group(1)
-            if name == TRACK_VAR:  # CLAUDE_MERGE_TRACK[0]=2 sets the variable itself
-                return True
         if unknown and EXPANDS_TO_NAME.search(name):
             return True
     return False
@@ -779,7 +794,11 @@ def track_command(cmd):
         after_option = sets_env and k > 0 and words[k - 1] in ENV_OPTIONS
         attached = sets_env and (w.startswith(("-e", "-E")) or w.split("=", 1)[0] in ENV_OPTIONS)
         unknown = k == 0 or cmd.program in SETTERS or after_option or attached
-        if could_name_track(w, unknown):
+        # The parser keeps a[$i]=x as the program word, after env or sudo too, so only a
+        # word that is the whole command is a bare assignment.
+        array = (k == 0 and len(words) == 1) or (k > 0 and cmd.program in ARRAY_SETTERS
+                                                 and not w.startswith("-"))
+        if could_name_track(w, unknown, array):
             decide(TRACK, TRACK_NOUN)
     named = [f for w in args if w[:1] not in ("-", "+") for f in forms(w)]
     if cmd.program in TRACK_NAMERS and any(TRACK_NAME.search(f) for f in named):
@@ -861,9 +880,23 @@ def unconsumed_heredocs(found):
     for a body it would otherwise hide."""
     readers = Counter(t.lstrip("-") for c in found.commands for op, t in c.redirects
                       if op.endswith("<<") and not op.endswith("<<<"))
-    bodies = Counter(delim.lstrip("-") for delim, _ in found.heredocs)
+    bodies = Counter(delim.lstrip("-") for delim, _, _ in found.heredocs)
     short = {d for d, count in bodies.items() if count > readers[d]}
-    return [body for delim, body in found.heredocs if delim.lstrip("-") in short]
+    return [body for delim, body, _ in found.heredocs if delim.lstrip("-") in short]
+
+
+# A command substitution the shell runs while it expands a heredoc body: $( (and
+# $(( ), or a backtick, after an even number of backslashes (\\ is one literal \).
+SUBSTITUTION = re.compile(r"(?<!\\)(?:\\\\)*(?:\$\(|`)")
+EXPANDED_BODY = ("a heredoc body that runs a command substitution, which the hook cannot "
+                 "check; quote the delimiter (<<'EOF') so the body stays text, or run the "
+                 "command on its own")
+
+
+def expanded_substitution(found):
+    """Whether a heredoc with an unquoted delimiter holds a substitution: the shell
+    runs it when it expands the body, and the parser reads the body only as text."""
+    return any(not quoted and SUBSTITUTION.search(body) for _, body, quoted in found.heredocs)
 
 
 XARGS_WITH_VALUE = {"-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-L", "-n", "--max-args",
@@ -871,6 +904,11 @@ XARGS_WITH_VALUE = {"-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-L", "
 PARALLEL_ENDS = {":::", "::::", ":::+", "::::+"}
 FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 CHECKED_PROGRAMS = {"gh", "git"}
+
+
+# Above zero while a command xargs, parallel or find -exec {} runs is checked:
+# those add arguments when they run, which the hook never sees.
+RUNTIME_ARGS = [0]
 
 
 def first_command(words, with_value):
@@ -885,27 +923,28 @@ def first_command(words, with_value):
 
 
 def inner(cmd):
-    """Yields the scripts this command runs, as text: the command after xargs,
-    parallel or find -exec, joined back into a command line, or a script's text.
-    Each is then checked as a whole command, sh -c and all."""
+    """Yields (script, runtime) for each script this command runs, as text: the
+    command after xargs, parallel or find -exec, joined back into a command line,
+    or a script's text. Each is then checked as a whole command, sh -c and all.
+    runtime is true where the runner adds arguments when it runs."""
     words, prog = cmd.words, cmd.program
     if " " in prog or "\t" in prog or "\n" in prog:  # watch 'gh ...', flock f -c 'gh ...'
-        yield " ".join(words)
+        yield " ".join(words), False
     if prog in ("xargs", "parallel"):
         rest = words[1:]
         end = next((k for k, w in enumerate(rest) if prog == "parallel" and w in PARALLEL_ENDS),
                    len(rest))
         start = first_command(rest[:end], XARGS_WITH_VALUE)
         if start < end:
-            yield shlex.join(rest[start:end])
+            yield shlex.join(rest[start:end]), True
         # An option this does not know may take a value: check the first gh or git too.
         known = next((k for k in range(end) if os.path.basename(rest[k]) in CHECKED_PROGRAMS), None)
         if known is not None and known != start:
-            yield shlex.join(rest[known:end])
+            yield shlex.join(rest[known:end]), True
         if prog == "parallel" and start >= end:  # parallel ::: 'cmd' runs each argument
             for w in rest[end + 1:]:
                 if w not in PARALLEL_ENDS:
-                    yield w
+                    yield w, False
     elif prog == "find":
         k = 0
         while k < len(words):
@@ -914,7 +953,8 @@ def inner(cmd):
                 while end < len(words) and words[end] not in (";", "+") and words[end] not in FIND_EXEC:
                     end += 1
                 if end > k + 1:
-                    yield shlex.join(words[k + 1:end])
+                    yield shlex.join(words[k + 1:end]), any("{}" in w for w in words[k + 1:end]) \
+                        or (end < len(words) and words[end] == "+")
                 k = end
             else:
                 k += 1
@@ -922,7 +962,7 @@ def inner(cmd):
         scripts = list(option(words[1:], {"-c", "--command"}))
         scripts += [words[k + 1] for k, w in enumerate(words[:-1])
                     if k > 0 and w != "-c" and re.fullmatch(r"-[a-zA-Z]*c", w)]
-        yield from dict.fromkeys(scripts)
+        yield from ((script, False) for script in dict.fromkeys(scripts))
 
 
 def check_one(cmd, depth):
@@ -935,10 +975,14 @@ def check_one(cmd, depth):
     elif cmd.program == "alias":
         if any(re.search(r"\b(gh|git)\b", w.partition("=")[2]) for w in cmd.words[1:]):
             decide(MERGE, "an alias for gh or git, which runs a command the hook cannot check")
-    for script in inner(cmd):
+    for script, runtime in inner(cmd):
         if depth >= MAX_NESTING:
             raise Deny("commands nested too deep to check")
-        check_command(script, cmd.cwd, depth + 1)
+        RUNTIME_ARGS[0] += runtime
+        try:
+            check_command(script, cmd.cwd, depth + 1)
+        finally:
+            RUNTIME_ARGS[0] -= runtime
 
 
 # --- MCP tools -----------------------------------------------------------------------
@@ -994,6 +1038,8 @@ def check_command(command, cwd, depth=0):
             if cmd.program == "tee":
                 targets += [w for w in cmd.words[1:] if not w.startswith("-")]
             heredoc_files.update(os.path.normpath(os.path.join(cmd.cwd, t)) for t in targets)
+    if expanded_substitution(found):
+        raise Deny(EXPANDED_BODY)
     scripts = stdin_scripts(found, command)
     if any(names_track(t) for t in scripts):
         decide(TRACK, TRACK_NOUN)

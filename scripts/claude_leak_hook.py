@@ -68,6 +68,9 @@ class Deny(Exception):
 
 # The lookbehind keeps a here-string (<<<) from reading as a heredoc.
 HEREDOC = re.compile(r"(?<!<)<<(-?)\s*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
+# The whole delimiter word after << or <<-: a quote or backslash anywhere in it
+# keeps the body from being expanded.
+DELIMITER_WORD = re.compile(r"[ \t]*([^\s;&|<>()]*)")
 COMMENT_START = " \t\n;&|()<>"  # a # after one of these, or at the start, starts a comment
 
 
@@ -165,7 +168,8 @@ def strip_heredocs(text, delimited=None):
             if frame[0] in ("((", "{") or not match:
                 unsure(text, i, bodies)
             else:
-                pending.append((match.group(1), match.group(3)))
+                word = DELIMITER_WORD.match(text, match.start() + 2 + len(match.group(1))).group(1)
+                pending.append((match.group(1), match.group(3), bool(re.search(r"['\"\\]", word))))
                 out.append(match.group())
                 i = match.end()
                 continue
@@ -193,7 +197,7 @@ def read_bodies(text, i, pending, bodies, delimited):
     """Reads each pending heredoc's body from text[i:], in order, into bodies, and
     returns where the command goes on. With no terminator, the rest stays in the
     command, as well as in bodies."""
-    for dash, delim in pending:
+    for dash, delim, quoted in pending:
         start = i
         while True:
             end = text.find("\n", i)
@@ -201,7 +205,7 @@ def read_bodies(text, i, pending, bodies, delimited):
             if (line.lstrip("\t") if dash else line) == delim:
                 bodies.append(text[start:i].removesuffix("\n"))
                 if delimited is not None:
-                    delimited.append((delim, bodies[-1]))
+                    delimited.append((delim, bodies[-1], quoted))
                 i = len(text) if end == -1 else end + 1
                 break
             if end == -1:
@@ -555,7 +559,9 @@ class Parsed:
         self.lost_dir = False
         self.unclosed = False  # a $(...) or backtick span whose end was not found
         self.opaque = False  # a script nested past MAX_DEPTH, which is not parsed
-        self.heredocs = []  # (delimiter, body) for each heredoc read to its terminator
+        # (delimiter, body, quoted) for each heredoc read to its terminator; with the
+        # delimiter unquoted, the shell expands the body, substitutions and all.
+        self.heredocs = []
 
 
 def parse(text, cwd):

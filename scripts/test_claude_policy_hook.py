@@ -973,7 +973,7 @@ def fixtures(sb):
     ]:
         check(f"M5/P3 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny", frag,
               stop=LEAD_STOP)
-    for command in ["gh co 12", "gh extension list", "alias ll='ls -l'",
+    for command in ["gh pr checkout 12", "gh extension list", "alias ll='ls -l'",
                     "git ls-files | xargs grep -n gh", "find . -name '*.md' -exec wc -l {} +",
                     "script -q /dev/null", "setsid -f sleep 1", "watch -n1 gh pr checks 12"]:
         check(f"M5/P3 allow: {command!r}", sb.bash(command, env=worker), "allow")
@@ -1011,6 +1011,47 @@ def fixtures(sb):
         ok()
     else:
         bad("timing: 220 KB of script -qc", f"took {took:.1f} s, more than 3.0 s")
+
+    # --- #145's round 2 at 79b9363 ------------------------------------------------
+    # A heredoc body the shell expands runs its substitutions; a quoted delimiter
+    # keeps the body text, and a plain variable runs nothing.
+    expanded = "a heredoc body that runs a command substitution"
+    for command in ["cat <<EOF\n$(gh pr merge 12)\nEOF",
+                    "cat <<EOF > notes.md\n`git push origin HEAD:trunk`\nEOF",
+                    "cat <<-EOF\n\t$((1 + 2)) $(gh pr merge 12)\n\tEOF",
+                    "cat <<EOF\n\\\\$(gh pr merge 12)\nEOF"]:
+        for label, env in (("worker", worker), ("Track 2 lead", lead2)):
+            check(f"round 2 deny, {label}: {command!r}", sb.bash(command, cwd=sb.feat, env=env),
+                  "deny", expanded)
+    for command in ["cat <<'EOF'\n$(gh pr merge 12)\nEOF", "cat <<\"EOF\"\n`gh pr merge 12`\nEOF",
+                    "cat <<\\EOF\n$(gh pr merge 12)\nEOF", "cat <<EOF > notes.md\nplain text, $HOME\nEOF",
+                    "cat <<EOF\n\\$(not run) \\`nor this\\`\nEOF"]:
+        check(f"round 2 allow: {command!r}", sb.bash(command, env=worker), "allow")
+
+    # Arguments xargs, parallel or find add when they run reach a Track 2 lead's merge.
+    for command in ["echo --admin | xargs gh pr merge 12", "xargs -a args.txt gh pr merge 12",
+                    "parallel gh pr merge 12 ::: --admin",
+                    "find . -name x -exec gh pr merge 12 +",
+                    "echo 12 | xargs sh -c 'gh pr merge \"$@\"' _"]:
+        check(f"round 2 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
+              "run by xargs, parallel or find", stop=LEAD_STOP)
+    check("round 2 allow, Track 2 lead: xargs gh pr view",
+          sb.bash("echo 12 | xargs gh pr view", env=lead2), "allow")
+
+    # gh co is gh's default alias, which gh's config file can redefine.
+    for label, env, stop in (("worker", worker, None), ("Track 2 lead", lead2, LEAD_STOP)):
+        check(f"round 2 deny, {label}: gh co 12", sb.bash("gh co 12", env=env), "deny", gh_unchecked,
+              stop=stop)
+
+    # The array-element allow holds only where a shell array is set; the track's name
+    # attached to an option's value is denied as the separate form is.
+    for command in ["env a[$X]=2 claude", "sudo a[$X]=1 claude", "export a[$X]=1",
+                    "a[$X]=2 claude", "tmux new -eCLAUDE_MERGE_TRACK=2 claude",
+                    "docker run -eCLAUDE_MERGE_TRACK=2 img"]:
+        check(f"round 2 deny, worker: {command!r}", sb.bash(command, env=worker), "deny",
+              "setting CLAUDE_MERGE_TRACK")
+    for command in ["declare a[$i]=1", "local m[$k]=x"]:
+        check(f"round 2 allow: {command!r}", sb.bash(command, env=worker), "allow")
 
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
