@@ -928,7 +928,12 @@ class RunnerDeny(Deny):
 def runner_backstop(name, words, starts):
     """Denies, for every role, gh, git, a shell or a runner anywhere in a runner's words but
     at a start the hook found plainly, and a word holding whitespace with gh or git
-    push in it. Guessing where a runner's options end let three rounds through."""
+    push in it. Guessing where a runner's options end let three rounds through.
+    A shell and gh or git in the same runner's words are denied together, wherever
+    the hook reads the boundaries: a shell's "$@" can reach a gh or git after it."""
+    names = {os.path.basename(w) for w in words}
+    if names & SHELLS and names & CHECKED_PROGRAMS:
+        raise RunnerDeny(RUNNER_NOUN.format(name))
     for k, w in enumerate(words):
         if (os.path.basename(w) in RUNNER_PROGRAMS and k not in starts) or (
                 re.search(r"\s", w) and RUNNER_SCRIPT.search(w)):
@@ -990,14 +995,16 @@ def inner(cmd):
         # Last, so a denial of the command itself, with its plainer reason, comes first.
         runner_backstop(prog, rest, {start})
     elif prog == "find":
-        # As find reads it: -exec's command ends only at ; or at + right after {}, so
-        # an -exec inside the command is an argument, not the start of another.
+        # As find reads it: a command ends only at ; or, for -exec and -execdir, at +
+        # right after {} (-ok and -okdir take no +), so an -exec inside the command is
+        # an argument, not the start of another.
         k, starts = 0, set()
         while k < len(words):
             if words[k] in FIND_EXEC:
                 end = k + 1
                 while end < len(words) and not (words[end] == ";" or words[end] == "+"
-                                                 and words[end - 1] == "{}"):
+                                                 and words[end - 1] == "{}"
+                                                 and words[k] in ("-exec", "-execdir")):
                     end += 1
                 if end > k + 1:
                     starts.add(k + 1)

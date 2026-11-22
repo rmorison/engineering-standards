@@ -1199,6 +1199,37 @@ def fixtures(sb):
              "echo origin trunk | find . -maxdepth 0 -exec xargs -exec git push \\;", sb.feat)]:
         check(f"review of 8ce5680 deny, {label}: {command!r}", sb.bash(command, cwd=cwd, env=env),
               "deny", RUNNER_BACKSTOP, stop=RUNNER_STOP)
+    # --- #145's review of 37c1303: -ok and -okdir take no {} + ------------------------
+    # find ends -ok and -okdir only at ;, so a {} + inside them is an argument, and a
+    # gh or git after it is not a start.
+    for source, primary in (("echo y", "-ok"), ("yes", "-okdir")):
+        for env, label, inner_command, extra, cwd in [
+                (lead2, "Track 2 lead", "gh pr merge 12", "--admin", None),
+                (worker, "worker, on a feature branch", "git push", "origin trunk", sb.feat)]:
+            command = (f"{source} | find . -maxdepth 0 {primary} sh -c 'shift 2; \"$@\" {extra}' "
+                       f"{{}} + -exec {inner_command} \\;")
+            check(f"review of 37c1303 deny, {label}: {command!r}", sb.bash(command, cwd=cwd, env=env),
+                  "deny", RUNNER_BACKSTOP, stop=RUNNER_STOP)
+    # A shell and gh or git in the same runner's words are denied together, for each
+    # place the shell can sit and each primary, whatever the walk makes of the ends.
+    for primary in ["-exec", "-execdir", "-ok", "-okdir"]:
+        for env, label, inner_command, cwd in [(lead2, "Track 2 lead", "gh pr merge 12", None),
+                                               (worker, "worker, on a feature branch", "git push", sb.feat)]:
+            shell = f"{primary} sh -c 'true' \\;"
+            for command in [f"find . -maxdepth 0 {shell} -exec {inner_command} \\;",
+                            f"find . -maxdepth 0 -exec echo {{}} \\; {shell} -exec {inner_command} \\;",
+                            f"find . -maxdepth 0 -exec echo {{}} + {shell} -exec {inner_command} \\;",
+                            f"find . -maxdepth 0 -exec {inner_command} \\; {shell}"]:
+                check(f"review of 37c1303 deny, {label}: {command!r}", sb.bash(command, cwd=cwd, env=env),
+                      "deny", RUNNER_BACKSTOP, stop=RUNNER_STOP)
+    for command in ["echo 1 | xargs -I{} gh pr view {}", "parallel gzip ::: a b",
+                    "find . -exec git log {} \\;", "find . -exec sh -c 'wc -l \"$1\"' _ {} \\;"]:
+        check(f"review of 37c1303 allow: {command!r}", sb.bash(command, env=worker), "allow")
+    check("review of 37c1303 allow, Track 2 lead: find . -exec echo {} + -exec gh pr merge 12 \\;",
+          sb.bash("find . -exec echo {} + -exec gh pr merge 12 \\;", env=lead2), "allow")
+    for command in ["find . -name '*.py' -exec grep -l x {} +", "find . -name '*.py' -execdir grep -l x {} +"]:
+        check(f"review of 37c1303 allow: {command!r}", sb.bash(command, env=worker), "allow")
+
     # The nested-runner rule, and the walk, for each -exec primary and each end.
     for primary in ["-exec", "-execdir", "-ok", "-okdir"]:
         for end in ["\\;", "{} +"]:
