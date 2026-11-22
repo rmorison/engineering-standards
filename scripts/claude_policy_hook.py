@@ -887,6 +887,7 @@ def unconsumed_heredocs(found):
 
 # A command substitution the shell runs while it expands a heredoc body: $( (and
 # $(( ), or a backtick, after an even number of backslashes (\\ is one literal \).
+CONTINUATION = re.compile(r"(?<!\\)((?:\\\\)*)\\\n")
 SUBSTITUTION = re.compile(r"(?<!\\)(?:\\\\)*(?:\$\(|`)")
 EXPANDED_BODY = ("a heredoc body that runs a command substitution, which the hook cannot "
                  "check; quote the delimiter (<<'EOF') so the body stays text, or run the "
@@ -896,7 +897,9 @@ EXPANDED_BODY = ("a heredoc body that runs a command substitution, which the hoo
 def expanded_substitution(found):
     """Whether a heredoc with an unquoted delimiter holds a substitution: the shell
     runs it when it expands the body, and the parser reads the body only as text."""
-    return any(not quoted and SUBSTITUTION.search(body) for _, body, quoted in found.heredocs)
+    # The shell drops an unescaped backslash-newline in such a body first, so $\<newline>( opens one too.
+    return any(not quoted and SUBSTITUTION.search(CONTINUATION.sub(r"\1", body))
+               for _, body, quoted in found.heredocs)
 
 
 XARGS_WITH_VALUE = {"-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-L", "-n", "--max-args",
@@ -942,9 +945,12 @@ def inner(cmd):
         if known is not None and known != start:
             yield shlex.join(rest[known:end]), True
         if prog == "parallel" and start >= end:  # parallel ::: 'cmd' runs each argument
+            # With a second source, or one read from a file (::::), parallel joins
+            # values the command does not show into each command line.
+            joined = sum(w in PARALLEL_ENDS for w in rest[end:]) > 1 or rest[end:end + 1] != [":::"]
             for w in rest[end + 1:]:
                 if w not in PARALLEL_ENDS:
-                    yield w, False
+                    yield w, joined
     elif prog == "find":
         k = 0
         while k < len(words):

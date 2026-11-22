@@ -1019,7 +1019,8 @@ def fixtures(sb):
     for command in ["cat <<EOF\n$(gh pr merge 12)\nEOF",
                     "cat <<EOF > notes.md\n`git push origin HEAD:trunk`\nEOF",
                     "cat <<-EOF\n\t$((1 + 2)) $(gh pr merge 12)\n\tEOF",
-                    "cat <<EOF\n\\\\$(gh pr merge 12)\nEOF"]:
+                    "cat <<EOF\n\\\\$(gh pr merge 12)\nEOF",
+                    "cat <<EOF\n$\\\n(gh pr merge 12)\nEOF"]:
         for label, env in (("worker", worker), ("Track 2 lead", lead2)):
             check(f"round 2 deny, {label}: {command!r}", sb.bash(command, cwd=sb.feat, env=env),
                   "deny", expanded)
@@ -1032,11 +1033,13 @@ def fixtures(sb):
     for command in ["echo --admin | xargs gh pr merge 12", "xargs -a args.txt gh pr merge 12",
                     "parallel gh pr merge 12 ::: --admin",
                     "find . -name x -exec gh pr merge 12 +",
-                    "echo 12 | xargs sh -c 'gh pr merge \"$@\"' _"]:
+                    "echo 12 | xargs sh -c 'gh pr merge \"$@\"' _",
+                    "parallel ::: 'gh pr merge 12' ::: --admin"]:
         check(f"round 2 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
               "run by xargs, parallel or find", stop=LEAD_STOP)
-    check("round 2 allow, Track 2 lead: xargs gh pr view",
-          sb.bash("echo 12 | xargs gh pr view", env=lead2), "allow")
+    for command in ["echo 12 | xargs gh pr view", "find . -name x -exec gh pr merge 12 \\;",
+                    "parallel ::: 'gh pr merge 12'"]:
+        check(f"round 2 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 
     # gh co is gh's default alias, which gh's config file can redefine.
     for label, env, stop in (("worker", worker, None), ("Track 2 lead", lead2, LEAD_STOP)):
