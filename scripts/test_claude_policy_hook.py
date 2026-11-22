@@ -42,6 +42,7 @@ STANDARD = ROOT / "process" / "repository-standards.md"
 HOOK_TIMEOUT = 20  # seconds; one call takes well under one
 
 STOP = "the operator does that in the GitHub web UI"
+RUNNER_BACKSTOP = "where the hook can't tell what runs"
 LEAD_STOP = "A Track 2 lead merges only with gh pr merge"
 RESIDUAL_DOC = (
     "the residual is now denied: update the residual list in "
@@ -974,7 +975,7 @@ def fixtures(sb):
         check(f"M5/P3 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny", frag,
               stop=LEAD_STOP)
     for command in ["gh pr checkout 12", "gh extension list", "alias ll='ls -l'",
-                    "git ls-files | xargs grep -n gh", "find . -name '*.md' -exec wc -l {} +",
+                    "git ls-files | xargs grep -n TODO", "find . -name '*.md' -exec wc -l {} +",
                     "script -q /dev/null", "setsid -f sleep 1", "watch -n1 gh pr checks 12"]:
         check(f"M5/P3 allow: {command!r}", sb.bash(command, env=worker), "allow")
 
@@ -1032,13 +1033,12 @@ def fixtures(sb):
     # Arguments xargs, parallel or find add when they run reach a Track 2 lead's merge.
     for command in ["echo --admin | xargs gh pr merge 12", "xargs -a args.txt gh pr merge 12",
                     "parallel gh pr merge 12 ::: --admin",
-                    "find . -name x -exec gh pr merge 12 +",
+                    "find . -name x -exec gh pr merge 12 {} +",
                     "echo 12 | xargs sh -c 'gh pr merge \"$@\"' _",
                     "parallel ::: 'gh pr merge 12' ::: --admin"]:
         check(f"round 2 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
               "run by xargs, parallel or find", stop=LEAD_STOP)
-    for command in ["echo 12 | xargs gh pr view", "find . -name x -exec gh pr merge 12 \\;",
-                    "parallel ::: 'gh pr merge 12'"]:
+    for command in ["echo 12 | xargs gh pr view", "find . -name x -exec gh pr merge 12 \\;"]:
         check(f"round 2 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 
     # gh co is gh's default alias, which gh's config file can redefine.
@@ -1098,8 +1098,12 @@ def fixtures(sb):
                    "parallel --jobs 2", "echo f | xargs --arg f", "echo 1 | xargs -l1",
                    "echo 1 | xargs --max-a 1"]:
         tail = " ::: x" if runner.startswith("parallel") else ""
+        # Since round 3d, the backstop denies where an option's value moves the start.
+        misread = runner != "echo 1 | xargs -l1"
         for inner_command, frag, lead_stop in [("gh pr merge 12 --admin", MERGE, LEAD_STOP),
                                                ("git push origin main", "default branch", None)]:
+            if misread:
+                frag, lead_stop = RUNNER_BACKSTOP, LEAD_STOP
             command = f"{runner} timeout 5 sh -c '{inner_command}'{tail}"
             check(f"round 3c deny, worker: {command!r}", sb.bash(command, env=worker), "deny", frag)
             check(f"round 3c deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
@@ -1111,13 +1115,65 @@ def fixtures(sb):
                     "echo 1 | xargs -ri echo {}", "parallel -j 4 gzip ::: a b",
                     "parallel --jobs 4 gzip ::: a b"]:
         check(f"round 3c allow: {command!r}", sb.bash(command, env=worker), "allow")
-    check("round 3c allow, Track 2 lead: parallel ::: 'gh pr merge 12'",
-          sb.bash("parallel ::: 'gh pr merge 12'", env=lead2), "allow")
-    # The cap counts the leading run, the word after the last option included.
-    check("round 3c allow: 63 option words before the command",
-          sb.bash("echo 1 | xargs " + "-r " * 63 + "echo hi", env=worker), "allow")
-    check("round 3c deny: 64 option words before the command",
-          sb.bash("echo 1 | xargs " + "-r " * 64 + "echo hi", env=worker), "deny", "option words")
+    # Round 3d removed the cap on option words, with the candidate starts it bounded.
+    check("round 3c allow: 64 option words before the command",
+          sb.bash("echo 1 | xargs " + "-r " * 64 + "echo hi", env=worker), "allow")
+
+    # --- #145's round 3d at dc886d6: the runner backstop ---------------------------------
+    # gh, git or a shell anywhere in a runner's words, but at the start the hook found,
+    # is denied for every role, as is a word holding a gh or git push command line:
+    # where an option, ::: or + ends is no longer guessed.
+    for form in ["parallel --colsep ::: {} ::: x", "parallel -j ::: {} ::: x",
+                 "parallel --colsep :::: {} :::: x",
+                 "echo 1 | xargs --arg -- -- timeout 5 sh -c '{}'",
+                 "find . -maxdepth 0 -exec env -C + {} \\;"]:
+        for inner_command, frag in [("gh pr merge 12 --admin", MERGE),
+                                    ("git push origin main", "default branch")]:
+            command = form.format(inner_command)
+            finds = command.startswith("find")
+            lead_stop = None if finds and "push" in inner_command else LEAD_STOP
+            check(f"round 3d deny, worker: {command!r}", sb.bash(command, env=worker), "deny",
+                  frag if finds else RUNNER_BACKSTOP)
+            check(f"round 3d deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
+                  frag if finds else RUNNER_BACKSTOP, stop=lead_stop)
+    # A quoted or escaped ; is find's word, not a separator, so a second -exec is checked.
+    for end in ["\\;", "';'", '";"']:
+        for inner_command, frag, lead_stop in [("gh pr merge 12 --admin", MERGE, LEAD_STOP),
+                                               ("git push origin main", "default branch", None)]:
+            command = f"find . -exec cat {{}} {end} -exec {inner_command} {end}"
+            check(f"round 3d deny, worker: {command!r}", sb.bash(command, env=worker), "deny", frag)
+            check(f"round 3d deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
+                  frag, stop=lead_stop)
+    check("round 3d allow, Track 2 lead: find . -exec cat {} \\; -exec gh pr merge 12 \\;",
+          sb.bash("find . -exec cat {} \\; -exec gh pr merge 12 \\;", env=lead2), "allow")
+    for command in ["echo '|' gh pr view 1", "echo ';' gh pr merge 12", "echo \\; gh", "echo '>' notes.md"]:
+        check(f"round 3d allow: {command!r}", sb.bash(command, env=worker), "allow")
+    # A Track 2 lead's merge through parallel's argument list is retired: the backstop
+    # denies it, so a lead merges only with gh pr merge written out in full.
+    for command in ["parallel ::: 'gh pr merge 12'", "parallel -j 2 ::: 'gh pr merge 12'"]:
+        check(f"round 3d deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
+              RUNNER_BACKSTOP, stop=LEAD_STOP)
+    for command in ["git ls-files | xargs grep -n gh", "echo x | xargs echo git",
+                    "find . -exec bash {} \\; -exec echo sh \\;",
+                    "echo 1 | xargs echo 'gh pr view 12'"]:
+        check(f"round 3d deny, worker: {command!r}", sb.bash(command, env=worker), "deny",
+              RUNNER_BACKSTOP)
+    for command in ["echo 1 | xargs -I{} gh pr view {}", "find . -exec git log {} \\;",
+                    "echo 1 | xargs gzip", "echo 1 | xargs -0 grep -l x", "echo 1 | xargs wc -l",
+                    "echo 1 | xargs echo hi", "find . -name '*.md' -exec wc -l {} +",
+                    "find . -exec echo {} + -exec gzip {} \\;", "parallel -j 4 gzip ::: a b"]:
+        check(f"round 3d allow: {command!r}", sb.bash(command, env=worker), "allow")
+    check("round 3d allow, Track 2 lead: find . -exec gh pr merge 12 \\;",
+          sb.bash("find . -exec gh pr merge 12 \\;", env=lead2), "allow")
+    started = time.monotonic()
+    level = "xargs " + "-r " * 30
+    result = sb.bash("echo 1 | " + level * 3 + "echo " + "a " * 8192, env=worker)
+    took = time.monotonic() - started
+    check("timing: allow 3 nested xargs, 30 options each, a 16 KB tail", result, "allow")
+    if took < 2.0:
+        ok()
+    else:
+        bad("timing: 3 nested xargs with a 16 KB tail", f"took {took:.1f} s, more than 2.0 s")
 
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"

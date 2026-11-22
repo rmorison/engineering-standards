@@ -909,8 +909,24 @@ FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 CHECKED_PROGRAMS = {"gh", "git"}
 
 
-# More option words than this before a runner's command, and the call is denied.
-MAX_RUNNER_OPTIONS = 64
+# gh, git or a shell inside a runner's words, other than as the command the hook
+# found, or a word holding a gh or git push command line: where the options, a
+# ::: list or -exec end can't be told for sure, so neither can what runs.
+RUNNER_PROGRAMS = CHECKED_PROGRAMS | SHELLS
+RUNNER_SCRIPT = re.compile(r"\bgh\b|\bgit\s+push\b")
+RUNNER_NOUN = ("gh, git or a shell inside {} where the hook can't tell what runs; "
+               "run gh or git on its own, written out in full")
+
+
+def runner_backstop(name, words, starts):
+    """Denies, for every role, gh, git or a shell anywhere in a runner's words but
+    at a start the hook found plainly, and a word holding whitespace with gh or git
+    push in it. Guessing where a runner's options end let three rounds through."""
+    for k, w in enumerate(words):
+        if (os.path.basename(w) in RUNNER_PROGRAMS and k not in starts) or (
+                re.search(r"\s", w) and RUNNER_SCRIPT.search(w)):
+            decide(MERGE, RUNNER_NOUN.format(name))
+
 
 # Above zero while a command xargs, parallel or find -exec {} runs is checked:
 # those add arguments when they run, which the hook never sees.
@@ -953,28 +969,9 @@ def inner(cmd):
         end = next((k for k, w in enumerate(rest) if prog == "parallel" and w in PARALLEL_ENDS),
                    len(rest))
         start = first_command(rest[:end], XARGS_WITH_VALUE)
-        # The option table can't be complete (optional values, getopt_long prefixes,
-        # other implementations), so check every reading: each word in the leading
-        # run of options and their possible values, and the word after it, is a
-        # possible command start. That is linear in the run, which is capped.
-        stop = 0
-        while stop < end and (rest[stop].startswith("-") and rest[stop] != "-"
-                              or stop > 0 and rest[stop - 1].startswith("-") and rest[stop - 1] != "--"):
-            if rest[stop] == "--":
-                break
-            stop += 1
-        if stop > MAX_RUNNER_OPTIONS:
-            raise Deny(f"{prog} with more than {MAX_RUNNER_OPTIONS} option words, so the command "
-                       "it runs cannot be found")
-        starts = dict.fromkeys([start] + list(range(1, min(stop + 2, end))))
-        for k in starts:
-            if k < end:
-                yield shlex.join(rest[k:end]), True
-        # An option this does not know may take a value: check the first gh or git too.
-        known = next((k for k in range(end) if os.path.basename(rest[k]) in CHECKED_PROGRAMS), None)
-        if known is not None and known not in starts:
-            yield shlex.join(rest[known:end]), True
-        if prog == "parallel" and (start >= end or stop > 0):  # parallel ::: 'cmd' runs each argument
+        if start < end:
+            yield shlex.join(rest[start:end]), True
+        if prog == "parallel":  # parallel ::: 'cmd' runs each argument
             # With a second source, or one read from a file (::::), parallel joins
             # values the command does not show into each command line.
             joined = (sum(w in PARALLEL_ENDS for w in rest[end:]) > 1 or rest[end:end + 1] != [":::"]
@@ -983,12 +980,16 @@ def inner(cmd):
             for w in rest[end + 1:]:
                 if w not in PARALLEL_ENDS:
                     yield w, joined
+        # Last, so a denial of the command itself, with its plainer reason, comes first.
+        runner_backstop(prog, rest, {start})
     elif prog == "find":
         k = 0
         while k < len(words):
             if words[k] in FIND_EXEC:
-                end = k + 1
-                while end < len(words) and words[end] not in (";", "+") and words[end] not in FIND_EXEC:
+                end = k + 1  # ; ends -exec, and + only right after {}
+                while end < len(words) and not (words[end] == ";" or words[end] == "+"
+                                                 and words[end - 1] == "{}") \
+                        and words[end] not in FIND_EXEC:
                     end += 1
                 if end > k + 1:
                     yield shlex.join(words[k + 1:end]), any("{}" in w for w in words[k + 1:end]) \
@@ -996,6 +997,10 @@ def inner(cmd):
                 k = end
             else:
                 k += 1
+        first = next((k for k, w in enumerate(words) if w in FIND_EXEC), None)
+        if first is not None:
+            runner_backstop("find -exec", words[first:],
+                            {k - first + 1 for k, w in enumerate(words) if w in FIND_EXEC})
     elif prog == "script":  # each distinct -c command, once
         scripts = list(option(words[1:], {"-c", "--command"}))
         scripts += [words[k + 1] for k, w in enumerate(words[:-1])

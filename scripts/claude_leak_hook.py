@@ -258,7 +258,10 @@ def strip_comments_and_continuations(text):
 
 PUNCTUATION = ";&|()<>\n"
 FD_MARK = "\ue000"  # a private-use character that marks an fd number before shlex runs
-PRIVATE_MARKS = "\ue000\ue001\ue002\ue003"  # FD_MARK and the standard-input marks below
+# After a quoted or escaped part of a word, so that a quoted ';' or an escaped \; stays
+# a word, as find -exec's, and never separates commands or redirects.
+QUOTED_MARK = "\ue004"
+PRIVATE_MARKS = "\ue000\ue001\ue002\ue003\ue004"  # FD_MARK, QUOTED_MARK and the standard-input marks below
 BLANKS = " \t\r"  # what tokenize() gives shlex as whitespace
 FD_NUMBER = re.compile(r"[0-9]+(?=[<>])")
 FD_NUMBER_MARKED = re.compile(FD_MARK + r"[0-9]+$")
@@ -294,11 +297,15 @@ def mark_fd_numbers(text):
             quote = None if c == "'" else quote
         elif c == "\\":
             out.append(text[i:i + 2])
+            if quote is None and text[i + 1:i + 2] not in ("", "\n"):
+                out.append(QUOTED_MARK)
             i, start, arrow, dup = i + 2, False, False, False
             continue
         elif c in "'\"":
             quote = None if quote == c else (quote or c)
         out.append(c)
+        if not unquoted and quote is None:  # this closed a quote
+            out.append(QUOTED_MARK)
         i += 1
         closes_dup = unquoted and c == "&" and arrow
         if unquoted and c not in BLANKS:
@@ -320,12 +327,21 @@ def tokenize(text):
     lex.commenters = ""
     tokens = []
     for t in lex:
+        if QUOTED_MARK in t:
+            t = t.replace(QUOTED_MARK, "")
+            if t and set(t) <= set(PUNCTUATION):
+                t = Quoted(t)
         # A marked fd number joins the operator after it, as 2> or 2>&, and keeps
         # the mark, so that simple_commands() can tell it from a quoted "2>".
         if tokens and FD_NUMBER_MARKED.match(tokens[-1]) and t in REDIRECTS:
             t = tokens.pop() + t
         tokens.append(t)
     return [t[len(FD_MARK):] if FD_NUMBER_MARKED.match(t) else t for t in tokens]
+
+
+class Quoted(str):
+    """A word of punctuation that was quoted or escaped, as find's \\; : a word, never
+    a separator or a redirect."""
 
 
 REDIRECTS = {"<", ">", ">>", "<<", "<<<", ">&", "<&", "&>", "&>>", ">|", "<>"}
@@ -340,6 +356,8 @@ def redirect(t):
     fd other than 0 keeps its number, as 3<, so it is never read as standard
     input.
     """
+    if isinstance(t, Quoted):
+        return None
     if t in REDIRECTS:
         return t
     fd = FD_REDIRECT.match(t)
@@ -367,7 +385,7 @@ def simple_commands(tokens):
             i += 2
             continue
         # Any other run of punctuation separates commands: ; && || | & ( ) and newlines.
-        if t and set(t) <= set(PUNCTUATION):
+        if t and set(t) <= set(PUNCTUATION) and not isinstance(t, Quoted):
             if words or redirects:
                 commands.append((words, redirects))
             words, redirects = [], []
