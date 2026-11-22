@@ -1091,6 +1091,34 @@ def fixtures(sb):
     check("round 3b allow: xargs -0n 1 gh pr view", sb.bash("echo 1 | xargs -0n 1 gh pr view", env=worker),
           "allow")
 
+    # --- #145's round 3c at a2088d4: every reading of a runner's options --------------
+    # An option missing from the table, or a getopt_long prefix, no longer moves the
+    # command's start: each word in the leading run of options is a possible start.
+    for runner in ["echo 1 | xargs -ia", "echo 1 | xargs -en", "parallel -Cn", "parallel -j 2",
+                   "parallel --jobs 2", "echo f | xargs --arg f", "echo 1 | xargs -l1",
+                   "echo 1 | xargs --max-a 1"]:
+        tail = " ::: x" if runner.startswith("parallel") else ""
+        for inner_command, frag, lead_stop in [("gh pr merge 12 --admin", MERGE, LEAD_STOP),
+                                               ("git push origin main", "default branch", None)]:
+            command = f"{runner} timeout 5 sh -c '{inner_command}'{tail}"
+            check(f"round 3c deny, worker: {command!r}", sb.bash(command, env=worker), "deny", frag)
+            check(f"round 3c deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
+                  frag, stop=lead_stop)
+    check("round 3c deny, Track 2 lead: parallel -j 2 ::: 'gh pr merge 12 --admin'",
+          sb.bash("parallel -j 2 ::: 'gh pr merge 12 --admin'", env=lead2), "deny", "with --admin",
+          stop=LEAD_STOP)
+    for command in ["echo 1 | xargs -0 grep -l x", "echo 1 | xargs -I{} wc -l {}",
+                    "echo 1 | xargs -ri echo {}", "parallel -j 4 gzip ::: a b",
+                    "parallel --jobs 4 gzip ::: a b"]:
+        check(f"round 3c allow: {command!r}", sb.bash(command, env=worker), "allow")
+    check("round 3c allow, Track 2 lead: parallel ::: 'gh pr merge 12'",
+          sb.bash("parallel ::: 'gh pr merge 12'", env=lead2), "allow")
+    # The cap counts the leading run, the word after the last option included.
+    check("round 3c allow: 63 option words before the command",
+          sb.bash("echo 1 | xargs " + "-r " * 63 + "echo hi", env=worker), "allow")
+    check("round 3c deny: 64 option words before the command",
+          sb.bash("echo 1 | xargs " + "-r " * 64 + "echo hi", env=worker), "deny", "option words")
+
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
     broken.mkdir()

@@ -909,6 +909,9 @@ FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 CHECKED_PROGRAMS = {"gh", "git"}
 
 
+# More option words than this before a runner's command, and the call is denied.
+MAX_RUNNER_OPTIONS = 64
+
 # Above zero while a command xargs, parallel or find -exec {} runs is checked:
 # those add arguments when they run, which the hook never sees.
 RUNTIME_ARGS = [0]
@@ -950,13 +953,28 @@ def inner(cmd):
         end = next((k for k, w in enumerate(rest) if prog == "parallel" and w in PARALLEL_ENDS),
                    len(rest))
         start = first_command(rest[:end], XARGS_WITH_VALUE)
-        if start < end:
-            yield shlex.join(rest[start:end]), True
+        # The option table can't be complete (optional values, getopt_long prefixes,
+        # other implementations), so check every reading: each word in the leading
+        # run of options and their possible values, and the word after it, is a
+        # possible command start. That is linear in the run, which is capped.
+        stop = 0
+        while stop < end and (rest[stop].startswith("-") and rest[stop] != "-"
+                              or stop > 0 and rest[stop - 1].startswith("-") and rest[stop - 1] != "--"):
+            if rest[stop] == "--":
+                break
+            stop += 1
+        if stop > MAX_RUNNER_OPTIONS:
+            raise Deny(f"{prog} with more than {MAX_RUNNER_OPTIONS} option words, so the command "
+                       "it runs cannot be found")
+        starts = dict.fromkeys([start] + list(range(1, min(stop + 2, end))))
+        for k in starts:
+            if k < end:
+                yield shlex.join(rest[k:end]), True
         # An option this does not know may take a value: check the first gh or git too.
         known = next((k for k in range(end) if os.path.basename(rest[k]) in CHECKED_PROGRAMS), None)
-        if known is not None and known != start:
+        if known is not None and known not in starts:
             yield shlex.join(rest[known:end]), True
-        if prog == "parallel" and start >= end:  # parallel ::: 'cmd' runs each argument
+        if prog == "parallel" and (start >= end or stop > 0):  # parallel ::: 'cmd' runs each argument
             # With a second source, or one read from a file (::::), parallel joins
             # values the command does not show into each command line.
             joined = (sum(w in PARALLEL_ENDS for w in rest[end:]) > 1 or rest[end:end + 1] != [":::"]
