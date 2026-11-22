@@ -105,7 +105,7 @@ Operational reference for adopting [compound-engineering](https://github.com/Eve
 
 ### [Agent Team Workflow](./process/agent-team-workflow.md)
 
-An opt-in operating model for one human directing several AI agent sessions: the operator signs off and merges, a lead coordinates, and one worker runs each ticket. Covers roles, the sprint loop, traffic between parallel tickets, a worker handoff template, the lead's Done-gate checklist, operator interaction (quiet mode), and how to adopt or decline it.
+An opt-in operating model for one human directing several AI agent sessions: the operator signs off and merges, a lead coordinates, and one worker runs each ticket. An optional coordinator spans several projects, and an optional second track lets the lead merge once the operator has approved on GitHub. Covers roles, the sprint loop, traffic between parallel tickets, a worker handoff template, the lead's Done-gate checklist, operator interaction (quiet mode), and how to adopt or decline it.
 
 To start one, install the [`agent-team` plugin](./plugins/agent-team/README.md) and run its `start-team` skill, or start the lead by hand: see [the Quickstart](./QUICKSTART.md#7-run-an-agent-team).
 

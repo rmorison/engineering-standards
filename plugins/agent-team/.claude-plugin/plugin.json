@@ -1,7 +1,7 @@
 {
   "name": "agent-team",
-  "version": "0.12.0",
-  "description": "Start an agent team in one step: a start-team skill and the lead and worker roles of the Agent Team Workflow",
+  "version": "0.13.0",
+  "description": "Start an agent team in one step: a start-team skill and the coordinator, lead and worker roles of the Agent Team Workflow",
   "repository": "https://github.com/rmorison/engineering-standards",
   "license": "MIT"
 }
