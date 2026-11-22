@@ -275,10 +275,10 @@ def gh_pr_merge(cmd):
     if any(admin_flag(w) for w in cmd.words[1:]):
         decide(MERGE, noun + " with --admin, which bypasses the branch rules"
                if granted(PR_MERGE) else noun)
-    if RUNTIME_ARGS[0]:
-        decide(MERGE, "a gh pr merge run by xargs, parallel or find, which add arguments "
-               "when it runs, so it cannot be checked; run gh pr merge on its own"
-               if granted(PR_MERGE) else noun)
+    if UNDER_RUNNER[0]:
+        decide(MERGE, "a gh pr merge run by xargs, parallel or find, or by script, watch or "
+               "flock, which can add to what it runs, so it cannot be checked; run gh pr merge "
+               "on its own" if granted(PR_MERGE) else noun)
     if any(EXPANDS.search(w) for w in cmd.words[1:]):
         decide(MERGE, "a gh pr merge with a word the shell could expand, so it cannot be "
                "checked; write the number and flags out, put a body that needs $, `, {, }, "
@@ -925,24 +925,47 @@ class RunnerDeny(Deny):
     """The runner backstop, which also denies harmless commands: rephrase, don't stop."""
 
 
+SHELL_IN_WORD = re.compile(r"\b(?:" + "|".join(sorted(SHELLS)) + r")\b")
+
+
+def shell_word(word):
+    """Whether a word holding whitespace names a shell anywhere in it, as
+    env -S 'sh -c …' or env -S 'timeout 5 sh -c …'."""
+    return bool(re.search(r"\s", word) and SHELL_IN_WORD.search(word))
+
+
+def lead_runner_merge(words):
+    """A Track 2 lead's grant covers only its own gh pr merge, never one a runner
+    runs: gh with a merge or api word anywhere in a runner's words is denied, with
+    the lead's message, wherever the hook reads the command's start."""
+    if (granted(PR_MERGE) and any(os.path.basename(w) == "gh" for w in words)
+            and any(w in ("merge", "api") for w in words)):
+        raise LeadMergeDeny("gh with merge or api inside xargs, parallel or find, which the "
+                            "grant does not cover; run gh pr merge on its own")
+
+
 def runner_backstop(name, words, starts):
     """Denies, for every role, gh, git, a shell or a runner anywhere in a runner's words but
     at a start the hook found plainly, and a word holding whitespace with gh or git
     push in it. Guessing where a runner's options end let three rounds through.
     A shell and gh or git in the same runner's words are denied together, wherever
-    the hook reads the boundaries: a shell's "$@" can reach a gh or git after it."""
+    the hook reads the boundaries: a shell's "$@" can reach a gh or git after it.
+    A word that holds whitespace and names a shell counts as a shell."""
+    lead_runner_merge(words)
     names = {os.path.basename(w) for w in words}
-    if names & SHELLS and names & CHECKED_PROGRAMS:
+    shells = bool(names & SHELLS) or any(shell_word(w) for w in words)
+    if shells and names & CHECKED_PROGRAMS:
         raise RunnerDeny(RUNNER_NOUN.format(name))
     for k, w in enumerate(words):
-        if (os.path.basename(w) in RUNNER_PROGRAMS and k not in starts) or (
+        if ((os.path.basename(w) in RUNNER_PROGRAMS or shell_word(w)) and k not in starts) or (
                 re.search(r"\s", w) and RUNNER_SCRIPT.search(w)):
             raise RunnerDeny(RUNNER_NOUN.format(name))
 
 
-# Above zero while a command xargs, parallel or find -exec {} runs is checked:
-# those add arguments when they run, which the hook never sees.
-RUNTIME_ARGS = [0]
+# Above zero while a command another command runs (xargs, parallel, find -exec,
+# script, watch, flock) is checked: a Track 2 lead's merge is denied there, since
+# a runner can add to what it runs, as xargs's and find's arguments, unseen.
+UNDER_RUNNER = [0]
 
 
 def first_command(words, with_value):
@@ -969,58 +992,57 @@ def bundle_takes_next(word, with_value):
 
 
 def inner(cmd):
-    """Yields (script, runtime) for each script this command runs, as text: the
-    command after xargs, parallel or find -exec, joined back into a command line,
-    or a script's text. Each is then checked as a whole command, sh -c and all.
-    runtime is true where the runner adds arguments when it runs."""
+    """Yields each script this command runs, as text: the command after xargs,
+    parallel or find -exec, joined back into a command line, or a script's text.
+    Each is then checked as a whole command, sh -c and all."""
     words, prog = cmd.words, cmd.program
     if " " in prog or "\t" in prog or "\n" in prog:  # watch 'gh ...', flock f -c 'gh ...'
-        yield " ".join(words), False
+        yield " ".join(words)
     if prog in ("xargs", "parallel"):
         rest = words[1:]
         end = next((k for k, w in enumerate(rest) if prog == "parallel" and w in PARALLEL_ENDS),
                    len(rest))
         start = first_command(rest[:end], XARGS_WITH_VALUE)
         if start < end:
-            yield shlex.join(rest[start:end]), True
+            yield shlex.join(rest[start:end])
         if prog == "parallel":  # parallel ::: 'cmd' runs each argument
-            # With a second source, or one read from a file (::::), parallel joins
-            # values the command does not show into each command line.
-            joined = (sum(w in PARALLEL_ENDS for w in rest[end:]) > 1 or rest[end:end + 1] != [":::"]
-                      or any(w == "--arg-file" or w.startswith("--arg-file=")
-                             or re.match(r"-[^-]*a", w) for w in rest[:end]))  # -a, or bundled as -ka
-            for w in rest[end + 1:]:
-                if w not in PARALLEL_ENDS:
-                    yield w, joined
+            yield from (w for w in rest[end + 1:] if w not in PARALLEL_ENDS)
         # Last, so a denial of the command itself, with its plainer reason, comes first.
         runner_backstop(prog, rest, {start})
     elif prog == "find":
         # As find reads it: a command ends only at ; or, for -exec and -execdir, at +
         # right after {} (-ok and -okdir take no +), so an -exec inside the command is
-        # an argument, not the start of another.
+        # an argument, not the start of another. With -ok or -okdir anywhere, a + ends
+        # nothing, since a value spelled like a primary can hide which one a + is in.
+        oks = any(w in ("-ok", "-okdir") for w in words)
         k, starts = 0, set()
         while k < len(words):
             if words[k] in FIND_EXEC:
                 end = k + 1
                 while end < len(words) and not (words[end] == ";" or words[end] == "+"
-                                                 and words[end - 1] == "{}"
+                                                 and words[end - 1] == "{}" and not oks
                                                  and words[k] in ("-exec", "-execdir")):
                     end += 1
                 if end > k + 1:
                     starts.add(k + 1)
-                    yield shlex.join(words[k + 1:end]), any("{}" in w for w in words[k + 1:end]) \
-                        or (end < len(words) and words[end] == "+")
+                    yield shlex.join(words[k + 1:end])
                 k = end + 1
             else:
                 k += 1
         first = next((k for k, w in enumerate(words) if w in FIND_EXEC), None)
         if first is not None:
+            lead_runner_merge(words)
+            # Two or more exec-type words, a value spelled like one included, and gh or
+            # git after the first: where each command ends can't be told for sure.
+            if (sum(w in FIND_EXEC for w in words) > 1
+                    and any(os.path.basename(w) in CHECKED_PROGRAMS for w in words[first + 1:])):
+                raise RunnerDeny(RUNNER_NOUN.format("find with more than one -exec"))
             runner_backstop("find -exec", words[first:], {k - first for k in starts})
     elif prog == "script":  # each distinct -c command, once
         scripts = list(option(words[1:], {"-c", "--command"}))
         scripts += [words[k + 1] for k, w in enumerate(words[:-1])
                     if k > 0 and w != "-c" and re.fullmatch(r"-[a-zA-Z]*c", w)]
-        yield from ((script, False) for script in dict.fromkeys(scripts))
+        yield from dict.fromkeys(scripts)
 
 
 def check_one(cmd, depth):
@@ -1033,14 +1055,14 @@ def check_one(cmd, depth):
     elif cmd.program == "alias":
         if any(re.search(r"\b(gh|git)\b", w.partition("=")[2]) for w in cmd.words[1:]):
             decide(MERGE, "an alias for gh or git, which runs a command the hook cannot check")
-    for script, runtime in inner(cmd):
+    for script in inner(cmd):
         if depth >= MAX_NESTING:
             raise Deny("commands nested too deep to check")
-        RUNTIME_ARGS[0] += runtime
+        UNDER_RUNNER[0] += 1
         try:
             check_command(script, cmd.cwd, depth + 1)
         finally:
-            RUNTIME_ARGS[0] -= runtime
+            UNDER_RUNNER[0] -= 1
 
 
 # --- MCP tools -----------------------------------------------------------------------
