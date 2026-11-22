@@ -50,6 +50,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import stat
 import sys
 
@@ -67,41 +68,131 @@ class Deny(Exception):
 
 # The lookbehind keeps a here-string (<<<) from reading as a heredoc.
 HEREDOC = re.compile(r"(?<!<)<<(-?)\s*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
-HEREDOC_OPERATOR = re.compile(r"(?<!<)<<(?!<)")
+COMMENT_START = " \t\n;&|()<>"  # a # after one of these, or at the start, starts a comment
 
 
-def strip_heredocs(text):
+def strip_heredocs(text, delimited=None):
     """Returns (command, bodies): the command without heredoc bodies, so a body is
     never read as a command, and the bodies, which are still text to match.
 
-    A heredoc this cannot follow, with a delimiter it does not read or no
-    terminator, leaves the rest of the text in the command, and adds it to the
-    bodies too: read as commands, a body line such as "> name" would otherwise
-    put its text where a redirect target goes, which is not matched.
+    A << is found as the shell finds it, outside quotes and comments, so a "<<X"
+    in a string or a # comment never hides the lines after it. It is tracked
+    through $(...), <(...), >(...) and backticks, where quoting starts afresh, so
+    "$(cat <<'EOF' ...)" is read as a heredoc. A << the shell might not read as
+    one, inside double quotes or arithmetic, or a heredoc this cannot follow, with
+    a delimiter it does not read or no terminator, leaves the rest of the text in
+    the command, and adds it to the bodies too: read as commands, a body line such
+    as "> name" would otherwise put its text where a redirect target goes, which
+    is not matched. Each heredoc read to its terminator is added to delimited, if
+    given, as (delimiter, body).
     """
-    lines = text.split("\n")
-    out, bodies = [], []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        out.append(line)
+    out, bodies, pending = [], [], []
+    # One frame per nesting level: [what opened it, its quote]. The quote is
+    # None, "'", '"' or "$'" (an ANSI-C string, where a backslash escapes).
+    stack = [["", None]]
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        frame = stack[-1]
+        quote = frame[1]
+        if quote in ("'", "$'"):
+            if c == "\\" and quote == "$'":
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            if c == "'":
+                frame[1] = None
+        elif c == "\\":
+            out.append(text[i:i + 2])  # an escaped character, or a line continuation
+            i += 2
+            continue
+        elif text.startswith("$((", i) or (quote is None and text.startswith("((", i)):
+            k = 3 if c == "$" else 2
+            stack.append(["((", None])
+            out.append(text[i:i + k])
+            i += k
+            continue
+        elif text.startswith("$(", i) or (quote is None and text[i:i + 2] in ("<(", ">(")):
+            stack.append(["(", None])
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        elif c == "`":
+            if frame[0] == "`" and quote is None:
+                stack.pop()
+            else:
+                stack.append(["`", None])
+        elif quote == '"':
+            if c == '"':
+                frame[1] = None
+            elif text.startswith("<<", i) and not text.startswith("<<<", i):
+                unsure(text, i, bodies)
+        elif c == '"':
+            frame[1] = '"'
+        elif c == "'":
+            frame[1] = "$'" if i > 0 and text[i - 1] == "$" else "'"
+        elif c == "(":
+            stack.append(["(", None])
+        elif c == ")" and len(stack) > 1:
+            if frame[0] == "((" and text.startswith("))", i):
+                stack.pop()
+                out.append("))")
+                i += 2
+                continue
+            stack.pop()
+        elif c == "#" and (i == 0 or text[i - 1] in COMMENT_START):
+            end = text.find("\n", i)
+            end = n if end == -1 else end
+            out.append(text[i:end])  # strip_comments_and_continuations() reads it
+            i = end
+            continue
+        elif text.startswith("<<", i) and not text.startswith("<<<", i) and (i == 0 or text[i - 1] != "<"):
+            match = HEREDOC.match(text, i)
+            if frame[0] == "((" or not match:
+                unsure(text, i, bodies)
+            else:
+                pending.append((match.group(1), match.group(3)))
+                out.append(match.group())
+                i = match.end()
+                continue
+        elif c == "\n" and pending:
+            out.append(c)
+            i = read_bodies(text, i + 1, pending, bodies, delimited)
+            pending = []
+            continue
+        out.append(c)
         i += 1
-        found = HEREDOC.findall(line)
-        if len(HEREDOC_OPERATOR.findall(line)) > len(found):
-            bodies.append("\n".join(lines[i:]))
-        for dash, _, delim in found:
-            end = i
-            while end < len(lines):
-                candidate = lines[end].lstrip("\t") if dash else lines[end]
-                if candidate == delim:
-                    break
-                end += 1
-            if end == len(lines):
-                bodies.append("\n".join(lines[i:]))
-                break  # no terminator: leave the rest visible
-            bodies.append("\n".join(lines[i:end]))
+    return "".join(out), bodies
+
+
+def unsure(text, i, bodies):
+    """A << the shell may read as a heredoc: the lines after it stay in the
+    command, and are text to match too."""
+    end = text.find("\n", i)
+    if end != -1:
+        bodies.append(text[end + 1:])
+
+
+def read_bodies(text, i, pending, bodies, delimited):
+    """Reads each pending heredoc's body from text[i:], in order, into bodies, and
+    returns where the command goes on. With no terminator, the rest stays in the
+    command, as well as in bodies."""
+    for dash, delim in pending:
+        start = i
+        while True:
+            end = text.find("\n", i)
+            line = text[i:] if end == -1 else text[i:end]
+            if (line.lstrip("\t") if dash else line) == delim:
+                bodies.append(text[start:i].removesuffix("\n"))
+                if delimited is not None:
+                    delimited.append((delim, bodies[-1]))
+                i = len(text) if end == -1 else end + 1
+                break
+            if end == -1:
+                bodies.append(text[start:])
+                return start  # no terminator: leave the rest visible
             i = end + 1
-    return "\n".join(out), bodies
+    return i
 
 
 def strip_comments_and_continuations(text):
@@ -287,7 +378,17 @@ WRAPPERS = {
              "-R", "--chroot", "-T", "--command-timeout"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
     "builtin": set(),
+    "setsid": set(),
+    "stdbuf": {"-i", "--input", "-o", "--output", "-e", "--error"},
+    "flock": {"-w", "--wait", "--timeout", "-E", "--conflict-exit-code"},
+    "ionice": {"-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"},
+    "chrt": {"-T", "--sched-runtime", "-P", "--sched-period", "-D", "--sched-deadline"},
+    "taskset": set(),
+    "watch": {"-n", "--interval", "-q", "--equexit"},
 }
+# Wrappers that take one operand before the command: timeout's duration, flock's
+# lock file, chrt's priority and taskset's mask.
+WRAPPER_OPERANDS = {"timeout", "flock", "chrt", "taskset"}
 # Their long options that take no value, so that an abbreviation is read as
 # getopt_long reads it: --sig is --signal, which takes a value; --fore is not.
 WRAPPER_FLAGS = {
@@ -345,8 +446,12 @@ def unwrap(words):
                 break
             if wrapper_option_takes_value(name, opt):
                 i += 1
-        if name == "timeout" and i < len(words):
-            i += 1  # the duration
+        if name in WRAPPER_OPERANDS and i < len(words):
+            i += 1  # the duration, lock file, priority or mask
+            # flock FILE -c 'cmd': its options may follow the file, and the -c
+            # value is left as the program word, a script the policy hook parses.
+            while name == "flock" and i < len(words) and words[i] in ("-c", "--command"):
+                i += 1
         while name in ("env", "sudo") and i < len(words) and ASSIGNMENT.match(words[i]):
             assigns.append(words[i])
             i += 1
@@ -434,6 +539,7 @@ class Parsed:
         self.lost_dir = False
         self.unclosed = False  # a $(...) or backtick span whose end was not found
         self.opaque = False  # a script nested past MAX_DEPTH, which is not parsed
+        self.heredocs = []  # (delimiter, body) for each heredoc read to its terminator
 
 
 def parse(text, cwd):
@@ -454,7 +560,7 @@ def parse_command(text, cwd, depth=0, found=None):
     their own, whose words are added from that parse. Everything else is matched.
     """
     found = found if found is not None else Parsed()
-    text, bodies = strip_heredocs(text)
+    text, bodies = strip_heredocs(text, found.heredocs)
     text, comments = strip_comments_and_continuations(text)
     found.stripped += bodies + comments
     # The commands keep their words as written, as callers that read them
@@ -1112,8 +1218,32 @@ def decide(command, cwd):
     return None
 
 
+DEADLINE = 20  # seconds: well under the host's hook timeout, so a slow input is denied
+
+
+def start_deadline():
+    """Denies the command if the check runs past DEADLINE seconds of wall-clock or
+    CPU time, so no input can keep the hook running until the host gives up on it."""
+    def expire(signum, frame):
+        sys.stderr.write(f"leak hook: denied: the check ran past its {DEADLINE}-second deadline, "
+                         f"so the command cannot be checked. {BYPASS}\n")
+        sys.stderr.flush()
+        os._exit(2)
+    signal.signal(signal.SIGALRM, expire)
+    signal.alarm(DEADLINE)
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_CPU)
+        if hard == resource.RLIM_INFINITY or hard > DEADLINE:
+            signal.signal(signal.SIGXCPU, expire)
+            resource.setrlimit(resource.RLIMIT_CPU, (DEADLINE, hard))
+    except (ImportError, ValueError, OSError):
+        pass  # the wall-clock deadline still holds
+
+
 def main():
     try:
+        start_deadline()
         try:
             data = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))
         except ValueError:

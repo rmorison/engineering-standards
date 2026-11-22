@@ -31,6 +31,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -842,6 +843,153 @@ def fixtures(sb):
     ]:
         check(f"U4 allow, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "allow")
 
+    # --- #145's round at 54948e6: the reviews' findings, each seen failing there ------
+    worker = {"CLAUDE_AGENT_ROLE": "worker"}
+    # C1: a << the shell does not read as a heredoc hides no line after it.
+    for name, command, cwd, frag in [
+        ("a <<X in a comment", "# see <<X\ngh pr merge 12\nX", None, MERGE),
+        ("a <<X in double quotes", 'echo "<<X"; true\ngit push origin HEAD:trunk\nX', sb.feat, PUSH),
+        ("a <<X in single quotes", "echo '<<X'\ngh pr merge 12\nX", None, MERGE),
+        ("a << in arithmetic", ": $((1<<a))\ngh pr merge 12\na", None, MERGE),
+    ]:
+        check(f"C1 deny the line after {name}", sb.bash(command, cwd=cwd, env=worker), "deny", frag)
+    for name, command in [
+        ("a heredoc into cat", "cat <<'EOF' > notes.md\ngh pr merge 12\nEOF"),
+        ("a heredoc in a quoted $(cat)",
+         "gh pr comment 1 --body \"$(cat <<'EOF'\nit's time to gh pr merge 12\nEOF\n)\""),
+        ("a <<- heredoc", "cat <<-EOF\n\tgh pr merge 12\n\tEOF"),
+    ]:
+        check(f"C1 allow {name}", sb.bash(command, env=worker), "allow")
+    # The safety net: with a parser planted to read << in a comment as a heredoc, the
+    # body it hides, which no command reads, is still checked as a command.
+    netted = sb.root / "netted"
+    netted.mkdir()
+    shutil.copy(HOOK, netted / "claude_policy_hook.py")
+    (netted / "claude_leak_hook.py").write_text((HOOK.parent / "claude_leak_hook.py").read_text().replace(
+        'elif c == "#" and (i == 0 or text[i - 1] in COMMENT_START):', "elif False:", 1))
+    check("C1 deny a heredoc body no command reads (the safety net)",
+          sb.bash("# see <<X\ngh pr merge 12\nX", env=worker, hook=netted / "claude_policy_hook.py"),
+          "deny", MERGE)
+
+    # A deadline: the host does not block a call when a hook times out, so the hook
+    # denies first. This runs it with a one-second deadline and a check that sleeps.
+    probe = (
+        "import sys, time\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "import importlib.util\n"
+        "spec = importlib.util.spec_from_file_location('hook', sys.argv[2])\n"
+        "hook = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(hook)\n"
+        "hook.DEADLINE = 1\n"
+        "hook.check_command = lambda *a, **k: time.sleep(5)\n"
+        "sys.exit(hook.main())\n")
+    try:
+        proc = subprocess.run([sys.executable, "-c", probe, str(HOOK.parent), str(HOOK)],
+                              input=json.dumps({"tool_name": "Bash", "cwd": str(sb.work),
+                                                "tool_input": {"command": "gh pr view 12"}}).encode(),
+                              capture_output=True, env=sb.env, cwd=str(sb.work), timeout=HOOK_TIMEOUT)
+        result = (proc.returncode, proc.stdout.decode("utf-8", "replace"),
+                  proc.stderr.decode("utf-8", "replace"))
+    except subprocess.TimeoutExpired:
+        result = ("timeout", "", "")
+    check("deny a check past the deadline", result, "deny", "deadline")
+
+    # P1, H2: input built to make a check slow takes linear time, and is denied.
+    for name, command, env, limit, stop in [
+        ("8 KB of <<a| after a shell", "bash -c : ; " + "<<a|" * 2000 + "\ngh pr merge 12 --admin",
+         worker, 1.0, None),
+        ("a 60 KB brace group", "echo {" + ",a" * 30000 + "; gh pr merge 12 --admin", lead2, 2.0,
+         LEAD_STOP),
+    ]:
+        started = time.monotonic()
+        result = sb.bash(command, env=env)
+        took = time.monotonic() - started
+        check(f"timing: deny {name}", result, "deny", stop=stop)
+        if took < limit:
+            ok()
+        else:
+            bad(f"timing: {name}", f"took {took:.1f} s, more than {limit} s")
+
+    # M3, M4, L7: more ways to set the track, each denied to every role.
+    for command in [
+        ": > 'CLAUDE_MERGE_TRACK=2'; env CLAUDE_MERGE_TRAC?=2 CLAUDE_AGENT_ROLE=lead claude -p 'merge 12'",
+        "env CLAUDE_MERGE_TRAC[K]=2 claude",
+        "export $'CLAUDE_MERGE_TRACK=2'",
+        "export $(echo CLAUDE_MERGE_TRACK)=2",
+        "export ${X}=2",
+        "tmux new -e 'CLAUDE_MERGE_TRAC*=2'",
+        "jq -n '{env:{CLAUDE_MERGE_TRACK:\"2\"}}' > .claude/settings.local.json",
+        "printf '%s' '{env:{CLAUDE_MERGE_TRACK:\"2\"}}' > .claude/settings.local.json",
+        "printf '{\"env\":{\"%s\":\"2\"}}' CLAUDE_MERGE_TRACK > .claude/settings.local.json",
+        "tmux setenv CLAUDE_MERGE_TRACK 2",
+        "tmux set-environment -g CLAUDE_MERGE_TRACK 2",
+        "systemctl --user import-environment CLAUDE_MERGE_TRACK",
+        "screen -X setenv CLAUDE_MERGE_TRACK 2",
+        "fish -c 'set -gx CLAUDE_MERGE_TRACK 2'",
+        "tcsh -c 'setenv CLAUDE_MERGE_TRACK 2'",
+    ]:
+        for label, env in (("worker", worker), ("Track 2 lead", lead2)):
+            check(f"M3/M4/L7 deny, {label}: {command!r}", sb.bash(command, env=env), "deny",
+                  "setting CLAUDE_MERGE_TRACK")
+    for command in ["typeset +x CLAUDE_MERGE_TRACK", "declare +x CLAUDE_MERGE_TRACK",
+                    "awk -F= '{print $2}' body.md", "echo \"${CLAUDE_MERGE_TRACK:0:1}\""]:
+        check(f"track allow: {command!r}", sb.bash(command, env=worker), "allow")
+
+    # M5, P3: aliases, extensions, runners and wrappers that run a command.
+    gh_unchecked = "a gh alias or extension"
+    for command, frag in [
+        ("gh alias set mm 'pr merge'", gh_unchecked),
+        ("gh alias import aliases.yml", gh_unchecked),
+        ("gh mm 12", gh_unchecked),
+        ("gh extension exec merge-it 12", gh_unchecked),
+        ("shopt -s expand_aliases; alias m='gh pr merge 12'\nm", "an alias for gh or git"),
+        ("echo 12 | xargs gh pr merge", MERGE),
+        ("echo 12 | xargs -n 1 -I{} gh pr merge {}", MERGE),
+        ("find . -maxdepth 0 -exec gh pr merge 12 \;", MERGE),
+        ("parallel gh pr merge ::: 12", MERGE),
+        ("parallel ::: 'gh pr merge 12'", MERGE),
+        ("bash <<<'gh pr merge 12'", MERGE),
+        ("bash <<'EOF'\ngh pr merge 5\nEOF", MERGE),
+        ("cat <<'EOF' | bash\ngh pr merge 5\nEOF", MERGE),
+        ("setsid gh pr merge 12", MERGE),
+        ("stdbuf -o0 gh pr merge 12", MERGE),
+        ("watch -n1 gh pr merge 12", MERGE),
+        ("watch -n1 'gh pr merge 12'", MERGE),
+        ("flock /tmp/l gh pr merge 12", MERGE),
+        ("flock /tmp/l -c 'gh pr merge 12'", MERGE),
+        ("script -qc 'gh pr merge 12' /dev/null", MERGE),
+        ("ionice -c2 -n0 gh pr merge 12", MERGE),
+        ("chrt 10 gh pr merge 12", MERGE),
+        ("taskset 0x1 gh pr merge 12", MERGE),
+    ]:
+        check(f"M5/P3 deny, worker: {command!r}", sb.bash(command, env=worker), "deny", frag)
+    for command, frag in [
+        ("gh alias set mm 'pr merge --admin'\ngh mm 12", gh_unchecked),
+        ("shopt -s expand_aliases; alias m='gh pr merge 12 --admin'\nm", "an alias for gh or git"),
+        ("echo 12 | xargs gh pr merge --admin", "with --admin"),
+        ("bash <<<'gh pr merge 12 --admin'", "with --admin"),
+        ("setsid gh pr merge 12 --admin", "with --admin"),
+        ("script -qc 'gh pr merge 12 --admin' /dev/null", "with --admin"),
+    ]:
+        check(f"M5/P3 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny", frag,
+              stop=LEAD_STOP)
+    for command in ["gh co 12", "gh extension list", "alias ll='ls -l'",
+                    "git ls-files | xargs grep -n gh", "find . -name '*.md' -exec wc -l {} +",
+                    "script -q /dev/null", "setsid -f sleep 1", "watch -n1 gh pr checks 12"]:
+        check(f"M5/P3 allow: {command!r}", sb.bash(command, env=worker), "allow")
+
+    # L6: a merge endpoint spelt another way GitHub may route the same.
+    for path in ["repos/o/r/pulls/12/merge#x", "repos/o/r//pulls/12/merge", "repos/o/r/pulls/12/./merge",
+                 "repos//o/r/pulls/12/merge", "repos/o/r/pulls/1/%6Derge",
+                 "repos/o/r/pulls/12/x/../merge", "repos/o/r/pulls/12/merge?x=1"]:
+        check(f"L6 deny: gh api {path!r} -X PUT", sb.bash(f"gh api '{path}' -X PUT", env=worker),
+              "deny", "merging a pull request through the API")
+
+    # m1, m8: a second fixture for the --admin= form and for words after --.
+    for command in ["gh pr merge --admin=true 12", "gh pr merge -- 12 --admin"]:
+        check(f"U4 deny --admin, Track 2 lead: {command!r}", sb.bash(command, env=lead2),
+              "deny", "with --admin", stop=LEAD_STOP)
+
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
     broken.mkdir()
@@ -856,9 +1004,8 @@ def fixtures(sb):
     planted = sb.root / "planted"
     planted.mkdir()
     shutil.copy(LEAK_HOOK, planted / "claude_leak_hook.py")
-    source = HOOK.read_text().replace(
-        "def check_command(command, cwd):\n",
-        "def check_command(command, cwd):\n    raise RuntimeError('planted')\n", 1)
+    source = re.sub(r"(def check_command\([^)]*\):\n)",
+                    r"\1    raise RuntimeError('planted')\n", HOOK.read_text(), count=1)
     (planted / "claude_policy_hook.py").write_text(source)
     check("KTD5 deny: a crash in the hook", sb.bash("gh pr view 12",
           hook=planted / "claude_policy_hook.py"), "deny", "the hook failed")
@@ -866,11 +1013,10 @@ def fixtures(sb):
     # --- Residuals: documented, pinned as still allowed ----------------------------------
     for name, command in [
         ("curl", "curl -X PUT https://api.github.com/repos/o/r/pulls/1/merge"),
-        ("xargs", "echo 12 | xargs gh pr merge"),
         ("a pipe into sh", "echo 'gh pr merge 12' | sh"),
-        ("a gh alias", "gh pm 12"),
         ("a make target", "make push"),
-        ("a heredoc fed to a shell", "bash <<'EOF'\ngh pr merge 5\nEOF"),
+        ("a program named by a variable", "G=gh; $G pr merge 12"),
+        ("a shell function", "m() { \"$@\"; }; m gh pr merge 12"),
         ("editing the clone's config file",
          "printf '[agentpolicy]\\n\\tallowDefaultPush = true\\n' >> .git/config"),
     ]:

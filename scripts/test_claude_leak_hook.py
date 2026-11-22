@@ -881,6 +881,11 @@ def fixtures(sb):
         ("git config --file f core.hooksPath", "git config --file f core.hooksPath x", "core.hooksPath"),
         ("after a here-string", "cat <<< x\ngit commit -n", "git commit -n"),
         ("# comment with an apostrophe", "git commit -n -m x # it's fine", "git commit -n"),
+        # A << the shell does not read as a heredoc hides no line after it.
+        ("after a <<X in a comment", "# see <<X\ngit commit -n\nX", "git commit -n"),
+        ("after a <<X in double quotes", 'echo "<<X"; true\ngit commit -n\nX', "git commit -n"),
+        ("after a <<X in single quotes", "echo '<<X'\ngit commit -n\nX", "git commit -n"),
+        ("after a << in arithmetic", ": $((1<<a))\ngit commit -n\na", "git commit -n"),
     ]
     for state, value in (("no list", None), ("broken list", str(sb.lists / "missing"))):
         sb.declare(value)
@@ -895,6 +900,8 @@ def fixtures(sb):
         ("flag inside a quoted PR body",
          'gh issue comment 1 --body "never run git commit --no-verify"', "note"),
         ("heredoc body mentions git commit -n", "cat > notes.md <<'EOF'\ngit commit -n\nEOF", "allow"),
+        ("a quoted $(cat <<EOF) body mentions git commit -n",
+         "gh issue comment 1 --body \"$(cat <<'EOF'\nit's git commit -n\nEOF\n)\"", "note"),
         ("git config --get core.hooksPath", "git config --get core.hooksPath", "allow"),
         ("git config --unset core.hooksPath", "git config --unset core.hooksPath", "allow"),
         ("git push -n is a dry run", "git push -n", "allow"),
@@ -938,6 +945,30 @@ def fixtures(sb):
         check(f"Bash input with {name} is denied",
               sb.hook("", stdin=json.dumps({"tool_name": "Bash", "tool_input": tool_input})),
               "deny", "no command string")
+
+    # --- A deadline: a check that runs too long denies ---------------------------
+    # The host does not block a call when a hook times out, so the hook must deny
+    # first. This runs the hook with a one-second deadline and a check that sleeps.
+    probe = (
+        "import sys, time\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "import importlib.util\n"
+        "spec = importlib.util.spec_from_file_location('hook', sys.argv[2])\n"
+        "hook = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(hook)\n"
+        "hook.DEADLINE = 1\n"
+        "hook.decide = lambda *a: time.sleep(5)\n"
+        "sys.exit(hook.main())\n")
+    try:
+        proc = subprocess.run([sys.executable, "-c", probe, str(HOOK.parent), str(HOOK)],
+                              input=json.dumps({"tool_name": "Bash", "cwd": str(sb.work),
+                                                "tool_input": {"command": "git status"}}).encode(),
+                              capture_output=True, env=sb.env, cwd=str(sb.work), timeout=HOOK_TIMEOUT)
+        result = (proc.returncode, proc.stdout.decode("utf-8", "replace"),
+                  proc.stderr.decode("utf-8", "replace"))
+    except subprocess.TimeoutExpired:
+        result = ("timeout", "", "")
+    check("a check past the deadline is denied", result, "deny", "deadline")
 
 
 if __name__ == "__main__":

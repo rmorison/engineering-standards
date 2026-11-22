@@ -35,6 +35,11 @@ without --admin. A missing or unknown role, or a missing or unknown track,
 never grants anything. A call the hook cannot check is denied outside it, so no
 grant ever lets an unchecked call through.
 
+The command xargs, parallel, find -exec, script -c, watch or flock runs, and a
+script a shell reads on standard input, is checked like any other, and a gh
+alias or extension is denied. A check that runs past DEADLINE seconds is
+denied, so no input can keep the hook running until the host gives up on it.
+
 It parses commands with the leak hook's parser, imported from the same
 directory, so both scripts must be installed. Without the leak hook, every call
 is denied. Nothing this prints contains the command or a file's contents.
@@ -47,8 +52,11 @@ import fnmatch
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
+from collections import Counter
+from urllib.parse import unquote
 
 STOP = ("Agent sessions don't merge, push to a default branch or change repository settings; "
         "the operator does that in the GitHub web UI. Say what you need in the issue or "
@@ -62,7 +70,8 @@ LEAD_STOP = ("A Track 2 lead merges only with gh pr merge, written out in full a
 sys.dont_write_bytecode = True  # no __pycache__ beside the installed hooks
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 try:
-    from claude_leak_hook import EXPORTERS, SHELLS, Deny, option, parse
+    from claude_leak_hook import (EXPORTERS, SHELLS, WRAPPERS, Command, Deny, option,
+                                  parse, parse_command, unwrap)
 except Exception as error:  # fail closed: the parser is required
     sys.stderr.write(f"policy hook: denied: claude_leak_hook.py could not be imported "
                      f"({type(error).__name__}); install both hooks. {STOP}\n")
@@ -100,6 +109,17 @@ GH_COMMANDS = {
     ("workflow", "disable"): (SETTINGS, "disabling a workflow"),
 }
 GH_DEPLOY_KEY_WRITES = {"add", "delete"}  # gh repo deploy-key <verb>
+# gh's own commands (gh 2.86), with their cobra aliases and gh's default alias co.
+# Any other first word is a user alias or an extension, which runs a command the
+# hook cannot see, so it is denied, as are defining an alias and running an
+# extension by name.
+GH_BUILTINS = {"auth", "browse", "codespace", "cs", "gist", "issue", "org", "pr", "project",
+               "release", "repo", "cache", "run", "workflow", "agent-task", "alias", "api",
+               "attestation", "completion", "config", "copilot", "extension", "extensions",
+               "ext", "gpg-key", "label", "preview", "ruleset", "search", "secret", "ssh-key",
+               "status", "variable", "help", "version", "accessibility", "a11y", "co"}
+GH_ALIAS_WRITES = {"set", "import"}
+GH_UNCHECKED = "a gh alias or extension, which runs a command the hook cannot check"
 GH_RULESET_READS = {"list", "ls", "view", "check"}  # every gh ruleset verb today
 
 # gh api endpoints, matched when the call writes. S is one path segment.
@@ -263,6 +283,11 @@ def gh_command(cmd):
         return
     group, rest = words[0], skip_flags(words[1:], GH_WITH_VALUE)
     verb = rest[0] if rest else ""
+    if group not in GH_BUILTINS:
+        decide(MERGE, GH_UNCHECKED)
+    if (group == "alias" and verb in GH_ALIAS_WRITES) or (group in ("extension", "extensions", "ext")
+                                                           and verb == "exec"):
+        decide(MERGE, GH_UNCHECKED)
     if (group, verb) == ("pr", "merge"):
         gh_pr_merge(cmd)
     elif (group, verb) in GH_COMMANDS:
@@ -294,8 +319,25 @@ def endpoint(words):
 
 
 def normalize(path):
+    """The endpoint as GitHub routes it: no host, query or fragment, percent escapes
+    decoded, and no empty, . or .. segments, so repos//o/r/pulls/1/./%6Derge#x
+    reads as repos/o/r/pulls/1/merge."""
     path = re.sub(r"^https?://[^/]+/(api/v3/)?", "", path)
-    return path.split("?", 1)[0].strip("/")
+    for _ in range(4):  # an escape that decodes to another escape is decoded again
+        path = re.split(r"[?#]", path, 1)[0]
+        decoded = unquote(path)
+        if decoded == path:
+            break
+        path = decoded
+    path = re.split(r"[?#]", path, 1)[0]
+    segments = []
+    for part in path.split("/"):
+        if part == "..":
+            if segments:
+                segments.pop()
+        elif part not in ("", "."):
+            segments.append(part)
+    return "/".join(segments)
 
 
 def gh_api(cmd, words):
@@ -573,27 +615,42 @@ TRACK_NAME = re.compile(TRACK_ID)
 TRACK_WRITE = re.compile(r"\$\{CLAUDE_MERGE_TRACK:?="
                          r"|(?<![$A-Za-z0-9_#!{])CLAUDE_MERGE_TRACK\s*(:|[-+*/%&|^]|<<|>>)?=(?!=)"
                          r"|" + TRACK_ID + r"(\+\+|--)|(?<![-+])(\+\+|--)CLAUDE_MERGE_TRACK\b")
-# A settings env block, as passed inline to claude --settings, in any command
-# but a search for the key. JSON \u escapes are decoded first.
-TRACK_JSON_KEY = re.compile(r"\"CLAUDE_MERGE_TRACK\"\s*:")
+# A settings env block, as passed inline to claude --settings or written by jq or
+# printf, in any command but a search for the key: "NAME": in JSON, or NAME: as
+# a jq or YAML key, but not ${NAME:-x}, which reads it. JSON \u escapes are
+# decoded first.
+TRACK_JSON_KEY = re.compile(r"\"CLAUDE_MERGE_TRACK\"\s*:"
+                            r"|(?<![$A-Za-z0-9_#!])(?<!\$\{)CLAUDE_MERGE_TRACK\s*:(?![-=?+])")
 JSON_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
 TRACK_SEARCHES = {"grep", "egrep", "fgrep", "rg", "ag", "ack"}
 # Builtins whose words can name a variable they set: as a name, NAME=v, an
 # arithmetic expression (let), a nameref's target, or getopts' and wait -p's NAME.
 TRACK_NAMERS = EXPORTERS | {"let", "for", "select", "read", "mapfile", "readarray",
                             "getopts", "wait"}
-# declare/typeset -p print it, export -n removes the export (declare -n is a nameref).
-TRACK_READS = {"declare": {"-p"}, "typeset": {"-p"}, "export": {"-p", "-n"}}
+# declare/typeset -p print it, and +x removes the export; export -n removes the
+# export (declare -n is a nameref).
+TRACK_READS = {"declare": {"-p", "+x"}, "typeset": {"-p", "+x"}, "export": {"-p", "-n"}}
+# Words that set an environment variable named by the next word: tmux setenv and
+# set-environment, screen -X setenv, launchctl setenv, systemctl
+# import-environment, and csh's setenv.
+TRACK_SETENV = {"setenv", "set-environment", "import-environment"}
+# Shells whose scripts this does not parse: any mention of the name is denied.
+OTHER_SHELLS = {"fish", "csh", "tcsh"}
 # An innermost brace group, not ${...}: {a,b} or a sequence {x..y} or {x..y..n}.
-BRACE = re.compile(r"(?<!\$)\{([^{}]*,[^{}]*|-?\w+\.\.-?\w+(\.\.-?\d+)?)\}")
+# The comma form can match only one way, so a search takes linear time.
+BRACE = re.compile(r"(?<!\$)\{([^{},]*(?:,[^{},]*)+|-?\w+\.\.-?\w+(\.\.-?\d+)?)\}")
 MAX_FORMS = 256
+MAX_WORD = 4096  # a longer word with a brace group is not expanded
+MAX_EXPANSION = 1 << 20  # characters of forms one run makes before it stops expanding
 NUMBER = re.compile(r"-?[0-9]{1,18}")
+expanded = [0]  # characters of forms made so far, against MAX_EXPANSION
 
 
 def alternatives(group):
-    """What one brace group expands to; a sequence as bash reads it, or itself."""
+    """What one brace group expands to, at most MAX_FORMS + 1 of them; a sequence
+    as bash reads it, or itself."""
     if "," in group:
-        return group.split(",")
+        return group.split(",", MAX_FORMS + 1)[:MAX_FORMS + 1]
     a, b = group.split("..")[:2]
     if NUMBER.fullmatch(a) and NUMBER.fullmatch(b):
         lo, hi = sorted((int(a), int(b)))
@@ -606,8 +663,15 @@ def alternatives(group):
 
 def forms(word):
     """The word, and what brace expansion makes of it, so that CLAUDE_MERGE_TRAC{K,}
-    and CLAUDE_MERGE_{TRACK,X} read as the name. A word with more forms than
-    MAX_FORMS that assigns (holds =) can't be checked, so it reads as setting it."""
+    and CLAUDE_MERGE_{TRACK,X} read as the name. A word that assigns (holds =)
+    and has more forms than MAX_FORMS, is longer than MAX_WORD, or comes after
+    MAX_EXPANSION characters of forms, can't be checked, so it reads as setting
+    it. The limits keep the time this takes linear in the command's length."""
+    if "{" not in word or not BRACE.search(word):
+        return [word]
+    unchecked = [word, TRACK_VAR + "="] if "=" in word else [word]
+    if len(word) > MAX_WORD or expanded[0] > MAX_EXPANSION:
+        return unchecked
     out, todo = [word], [word]
     while todo:
         w = todo.pop()
@@ -620,10 +684,9 @@ def forms(word):
                 continue
             out.append(new)
             todo.append(new)
-        if len(out) > MAX_FORMS:
-            if "=" in word:
-                out.append(TRACK_VAR + "=")  # too many to check: count it as a write
-            break
+            expanded[0] += len(new)
+        if len(out) > MAX_FORMS or expanded[0] > MAX_EXPANSION:
+            return out + unchecked[1:]
     return out
 
 
@@ -634,34 +697,44 @@ def searches(cmd):
     return bool(sub) and sub[0] == "grep"
 
 
+def unjson(text):
+    return JSON_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), text)
+
+
 def names_track(text):
     """Whether script text names the variable at all, after brace expansion: as a
     write, an identifier or a JSON key."""
     tokens = [f for t in re.split(r"[\s;&|()]+", text) for f in forms(t)]
     return (any(TRACK_NAME.search(f) or TRACK_WRITE.search(f) for f in tokens)
-            or TRACK_WRITE.search(text)
-            or TRACK_JSON_KEY.search(JSON_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), text)))
+            or TRACK_WRITE.search(text) or TRACK_JSON_KEY.search(unjson(text)))
 
 
-STDIN_SHELLS = SHELLS | {"source", "."}
-# A heredoc piped into a shell on the command's first line, through any stages or
-# wrappers: cat <<EOF | bash, cat <<EOF | tee f | sudo bash.
-HEREDOC_TO_SHELL = re.compile(r"<<-?[^\n]*\|[^\n]*?(^|[\s/])(" + "|".join(sorted(SHELLS))
-                              + r"|source|\.)(\s|$)")
+# A NAME=value word whose NAME the shell could still expand to the variable: one
+# with a $ or a backtick, or a glob or brace that matches it, as in
+# export CLAUDE_MERGE_TRAC?=2 or env ${X}=2. It may stand after an option, as in
+# --env=NAME=v or -eNAME=v.
+EXPANDS_TO_NAME = re.compile(r"[$`]")
+GLOBS = re.compile(r"[*?\[{]")
 
 
-def track_stdin(commands, command):
-    """Denies a here-string or heredoc a shell or source runs, on its own command or
-    piped in on the first line, when its text names the variable. Broad, since that
-    text is a script."""
-    shells = [c for c in commands if c.program in STDIN_SHELLS]
-    texts = [t for c in shells for op, t in c.redirects if op == "<<<"]
-    first, _, rest = command.partition("\n")
-    if (any(op == "<<" for c in shells for op, _ in c.redirects)
-            or (shells and HEREDOC_TO_SHELL.search(first))):
-        texts.append(rest)
-    if any(names_track(t) for t in texts):
-        decide(TRACK, TRACK_NOUN)
+def could_name_track(word, unknown=True):
+    """Whether a word could reach a setter as CLAUDE_MERGE_TRACK=value once the shell
+    expands it. With unknown false, a $ or backtick in the name does not count."""
+    candidates = [word]
+    if word.startswith("-"):
+        candidates += [word.partition("=")[2], word[2:] if word[1:2] != "-" else ""]
+    for candidate in candidates:
+        name, eq, _ = candidate.partition("=")
+        if not eq or not name or re.search(r"[\s/]", name):
+            continue
+        if unknown and EXPANDS_TO_NAME.search(name):
+            return True
+        if GLOBS.search(name) and any(fnmatch.fnmatchcase(TRACK_VAR, f) for f in forms(name)):
+            return True
+    return False
+
+
+SETTERS = EXPORTERS | {"env", "sudo", "let"}
 
 
 def track_command(cmd):
@@ -671,16 +744,29 @@ def track_command(cmd):
     words, args = cmd.words, cmd.words[1:]
     every = [f for w in cmd.assigns + words for f in forms(w)]
     text = " ".join(every)
+    targets = [f for _, t in cmd.redirects for f in forms(t)]
     if (TRACK_WRITE.search(text)
+            or any(TRACK_WRITE.search(t) for t in targets)
             or any(TRACK_NAME.search(f) for a in cmd.assigns for f in forms(a.split("=", 1)[1]))
-            or (not searches(cmd)
-                and TRACK_JSON_KEY.search(JSON_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), text)))):
+            or (not searches(cmd) and TRACK_JSON_KEY.search(unjson(text)))):
         decide(TRACK, TRACK_NOUN)
-    named = [f for w in args if not w.startswith("-") for f in forms(w)]
+    # A name the shell could still expand to it, where a setter reads NAME=value:
+    # the program's place (env stops there), a setter's arguments, and option values.
+    for k, w in enumerate(words):
+        after_option = k > 0 and words[k - 1].startswith("-")
+        unknown = k == 0 or cmd.program in SETTERS or after_option or w.startswith("-")
+        if could_name_track(w, unknown):
+            decide(TRACK, TRACK_NOUN)
+    named = [f for w in args if w[:1] not in ("-", "+") for f in forms(w)]
     if cmd.program in TRACK_NAMERS and any(TRACK_NAME.search(f) for f in named):
-        options = {w for w in args if w.startswith("-")}
+        options = {w for w in args if w[:1] in ("-", "+")}
         reads = options and options <= TRACK_READS.get(cmd.program, set())
         if not reads or any("=" in f for f in named):  # export -n r=NAME points a nameref
+            decide(TRACK, TRACK_NOUN)
+    if cmd.program in OTHER_SHELLS and any(names_track(w) for w in args):
+        decide(TRACK, TRACK_NOUN)
+    for k, w in enumerate(words):
+        if w in TRACK_SETENV and any(TRACK_NAME.search(f) for v in words[k + 1:] for f in forms(v)):
             decide(TRACK, TRACK_NOUN)
     if cmd.program == "printf":
         for i, w in enumerate(args):
@@ -688,6 +774,136 @@ def track_command(cmd):
             if (w == "-v" and TRACK_VAR in nxt) or TRACK_VAR in [f.removeprefix("-v") for f in forms(w)
                                                                  if f.startswith("-v")]:
                 decide(TRACK, TRACK_NOUN)
+        # A format that puts the name in a key or an assignment, as printf '{"%s":"2"}' NAME.
+        if (any("%" in w and re.search(r"[{:=]", w) for w in args)
+                and any(TRACK_NAME.search(f) for w in args for f in forms(w))):
+            decide(TRACK, TRACK_NOUN)
+
+
+# --- Commands inside commands ----------------------------------------------------
+#
+# A script a shell reads on standard input, a heredoc body no command reads, and
+# the command xargs, parallel, find -exec or script -c runs are checked as
+# commands too, to MAX_NESTING levels; past that, the call is denied.
+
+MAX_NESTING = 3
+STDIN_SHELLS = SHELLS | {"source", "."}
+STAGE_WORDS = re.compile(r"[\s;&()]+")
+
+
+def heredoc_into_shell(line):
+    """Whether a line pipes a heredoc into a shell, through any stages or wrappers:
+    cat <<EOF | bash, cat <<EOF | tee f | sudo bash. Linear in the line's length."""
+    stages = line.split("|")
+    for k, stage in enumerate(stages):
+        if "<<" in stage.replace("<<<", ""):
+            return any(os.path.basename(w) in STDIN_SHELLS
+                       for later in stages[k + 1:] for w in STAGE_WORDS.split(later))
+    return False
+
+
+def stdin_scripts(found, command):
+    """The scripts a shell or source runs from standard input: a here-string, or
+    the heredoc bodies, when a shell reads a heredoc itself or one is piped into a
+    shell."""
+    shells = [c for c in found.commands if c.program in STDIN_SHELLS]
+    texts = [t for c in shells for op, t in c.redirects if op == "<<<"]
+    if (any(op.endswith("<<") and not op.endswith("<<<") for c in shells for op, _ in c.redirects)
+            or any(heredoc_into_shell(line) for line in command.split("\n") if "<<" in line)):
+        texts += [body for _, body in found.heredocs]
+    return texts
+
+
+def unconsumed_heredocs(found):
+    """The heredoc bodies no parsed command reads as a heredoc, matched by delimiter.
+    The parser finds both alike, so this is a safety net for a body it would
+    otherwise hide."""
+    readers = Counter(t.lstrip("-") for c in found.commands for op, t in c.redirects
+                      if op.endswith("<<") and not op.endswith("<<<"))
+    bodies = []
+    for delim, body in found.heredocs:
+        if readers[delim.lstrip("-")]:
+            readers[delim.lstrip("-")] -= 1
+        else:
+            bodies.append(body)
+    return bodies
+
+
+XARGS_WITH_VALUE = {"-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-L", "-n", "--max-args",
+                    "-P", "--max-procs", "-s", "--max-chars", "--process-slot-var"}
+PARALLEL_ENDS = {":::", "::::", ":::+", "::::+"}
+FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
+CHECKED_PROGRAMS = {"gh", "git"}
+
+
+def first_command(words, with_value):
+    """Where the command after a runner's options starts: past its options, and
+    the values of those that take one."""
+    i = 0
+    while i < len(words) and words[i].startswith("-") and words[i] != "-":
+        if words[i] == "--":
+            return i + 1
+        i += 2 if words[i] in with_value else 1
+    return i
+
+
+def inner(cmd):
+    """Yields (words, script) for what this command runs: the words of a command,
+    or a script's text, either None."""
+    words, prog = cmd.words, cmd.program
+    if " " in prog or "\t" in prog or "\n" in prog:  # watch 'gh ...', flock f -c 'gh ...'
+        yield None, " ".join(words)
+    if prog in ("xargs", "parallel"):
+        rest = words[1:]
+        end = next((k for k, w in enumerate(rest) if prog == "parallel" and w in PARALLEL_ENDS),
+                   len(rest))
+        start = first_command(rest[:end], XARGS_WITH_VALUE)
+        if start < end:
+            yield rest[start:end], None
+        # An option this does not know may take a value: check the first gh or git too.
+        known = next((k for k in range(end) if os.path.basename(rest[k]) in CHECKED_PROGRAMS), None)
+        if known is not None and known != start:
+            yield rest[known:end], None
+        if prog == "parallel" and start >= end:  # parallel ::: 'cmd' runs each argument
+            for w in rest[end + 1:]:
+                if w not in PARALLEL_ENDS:
+                    yield None, w
+    elif prog == "find":
+        for k, w in enumerate(words):
+            if w in FIND_EXEC:
+                end = next((j for j in range(k + 1, len(words)) if words[j] in (";", "+")),
+                           len(words))
+                yield words[k + 1:end], None
+    elif prog == "script":
+        for value in option(words[1:], {"-c", "--command"}):
+            yield None, value
+        for w in words[1:]:  # a cluster such as -qc takes the next word
+            if re.fullmatch(r"-[a-zA-Z]*c", w) and w != "-c":
+                k = words.index(w)
+                if k + 1 < len(words):
+                    yield None, words[k + 1]
+
+
+def check_one(cmd, depth):
+    """Checks one simple command, and the commands it runs. Raises Deny."""
+    track_command(cmd)
+    if cmd.program == "gh":
+        gh_command(cmd)
+    elif cmd.program == "git":
+        git_command(cmd)
+    elif cmd.program == "alias":
+        if any(re.search(r"\b(gh|git)\b", w.partition("=")[2]) for w in cmd.words[1:]):
+            decide(MERGE, "an alias for gh or git, which runs a command the hook cannot check")
+    for words, script in inner(cmd):
+        if depth >= MAX_NESTING:
+            raise Deny("commands nested too deep to check")
+        if script is not None:
+            check_command(script, cmd.cwd, depth + 1)
+            continue
+        assigns, unwrapped = unwrap(words)
+        sub = Command(assigns, unwrapped, [], cmd.cwd)
+        sub.raw_text, sub.heredoc_files = cmd.raw_text, cmd.heredoc_files
+        check_one(sub, depth + 1)
 
 
 # --- MCP tools -----------------------------------------------------------------------
@@ -726,15 +942,16 @@ FALLBACK = [
 ]
 
 
-def check_command(command, cwd):
+def check_command(command, cwd, depth=0):
     """Raises Deny for a Bash command that does something in the tables."""
     try:
-        commands, _ = parse(command, cwd)
+        found = parse_command(command, cwd)
     except ValueError:
         for pattern, category, noun in FALLBACK:
             if pattern.search(command):
                 decide(category, noun + "; rewrite it with balanced quotes")
         return
+    commands = found.commands
     heredoc_files = set()
     for cmd in commands:
         if cmd.cwd is not None and any(op == "<<" for op, _ in cmd.redirects):
@@ -742,15 +959,17 @@ def check_command(command, cwd):
             if cmd.program == "tee":
                 targets += [w for w in cmd.words[1:] if not w.startswith("-")]
             heredoc_files.update(os.path.normpath(os.path.join(cmd.cwd, t)) for t in targets)
-    track_stdin(commands, command)
+    scripts = stdin_scripts(found, command)
+    if any(names_track(t) for t in scripts):
+        decide(TRACK, TRACK_NOUN)
     for cmd in commands:
         cmd.raw_text = command
         cmd.heredoc_files = heredoc_files
-        track_command(cmd)
-        if cmd.program == "gh":
-            gh_command(cmd)
-        elif cmd.program == "git":
-            git_command(cmd)
+        check_one(cmd, depth)
+    for script in scripts + unconsumed_heredocs(found):
+        if depth >= MAX_NESTING:
+            raise Deny("commands nested too deep to check")
+        check_command(script, cwd, depth + 1)
 
 
 # The permission modes Claude Code names in a hook's input. The policy canary's denial reports
@@ -766,6 +985,29 @@ def permission_mode(data):
     return mode if isinstance(mode, str) and mode in PERMISSION_MODES else "unknown"
 
 
+DEADLINE = 20  # seconds: well under the host's hook timeout, so a slow input is denied
+
+
+def start_deadline():
+    """Denies the call if the check runs past DEADLINE seconds of wall-clock or CPU
+    time, so no input can keep the hook running until the host gives up on it."""
+    def expire(signum, frame):
+        sys.stderr.write(f"policy hook: denied: the check ran past its {DEADLINE}-second "
+                         f"deadline, so the call cannot be checked. {STOP}\n")
+        sys.stderr.flush()
+        os._exit(2)
+    signal.signal(signal.SIGALRM, expire)
+    signal.alarm(DEADLINE)
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_CPU)
+        if hard == resource.RLIM_INFINITY or hard > DEADLINE:
+            signal.signal(signal.SIGXCPU, expire)
+            resource.setrlimit(resource.RLIMIT_CPU, (DEADLINE, hard))
+    except (ImportError, ValueError, OSError):
+        pass  # the wall-clock deadline still holds
+
+
 def main():
     if sys.argv[1:] == ["--whoami"]:
         r = role()
@@ -778,6 +1020,7 @@ def main():
         return 0
     data = None
     try:
+        start_deadline()
         try:
             data = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))
         except ValueError:
