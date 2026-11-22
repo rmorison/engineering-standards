@@ -886,6 +886,9 @@ def fixtures(sb):
         ("after a <<X in double quotes", 'echo "<<X"; true\ngit commit -n\nX', "git commit -n"),
         ("after a <<X in single quotes", "echo '<<X'\ngit commit -n\nX", "git commit -n"),
         ("after a << in arithmetic", ": $((1<<a))\ngit commit -n\na", "git commit -n"),
+        ("after a << in a ${…} pattern", ": ${x#<<EOF}\ngit commit -n\nEOF", "git commit -n"),
+        ("after a case in a quoted $(…)", 'echo "$(case x in x) :;; esac) <<X"\ngit commit -n\nX',
+         "git commit -n"),
     ]
     for state, value in (("no list", None), ("broken list", str(sb.lists / "missing"))):
         sb.declare(value)

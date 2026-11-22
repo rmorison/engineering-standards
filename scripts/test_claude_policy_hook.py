@@ -990,6 +990,28 @@ def fixtures(sb):
         check(f"U4 deny --admin, Track 2 lead: {command!r}", sb.bash(command, env=lead2),
               "deny", "with --admin", stop=LEAD_STOP)
 
+    # The review of this round's fix: runners that start a shell, a shell fed a heredoc
+    # from a group, an array element, an -e that is a pattern, and gh's help topics.
+    for command in ["echo 12 | xargs sh -c 'gh pr merge 12'",
+                    "find . -maxdepth 0 -exec sh -c 'gh pr merge 12' \\;",
+                    "parallel sh -c 'gh pr merge 12' ::: 1",
+                    "echo 12 | xargs env -S 'gh pr merge 12'",
+                    "{ bash; } <<'EOF'\ngh pr merge 5\nEOF",
+                    "( bash ) <<'EOF'\ngh pr merge 5\nEOF"]:
+        check(f"review deny, worker: {command!r}", sb.bash(command, env=worker), "deny", MERGE)
+    check("review deny: an element of the track's own name",
+          sb.bash("CLAUDE_MERGE_TRACK[0]=2 claude", env=worker), "deny", "setting CLAUDE_MERGE_TRACK")
+    for command in ["arr[$i]=1", "m[$key]=x; export m", "grep -e \"$pat=1\" notes.md", "gh actions"]:
+        check(f"review allow: {command!r}", sb.bash(command, env=worker), "allow")
+    started = time.monotonic()
+    result = sb.bash("script " + "-qc 'echo hi' " * 16000 + "/dev/null; gh pr merge 12", env=worker)
+    took = time.monotonic() - started
+    check("timing: deny 220 KB of script -qc", result, "deny", MERGE)
+    if took < 3.0:
+        ok()
+    else:
+        bad("timing: 220 KB of script -qc", f"took {took:.1f} s, more than 3.0 s")
+
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
     broken.mkdir()
@@ -1017,6 +1039,7 @@ def fixtures(sb):
         ("a make target", "make push"),
         ("a program named by a variable", "G=gh; $G pr merge 12"),
         ("a shell function", "m() { \"$@\"; }; m gh pr merge 12"),
+        ("a heredoc in a substitution eval runs", "eval \"$(cat <<'EOF'\ngh pr merge 12\nEOF\n)\""),
         ("editing the clone's config file",
          "printf '[agentpolicy]\\n\\tallowDefaultPush = true\\n' >> .git/config"),
     ]:

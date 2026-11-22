@@ -78,8 +78,9 @@ def strip_heredocs(text, delimited=None):
     A << is found as the shell finds it, outside quotes and comments, so a "<<X"
     in a string or a # comment never hides the lines after it. It is tracked
     through $(...), <(...), >(...) and backticks, where quoting starts afresh, so
-    "$(cat <<'EOF' ...)" is read as a heredoc. A << the shell might not read as
-    one, inside double quotes or arithmetic, or a heredoc this cannot follow, with
+    "$(cat <<'EOF' ...)" is read as a heredoc, and through ${...} and case
+    patterns, whose ) closes nothing. A << the shell might not read as one,
+    inside double quotes, ${...} or arithmetic, or a heredoc this cannot follow, with
     a delimiter it does not read or no terminator, leaves the rest of the text in
     the command, and adds it to the bodies too: read as commands, a body line such
     as "> name" would otherwise put its text where a redirect target goes, which
@@ -87,10 +88,11 @@ def strip_heredocs(text, delimited=None):
     given, as (delimiter, body).
     """
     out, bodies, pending = [], [], []
-    # One frame per nesting level: [what opened it, its quote]. The quote is
-    # None, "'", '"' or "$'" (an ANSI-C string, where a backslash escapes).
-    stack = [["", None]]
+    # One frame per nesting level: [what opened it, its quote, open cases]. The
+    # quote is None, "'", '"' or "$'" (an ANSI-C string, where a backslash escapes).
+    stack = [["", None, 0]]
     i, n = 0, len(text)
+    dollar = -1  # where the last unescaped $ outside single quotes was
     while i < n:
         c = text[i]
         frame = stack[-1]
@@ -106,14 +108,21 @@ def strip_heredocs(text, delimited=None):
             out.append(text[i:i + 2])  # an escaped character, or a line continuation
             i += 2
             continue
+        elif text.startswith("${", i):
+            stack.append(["{", None, 0])
+            out.append("${")
+            i += 2
+            continue
+        elif c == "}" and frame[0] == "{" and quote is None:
+            stack.pop()
         elif text.startswith("$((", i) or (quote is None and text.startswith("((", i)):
             k = 3 if c == "$" else 2
-            stack.append(["((", None])
+            stack.append(["((", None, 0])
             out.append(text[i:i + k])
             i += k
             continue
         elif text.startswith("$(", i) or (quote is None and text[i:i + 2] in ("<(", ">(")):
-            stack.append(["(", None])
+            stack.append(["(", None, 0])
             out.append(text[i:i + 2])
             i += 2
             continue
@@ -121,7 +130,7 @@ def strip_heredocs(text, delimited=None):
             if frame[0] == "`" and quote is None:
                 stack.pop()
             else:
-                stack.append(["`", None])
+                stack.append(["`", None, 0])
         elif quote == '"':
             if c == '"':
                 frame[1] = None
@@ -130,9 +139,14 @@ def strip_heredocs(text, delimited=None):
         elif c == '"':
             frame[1] = '"'
         elif c == "'":
-            frame[1] = "$'" if i > 0 and text[i - 1] == "$" else "'"
+            frame[1] = "$'" if dollar == i - 1 else "'"
         elif c == "(":
-            stack.append(["(", None])
+            stack.append(["(", None, 0])
+        elif (c in "ce" and (i == 0 or text[i - 1] in COMMENT_START)
+              and re.match(r"(case|esac)(?=[\s;&|()]|$)", text[i:i + 5])):
+            frame[2] = max(0, frame[2] + (1 if c == "c" else -1))
+        elif c == ")" and frame[2]:
+            pass  # a case pattern's ), which closes nothing
         elif c == ")" and len(stack) > 1:
             if frame[0] == "((" and text.startswith("))", i):
                 stack.pop()
@@ -148,7 +162,7 @@ def strip_heredocs(text, delimited=None):
             continue
         elif text.startswith("<<", i) and not text.startswith("<<<", i) and (i == 0 or text[i - 1] != "<"):
             match = HEREDOC.match(text, i)
-            if frame[0] == "((" or not match:
+            if frame[0] in ("((", "{") or not match:
                 unsure(text, i, bodies)
             else:
                 pending.append((match.group(1), match.group(3)))
@@ -160,6 +174,8 @@ def strip_heredocs(text, delimited=None):
             i = read_bodies(text, i + 1, pending, bodies, delimited)
             pending = []
             continue
+        if c == "$" and quote not in ("'", "$'"):
+            dollar = i
         out.append(c)
         i += 1
     return "".join(out), bodies
