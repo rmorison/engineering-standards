@@ -68,6 +68,10 @@ LEAD_STOP = ("A Track 2 lead merges only with gh pr merge, written out in full a
              "other way, pushing to a default branch and changing repository settings are the "
              "operator's, in the GitHub web UI; say what you need in the pull request, and stop.")
 
+# The runner backstop, whose denials include harmless commands.
+RUNNER_STOP = ("This may be a harmless command: rephrase it, for example match [g]h in a "
+               "search, or run gh or git on its own, written out in full.")
+
 sys.dont_write_bytecode = True  # no __pycache__ beside the installed hooks
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 try:
@@ -909,23 +913,26 @@ FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 CHECKED_PROGRAMS = {"gh", "git"}
 
 
-# gh, git or a shell inside a runner's words, other than as the command the hook
-# found, or a word holding a gh or git push command line: where the options, a
-# ::: list or -exec end can't be told for sure, so neither can what runs.
-RUNNER_PROGRAMS = CHECKED_PROGRAMS | SHELLS
+# gh, git, a shell or a runner inside a runner's words, other than as the command
+# the hook found, or a word holding a gh or git push command line: where the
+# options, a ::: list or -exec end can't be told for sure, so neither can what runs.
+RUNNER_PROGRAMS = CHECKED_PROGRAMS | SHELLS | {"xargs", "parallel", "find"}
 RUNNER_SCRIPT = re.compile(r"\bgh\b|\bgit\s+push\b")
-RUNNER_NOUN = ("gh, git or a shell inside {} where the hook can't tell what runs; "
-               "run gh or git on its own, written out in full")
+RUNNER_NOUN = "gh, git, a shell or a runner inside {}, where the hook can't tell what runs"
+
+
+class RunnerDeny(Deny):
+    """The runner backstop, which also denies harmless commands: rephrase, don't stop."""
 
 
 def runner_backstop(name, words, starts):
-    """Denies, for every role, gh, git or a shell anywhere in a runner's words but
+    """Denies, for every role, gh, git, a shell or a runner anywhere in a runner's words but
     at a start the hook found plainly, and a word holding whitespace with gh or git
     push in it. Guessing where a runner's options end let three rounds through."""
     for k, w in enumerate(words):
         if (os.path.basename(w) in RUNNER_PROGRAMS and k not in starts) or (
                 re.search(r"\s", w) and RUNNER_SCRIPT.search(w)):
-            decide(MERGE, RUNNER_NOUN.format(name))
+            raise RunnerDeny(RUNNER_NOUN.format(name))
 
 
 # Above zero while a command xargs, parallel or find -exec {} runs is checked:
@@ -983,24 +990,25 @@ def inner(cmd):
         # Last, so a denial of the command itself, with its plainer reason, comes first.
         runner_backstop(prog, rest, {start})
     elif prog == "find":
-        k = 0
+        # As find reads it: -exec's command ends only at ; or at + right after {}, so
+        # an -exec inside the command is an argument, not the start of another.
+        k, starts = 0, set()
         while k < len(words):
             if words[k] in FIND_EXEC:
-                end = k + 1  # ; ends -exec, and + only right after {}
+                end = k + 1
                 while end < len(words) and not (words[end] == ";" or words[end] == "+"
-                                                 and words[end - 1] == "{}") \
-                        and words[end] not in FIND_EXEC:
+                                                 and words[end - 1] == "{}"):
                     end += 1
                 if end > k + 1:
+                    starts.add(k + 1)
                     yield shlex.join(words[k + 1:end]), any("{}" in w for w in words[k + 1:end]) \
                         or (end < len(words) and words[end] == "+")
-                k = end
+                k = end + 1
             else:
                 k += 1
         first = next((k for k, w in enumerate(words) if w in FIND_EXEC), None)
         if first is not None:
-            runner_backstop("find -exec", words[first:],
-                            {k - first + 1 for k, w in enumerate(words) if w in FIND_EXEC})
+            runner_backstop("find -exec", words[first:], {k - first for k in starts})
     elif prog == "script":  # each distinct -c command, once
         scripts = list(option(words[1:], {"-c", "--command"}))
         scripts += [words[k + 1] for k, w in enumerate(words[:-1])
@@ -1171,7 +1179,8 @@ def main():
                     "person, outside the session: git config --local agentpolicy.allowDefaultPush true.")
         if OPT_OUT_NOUN in str(reason):
             hint += f" (permission mode: {permission_mode(data)})"
-        stop = LEAD_STOP if isinstance(reason, LeadMergeDeny) else STOP
+        stop = (RUNNER_STOP if isinstance(reason, RunnerDeny)
+                else LEAD_STOP if isinstance(reason, LeadMergeDeny) else STOP)
         sys.stderr.write(f"policy hook: denied: {reason}. {stop}{hint}\n")
         return 2
     except Exception as error:  # fail closed, naming nothing from the input

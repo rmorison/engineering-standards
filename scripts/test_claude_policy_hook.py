@@ -43,6 +43,7 @@ HOOK_TIMEOUT = 20  # seconds; one call takes well under one
 
 STOP = "the operator does that in the GitHub web UI"
 RUNNER_BACKSTOP = "where the hook can't tell what runs"
+RUNNER_STOP = "This may be a harmless command: rephrase it"
 LEAD_STOP = "A Track 2 lead merges only with gh pr merge"
 RESIDUAL_DOC = (
     "the residual is now denied: update the residual list in "
@@ -1102,10 +1103,12 @@ def fixtures(sb):
         misread = runner != "echo 1 | xargs -l1"
         for inner_command, frag, lead_stop in [("gh pr merge 12 --admin", MERGE, LEAD_STOP),
                                                ("git push origin main", "default branch", None)]:
+            worker_stop = None
             if misread:
-                frag, lead_stop = RUNNER_BACKSTOP, LEAD_STOP
+                frag, lead_stop, worker_stop = RUNNER_BACKSTOP, RUNNER_STOP, RUNNER_STOP
             command = f"{runner} timeout 5 sh -c '{inner_command}'{tail}"
-            check(f"round 3c deny, worker: {command!r}", sb.bash(command, env=worker), "deny", frag)
+            check(f"round 3c deny, worker: {command!r}", sb.bash(command, env=worker), "deny", frag,
+                  stop=worker_stop)
             check(f"round 3c deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
                   frag, stop=lead_stop)
     check("round 3c deny, Track 2 lead: parallel -j 2 ::: 'gh pr merge 12 --admin'",
@@ -1131,9 +1134,9 @@ def fixtures(sb):
                                     ("git push origin main", "default branch")]:
             command = form.format(inner_command)
             finds = command.startswith("find")
-            lead_stop = None if finds and "push" in inner_command else LEAD_STOP
+            lead_stop = (None if "push" in inner_command else LEAD_STOP) if finds else RUNNER_STOP
             check(f"round 3d deny, worker: {command!r}", sb.bash(command, env=worker), "deny",
-                  frag if finds else RUNNER_BACKSTOP)
+                  frag if finds else RUNNER_BACKSTOP, stop=None if finds else RUNNER_STOP)
             check(f"round 3d deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
                   frag if finds else RUNNER_BACKSTOP, stop=lead_stop)
     # A quoted or escaped ; is find's word, not a separator, so a second -exec is checked.
@@ -1152,12 +1155,12 @@ def fixtures(sb):
     # denies it, so a lead merges only with gh pr merge written out in full.
     for command in ["parallel ::: 'gh pr merge 12'", "parallel -j 2 ::: 'gh pr merge 12'"]:
         check(f"round 3d deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
-              RUNNER_BACKSTOP, stop=LEAD_STOP)
+              RUNNER_BACKSTOP, stop=RUNNER_STOP)
     for command in ["git ls-files | xargs grep -n gh", "echo x | xargs echo git",
                     "find . -exec bash {} \\; -exec echo sh \\;",
                     "echo 1 | xargs echo 'gh pr view 12'"]:
         check(f"round 3d deny, worker: {command!r}", sb.bash(command, env=worker), "deny",
-              RUNNER_BACKSTOP)
+              RUNNER_BACKSTOP, stop=RUNNER_STOP)
     for command in ["echo 1 | xargs -I{} gh pr view {}", "find . -exec git log {} \\;",
                     "echo 1 | xargs gzip", "echo 1 | xargs -0 grep -l x", "echo 1 | xargs wc -l",
                     "echo 1 | xargs echo hi", "find . -name '*.md' -exec wc -l {} +",
@@ -1165,15 +1168,70 @@ def fixtures(sb):
         check(f"round 3d allow: {command!r}", sb.bash(command, env=worker), "allow")
     check("round 3d allow, Track 2 lead: find . -exec gh pr merge 12 \\;",
           sb.bash("find . -exec gh pr merge 12 \\;", env=lead2), "allow")
-    started = time.monotonic()
+    # Since the review of 8ce5680, a runner past the start of another runner is denied,
+    # so three levels are denied, and two, each the other's start, are allowed.
     level = "xargs " + "-r " * 30
-    result = sb.bash("echo 1 | " + level * 3 + "echo " + "a " * 8192, env=worker)
-    took = time.monotonic() - started
-    check("timing: allow 3 nested xargs, 30 options each, a 16 KB tail", result, "allow")
-    if took < 2.0:
-        ok()
-    else:
-        bad("timing: 3 nested xargs with a 16 KB tail", f"took {took:.1f} s, more than 2.0 s")
+    for levels, want in ((3, "deny"), (2, "allow")):
+        started = time.monotonic()
+        result = sb.bash("echo 1 | " + level * levels + "echo " + "a " * 8192, env=worker)
+        took = time.monotonic() - started
+        check(f"timing: {want} {levels} nested xargs, 30 options each, a 16 KB tail", result, want,
+              RUNNER_BACKSTOP if want == "deny" else None, stop=RUNNER_STOP if want == "deny" else None)
+        if took < 2.0:
+            ok()
+        else:
+            bad(f"timing: {levels} nested xargs with a 16 KB tail", f"took {took:.1f} s, more than 2.0 s")
+
+    # --- #145's review of 8ce5680: an -exec inside an -exec command -------------------
+    # find ends -exec only at ; or at + right after {}, so an inner -exec is an argument,
+    # and a gh or git after it is not a start: the command before it may add arguments.
+    for form in ["echo --admin | find . -maxdepth 0 -exec xargs -exec gh pr merge 12 \\;",
+                 "echo --admin | find . -maxdepth 0 -exec timeout 5 xargs -exec gh pr merge 12 \\;"]:
+        # The run-time arguments rule now sees the gh pr merge xargs runs.
+        check(f"review of 8ce5680 deny, Track 2 lead: {form!r}", sb.bash(form, env=lead2), "deny",
+              "run by xargs, parallel or find", stop=LEAD_STOP)
+    for env, label, command, cwd in [
+            (lead2, "Track 2 lead",
+             "find . -maxdepth 0 -exec sh -c '\"$@\" --admin' -exec gh pr merge 12 \\;", None),
+            (worker, "worker, on a feature branch",
+             "find . -maxdepth 0 -exec sh -c '\"$@\" origin trunk' -exec git push \\;", sb.feat),
+            (worker, "worker, on a feature branch",
+             "echo origin trunk | find . -maxdepth 0 -exec xargs -exec git push \\;", sb.feat)]:
+        check(f"review of 8ce5680 deny, {label}: {command!r}", sb.bash(command, cwd=cwd, env=env),
+              "deny", RUNNER_BACKSTOP, stop=RUNNER_STOP)
+    # The nested-runner rule, and the walk, for each -exec primary and each end.
+    for primary in ["-exec", "-execdir", "-ok", "-okdir"]:
+        for end in ["\\;", "{} +"]:
+            for command in [f"echo --admin | find . -maxdepth 0 {primary} xargs -exec gh pr merge 12 {end}",
+                            f"find . -maxdepth 0 {primary} sh -c '\"$@\" --admin' {primary} "
+                            f"gh pr merge 12 {end}"]:
+                # Under xargs, the run-time arguments rule, which comes first, denies it.
+                runtime = "xargs" in command
+                check(f"review of 8ce5680 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2),
+                      "deny", "run by xargs, parallel or find" if runtime else RUNNER_BACKSTOP,
+                      stop=LEAD_STOP if runtime else RUNNER_STOP)
+    for command in ["echo 1 | xargs timeout 5 parallel echo ::: a", "find . -exec echo find {} \\;",
+                    "parallel echo ::: xargs"]:
+        check(f"review of 8ce5680 deny, worker: {command!r}", sb.bash(command, env=worker), "deny",
+              RUNNER_BACKSTOP, stop=RUNNER_STOP)
+    for command in ["echo 1 | xargs xargs echo", "find . -exec xargs echo {} \\;",
+                    "echo a | xargs -I{} find {} -name x"]:
+        check(f"review of 8ce5680 allow: {command!r}", sb.bash(command, env=worker), "allow")
+    check("review of 8ce5680 allow, Track 2 lead: find . -exec echo {} \\; -exec gh pr merge 12 \\;",
+          sb.bash("find . -exec echo {} \\; -exec gh pr merge 12 \\;", env=lead2), "allow")
+    for command in ["git ls-files | xargs grep -n '[g]h'", "find . -exec echo -exec {} \\;",
+                    "find . -exec git log {} \\;", "find . -exec grep -l x {} +"]:
+        check(f"review of 8ce5680 allow: {command!r}", sb.bash(command, env=worker), "allow")
+    # The backstop's denial says to rephrase, not to stop.
+    for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+        result = sb.bash("git ls-files | xargs grep -n gh", env=env)
+        check(f"review of 8ce5680 deny, {label}: xargs grep -n gh says rephrase", result, "deny",
+              RUNNER_BACKSTOP, stop=RUNNER_STOP)
+        if "and stop." in result[2]:
+            bad(f"review of 8ce5680: the backstop tells a {label} to stop", "it says 'and stop.'",
+                result)
+        else:
+            ok()
 
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"

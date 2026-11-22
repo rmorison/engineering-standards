@@ -294,6 +294,8 @@ def fixtures(sb):
         ('quoted $(gh ...)', 'url="$(gh pr create --title t --body-file dirty.md)"', {3}),
         ("backticks in double quotes", 'echo "Created `gh pr create --title t --body-file dirty.md`"', {3}),
         ("unquoted backticks", "echo `gh pr create --title t --body-file dirty.md`", {3}),
+        ("a quoted ; is a word, not a separator", "gh pr create --title ';' --body-file dirty.md", {3}),
+        ("a quoted > is a word, not a redirect", "gh pr create --title '>' --body-file dirty.md", {3}),
     ]
     for name, command, lines in denied:
         check(name, sb.hook(command), "deny", "matches private value list line", lines)
