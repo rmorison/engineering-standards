@@ -647,8 +647,8 @@ def parse_command(text, cwd, depth=0, found=None):
 
 
 def substitutions(text):
-    """Returns (start, end, script, quoted, closed) for each $(...) and backtick
-    span outside single quotes, and each <(...) and >(...) process substitution
+    """Returns (start, end, script, quoted, closed) for each $(...), ${ ...; } and
+    backtick span outside single quotes, and each <(...) and >(...) process substitution
     outside any quotes: quoted says whether it is inside double quotes, and
     closed whether its end was found. Parentheses are counted without reading
     quotes, so "fix (wip" inside $(...) leaves the span unclosed.
@@ -685,8 +685,22 @@ def substitutions(text):
             bodies.append((i, j, text[i + 2:j - 1] if depth == 0 else text[i + 2:], quote == '"',
                            depth == 0))
             i = j - 1
+        elif FUNSUB.match(text, i):  # ${ cmd; } and ${| cmd; }, bash 5.3's substitutions
+            depth, j = 1, i + 2
+            while j < len(text) and depth:
+                depth += {"{": 1, "}": -1}.get(text[j], 0)
+                j += 1
+            start = i + 3 if text[i + 2] == "|" else i + 2
+            bodies.append((i, j, text[start:j - 1] if depth == 0 else text[start:], quote == '"',
+                           depth == 0))
+            i = j - 1
         i += 1
     return bodies
+
+
+# A ${ followed by a blank, a newline or a | runs the commands in it, from bash
+# 5.3, as $(...) does; ${VAR} and ${VAR:-x} do not.
+FUNSUB = re.compile(r"\$\{[ \t\n|]")
 
 
 # A shell's option grammar is not modelled exactly: three attempts each opened a

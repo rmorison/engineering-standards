@@ -1056,6 +1056,23 @@ def fixtures(sb):
     for command in ["declare a[$i]=1", "local m[$k]=x"]:
         check(f"round 2 allow: {command!r}", sb.bash(command, env=worker), "allow")
 
+    # --- #145's round 3 at 7a58648 ------------------------------------------------
+    # bash 5.3's ${ cmd; } and ${| cmd; } run commands, in a word or an expanded body.
+    for command in ["echo ${ gh pr merge 12; }", "x=${| gh pr merge 12; }",
+                    "echo \"${ gh pr merge 12; }\""]:
+        check(f"round 3 deny: {command!r}", sb.bash(command, env=worker), "deny", MERGE)
+    for command in ["cat <<EOF\n${ gh pr merge 12; }\nEOF", "cat <<EOF\n${| gh pr merge 12; }\nEOF"]:
+        check(f"round 3 deny: {command!r}", sb.bash(command, env=worker), "deny", expanded)
+    for command in ["echo ${HOME} ${HOME:-x}", "cat <<EOF\n${HOME} ${HOME:-x}\nEOF",
+                    "echo '${ gh pr merge 12; }'"]:
+        check(f"round 3 allow: {command!r}", sb.bash(command, env=worker), "allow")
+    # parallel -a adds a source the command does not show.
+    for command in ["parallel -a args.txt ::: 'gh pr merge 12'",
+                    "parallel --arg-file=args.txt ::: 'gh pr merge 12'",
+                    "parallel -ka args.txt ::: 'gh pr merge 12'"]:
+        check(f"round 3 deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
+              "run by xargs, parallel or find", stop=LEAD_STOP)
+
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
     broken.mkdir()
@@ -1084,6 +1101,10 @@ def fixtures(sb):
         ("a program named by a variable", "G=gh; $G pr merge 12"),
         ("a shell function", "m() { \"$@\"; }; m gh pr merge 12"),
         ("a heredoc in a substitution eval runs", "eval \"$(cat <<'EOF'\ngh pr merge 12\nEOF\n)\""),
+        ("a program that runs its arguments", "strace -f gh pr merge 12"),
+        ("a program that runs a command it is given", "fd -x gh pr merge 12"),
+        ("a command given as a string", "trap 'gh pr merge 12' EXIT"),
+        ("a substitution run while expanding a value", "x='$(gh pr merge 12)'; echo \"${x@P}\""),
         ("editing the clone's config file",
          "printf '[agentpolicy]\\n\\tallowDefaultPush = true\\n' >> .git/config"),
     ]:

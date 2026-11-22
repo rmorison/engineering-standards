@@ -886,9 +886,9 @@ def unconsumed_heredocs(found):
 
 
 # A command substitution the shell runs while it expands a heredoc body: $( (and
-# $(( ), or a backtick, after an even number of backslashes (\\ is one literal \).
+# $(( ), ${ or ${| followed by a blank (bash 5.3), or a backtick, after an even number of backslashes (\\ is one literal \).
 CONTINUATION = re.compile(r"(?<!\\)((?:\\\\)*)\\\n")
-SUBSTITUTION = re.compile(r"(?<!\\)(?:\\\\)*(?:\$\(|`)")
+SUBSTITUTION = re.compile(r"(?<!\\)(?:\\\\)*(?:\$\(|\$\{[ \t\n|]|`)")
 EXPANDED_BODY = ("a heredoc body that runs a command substitution, which the hook cannot "
                  "check; quote the delimiter (<<'EOF') so the body stays text, or run the "
                  "command on its own")
@@ -921,7 +921,9 @@ def first_command(words, with_value):
     while i < len(words) and words[i].startswith("-") and words[i] != "-":
         if words[i] == "--":
             return i + 1
-        i += 2 if words[i] in with_value else 1
+        # A bundle such as -0a or -ka takes a value when its last letter does.
+        bundled = re.fullmatch(r"-[^-]+", words[i]) and "-" + words[i][-1] in with_value
+        i += 2 if words[i] in with_value or bundled else 1
     return i
 
 
@@ -947,7 +949,9 @@ def inner(cmd):
         if prog == "parallel" and start >= end:  # parallel ::: 'cmd' runs each argument
             # With a second source, or one read from a file (::::), parallel joins
             # values the command does not show into each command line.
-            joined = sum(w in PARALLEL_ENDS for w in rest[end:]) > 1 or rest[end:end + 1] != [":::"]
+            joined = (sum(w in PARALLEL_ENDS for w in rest[end:]) > 1 or rest[end:end + 1] != [":::"]
+                      or any(w == "--arg-file" or w.startswith("--arg-file=")
+                             or re.match(r"-[^-]*a", w) for w in rest[:end]))  # -a, or bundled as -ka
             for w in rest[end + 1:]:
                 if w not in PARALLEL_ENDS:
                     yield w, joined

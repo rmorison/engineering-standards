@@ -887,6 +887,7 @@ def fixtures(sb):
         ("after a <<X in single quotes", "echo '<<X'\ngit commit -n\nX", "git commit -n"),
         ("after a << in arithmetic", ": $((1<<a))\ngit commit -n\na", "git commit -n"),
         ("after a << in a ${…} pattern", ": ${x#<<EOF}\ngit commit -n\nEOF", "git commit -n"),
+        ("inside a ${ …; } substitution", "echo ${ git commit -n; }", "git commit -n"),
         ("after a case in a quoted $(…)", 'echo "$(case x in x) :;; esac) <<X"\ngit commit -n\nX',
          "git commit -n"),
     ]
