@@ -966,10 +966,10 @@ RUNNER_GH_READS = {
     "repo": {"view"},
     "release": {"view", "list"},
     "search": {"code", "commits", "issues", "prs", "repos"},
-    "auth": {"status"},
 }
-# The git commands a runner may run: reads only, the subcommand right after git.
-RUNNER_GIT_READS = {"log", "show", "diff", "grep", "blame", "ls-files", "ls-tree", "status",
+# The git commands a runner may run: reads only, the subcommand right after git. Not
+# grep, whose -O runs a command; nor gh auth, whose --show-token prints the token.
+RUNNER_GIT_READS = {"log", "show", "diff", "blame", "ls-files", "ls-tree", "status",
                     "rev-parse", "cat-file", "rev-list"}
 PLAIN_WORD = re.compile(r"[a-z][a-z-]*")
 

@@ -1341,7 +1341,9 @@ def fixtures(sb):
                     "parallel gh pr {1} ::: merge", "echo log | xargs -I{} git {}",
                     "echo a | xargs git send-pack", "echo a | xargs git -c alias.x=y x",
                     "echo a | xargs -I{} git config {}", "echo a | xargs git http-push",
-                    "echo a | xargs git -C . log"]:
+                    "echo a | xargs git -C . log",
+                    "echo \"'-Ogh pr merge 12 --admin'\" | xargs git grep -l .",
+                    "echo --show-token | xargs gh auth status", "echo x | xargs gh auth status"]:
         lead_words = {"merge", "api"} & set(shlex.split(command.split("|")[-1]))
         for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
             lead = env is lead2 and lead_words
