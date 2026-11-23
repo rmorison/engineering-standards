@@ -1523,6 +1523,24 @@ def fixtures(sb):
         check(f"round 3m residual, still allowed, Track 2 lead: {command!r}",
               sb.bash(command, env=lead2), "allow")
 
+    # --- round 3n: a -c script decides which argument runs, so gh, git, a shell, a runner
+    # or a built word among its arguments is denied (a shell as $0 is only a name)
+    for command, cwd in [("sh -c 'shift; \"$@\"' sh x gh pr merge 12 --admin", None),
+                         ("bash -c '\"${@:2}\"' sh x gh pr merge 12 --admin", None),
+                         ("bash -c 'shift 2; \"$@\"' sh x y gh pr merge 12 --admin", None),
+                         ("bash -c -e 'shift; \"$@\"' sh x gh pr merge 12 --admin", None),
+                         ("sh -c 'shift; \"$@\"' sh x git push origin trunk", sb.feat),
+                         ("sh -c 'shift; \"$@\"' sh x $'gh' pr merge 12 --admin", None),
+                         ("sh -c 'shift; \"$@\"' sh x xargs gh pr merge 12", None),
+                         ("sh -c 'echo \"$1\"' sh gh", None)]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3n deny, {label}: {command!r}", sb.bash(command, cwd=cwd, env=env), "deny",
+                  "script's arguments", stop=RUNNER_STOP)
+    for command in ["sh -c 'echo \"$1\"' sh x", "sh -c 'echo \"$@\"' sh a.md b.md",
+                    "bash -c -e 'echo \"$1\"' sh x", "echo a | xargs -P2 -n1 sh -c 'gzip \"$1\"' _"]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3n allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
+
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
     broken.mkdir()

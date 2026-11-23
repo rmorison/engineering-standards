@@ -1154,6 +1154,19 @@ def inner(cmd):
             for start in (at + 1, at + 2):
                 if start < len(words):
                     yield shlex.join(words[start:])
+            # The script decides which argument runs, as with shift; "$@" or "${@:2}",
+            # so gh, git, a shell, a runner or a built word in any of them is denied,
+            # after the plainer readings above. $0 is only a name, often sh: a shell
+            # there counts only as a script, and each word is read as one already.
+            if UNDER_RUNNER[0]:  # a lead's merge a runner runs gets its own message first
+                lead_runner_merge(words[at + 1:])
+            for k in range(at + 1, len(words)):
+                w, name = words[k], os.path.basename(words[k])
+                if (name in RUNNER_PROGRAMS and not (k == at + 1 and name in SHELLS)
+                        or shell_word(w) or built(w)):
+                    raise RunnerDeny(f"gh, git, a shell, a runner or a word the shell builds "
+                                     f"among a {prog} -c script's arguments, which the script "
+                                     "can run as a command, where the hook can't tell what runs")
     if prog == "watch":  # through sh -c, or with -x as written
         if any(built(w) for w in words[1:]):  # read again from text below
             raise RunnerDeny(BUILT)
