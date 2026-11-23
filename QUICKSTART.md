@@ -169,11 +169,15 @@ mkdir -p ~/.claude/hooks && install -m 755 scripts/claude_leak_hook.py scripts/c
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$HOME/.claude/hooks/claude_leak_hook.py\" || exit 2"
+            "command": "python3 \"$HOME/.claude/hooks/claude_leak_hook.py\" || exit 2",
+            "timeout": 30,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "python3 \"$HOME/.claude/hooks/claude_policy_hook.py\" || exit 2"
+            "command": "python3 \"$HOME/.claude/hooks/claude_policy_hook.py\" || exit 2",
+            "timeout": 30,
+            "onFailure": "block"
           }
         ]
       },
@@ -182,7 +186,9 @@ mkdir -p ~/.claude/hooks && install -m 755 scripts/claude_leak_hook.py scripts/c
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$HOME/.claude/hooks/claude_policy_hook.py\" || exit 2"
+            "command": "python3 \"$HOME/.claude/hooks/claude_policy_hook.py\" || exit 2",
+            "timeout": 30,
+            "onFailure": "block"
           }
         ]
       }

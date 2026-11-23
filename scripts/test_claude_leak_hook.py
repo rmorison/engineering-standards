@@ -294,6 +294,11 @@ def fixtures(sb):
         ('quoted $(gh ...)', 'url="$(gh pr create --title t --body-file dirty.md)"', {3}),
         ("backticks in double quotes", 'echo "Created `gh pr create --title t --body-file dirty.md`"', {3}),
         ("unquoted backticks", "echo `gh pr create --title t --body-file dirty.md`", {3}),
+        ("a quoted ; is a word, not a separator", "gh pr create --title ';' --body-file dirty.md", {3}),
+        ("a quoted > is a word, not a redirect", "gh pr create --title '>' --body-file dirty.md", {3}),
+        ("watch runs its command through sh -c",
+         "watch -n1 'gh pr create --title t --body-file dirty.md'", {3}),
+        ("watch -x runs its words as written", "watch -x gh pr create --title t --body-file dirty.md", {3}),
     ]
     for name, command, lines in denied:
         check(name, sb.hook(command), "deny", "matches private value list line", lines)
@@ -848,6 +853,14 @@ def fixtures(sb):
     # --- Gate escapes (R4), with no list and with a broken list -----------------
     escapes = [
         ("git commit --no-verify", "git commit --no-verify -m x", "--no-verify"),
+        ("watch reparses: git commit --no-verify", "watch -n1 git commit \"'--no-verify'\" -m x",
+         "--no-verify"),
+        ("watch -dx still reparses: git commit --no-verify", "watch -dx git commit -m x \"'--no-verify'\"",
+         "--no-verify"),
+        ("watch -x is read both ways: git commit --no-verify", "watch -x git commit -m x \"'--no-verify'\"",
+         "--no-verify"),
+        ("watch reparses: git commit --no-verify, escaped", "watch -n1 git commit '\\-\\-no-verify' -m x",
+         "--no-verify"),
         ("git commit -n", "git commit -n -m x", "git commit -n"),
         ("git push --no-verify", "git push --no-verify", "--no-verify"),
         ("git merge --no-verify", "git merge --no-verify topic", "--no-verify"),
@@ -881,6 +894,15 @@ def fixtures(sb):
         ("git config --file f core.hooksPath", "git config --file f core.hooksPath x", "core.hooksPath"),
         ("after a here-string", "cat <<< x\ngit commit -n", "git commit -n"),
         ("# comment with an apostrophe", "git commit -n -m x # it's fine", "git commit -n"),
+        # A << the shell does not read as a heredoc hides no line after it.
+        ("after a <<X in a comment", "# see <<X\ngit commit -n\nX", "git commit -n"),
+        ("after a <<X in double quotes", 'echo "<<X"; true\ngit commit -n\nX', "git commit -n"),
+        ("after a <<X in single quotes", "echo '<<X'\ngit commit -n\nX", "git commit -n"),
+        ("after a << in arithmetic", ": $((1<<a))\ngit commit -n\na", "git commit -n"),
+        ("after a << in a ${…} pattern", ": ${x#<<EOF}\ngit commit -n\nEOF", "git commit -n"),
+        ("inside a ${ …; } substitution", "echo ${ git commit -n; }", "git commit -n"),
+        ("after a case in a quoted $(…)", 'echo "$(case x in x) :;; esac) <<X"\ngit commit -n\nX',
+         "git commit -n"),
     ]
     for state, value in (("no list", None), ("broken list", str(sb.lists / "missing"))):
         sb.declare(value)
@@ -895,6 +917,8 @@ def fixtures(sb):
         ("flag inside a quoted PR body",
          'gh issue comment 1 --body "never run git commit --no-verify"', "note"),
         ("heredoc body mentions git commit -n", "cat > notes.md <<'EOF'\ngit commit -n\nEOF", "allow"),
+        ("a quoted $(cat <<EOF) body mentions git commit -n",
+         "gh issue comment 1 --body \"$(cat <<'EOF'\nit's git commit -n\nEOF\n)\"", "note"),
         ("git config --get core.hooksPath", "git config --get core.hooksPath", "allow"),
         ("git config --unset core.hooksPath", "git config --unset core.hooksPath", "allow"),
         ("git push -n is a dry run", "git push -n", "allow"),
@@ -938,6 +962,30 @@ def fixtures(sb):
         check(f"Bash input with {name} is denied",
               sb.hook("", stdin=json.dumps({"tool_name": "Bash", "tool_input": tool_input})),
               "deny", "no command string")
+
+    # --- A deadline: a check that runs too long denies ---------------------------
+    # The host does not block a call when a hook times out, so the hook must deny
+    # first. This runs the hook with a one-second deadline and a check that sleeps.
+    probe = (
+        "import sys, time\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "import importlib.util\n"
+        "spec = importlib.util.spec_from_file_location('hook', sys.argv[2])\n"
+        "hook = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(hook)\n"
+        "hook.DEADLINE = 1\n"
+        "hook.decide = lambda *a: time.sleep(5)\n"
+        "sys.exit(hook.main())\n")
+    try:
+        proc = subprocess.run([sys.executable, "-c", probe, str(HOOK.parent), str(HOOK)],
+                              input=json.dumps({"tool_name": "Bash", "cwd": str(sb.work),
+                                                "tool_input": {"command": "git status"}}).encode(),
+                              capture_output=True, env=sb.env, cwd=str(sb.work), timeout=HOOK_TIMEOUT)
+        result = (proc.returncode, proc.stdout.decode("utf-8", "replace"),
+                  proc.stderr.decode("utf-8", "replace"))
+    except subprocess.TimeoutExpired:
+        result = ("timeout", "", "")
+    check("a check past the deadline is denied", result, "deny", "deadline")
 
 
 if __name__ == "__main__":

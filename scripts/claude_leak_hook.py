@@ -50,6 +50,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import stat
 import sys
 
@@ -67,41 +68,151 @@ class Deny(Exception):
 
 # The lookbehind keeps a here-string (<<<) from reading as a heredoc.
 HEREDOC = re.compile(r"(?<!<)<<(-?)\s*\\?(['\"]?)([A-Za-z0-9_.-]+)\2")
-HEREDOC_OPERATOR = re.compile(r"(?<!<)<<(?!<)")
+# The whole delimiter word after << or <<-: a quote or backslash anywhere in it
+# keeps the body from being expanded.
+DELIMITER_WORD = re.compile(r"[ \t]*([^\s;&|<>()]*)")
+COMMENT_START = " \t\n;&|()<>"  # a # after one of these, or at the start, starts a comment
 
 
-def strip_heredocs(text):
+def strip_heredocs(text, delimited=None):
     """Returns (command, bodies): the command without heredoc bodies, so a body is
     never read as a command, and the bodies, which are still text to match.
 
-    A heredoc this cannot follow, with a delimiter it does not read or no
-    terminator, leaves the rest of the text in the command, and adds it to the
-    bodies too: read as commands, a body line such as "> name" would otherwise
-    put its text where a redirect target goes, which is not matched.
+    A << is found as the shell finds it, outside quotes and comments, so a "<<X"
+    in a string or a # comment never hides the lines after it. It is tracked
+    through $(...), <(...), >(...) and backticks, where quoting starts afresh, so
+    "$(cat <<'EOF' ...)" is read as a heredoc, and through ${...} and case
+    patterns, whose ) closes nothing. A << the shell might not read as one,
+    inside double quotes, ${...} or arithmetic, or a heredoc this cannot follow, with
+    a delimiter it does not read or no terminator, leaves the rest of the text in
+    the command, and adds it to the bodies too: read as commands, a body line such
+    as "> name" would otherwise put its text where a redirect target goes, which
+    is not matched. Each heredoc read to its terminator is added to delimited, if
+    given, as (delimiter, body).
     """
-    lines = text.split("\n")
-    out, bodies = [], []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        out.append(line)
+    out, bodies, pending = [], [], []
+    # One frame per nesting level: [what opened it, its quote, open cases]. The
+    # quote is None, "'", '"' or "$'" (an ANSI-C string, where a backslash escapes).
+    stack = [["", None, 0]]
+    i, n = 0, len(text)
+    dollar = -1  # where the last unescaped $ outside single quotes was
+    while i < n:
+        c = text[i]
+        frame = stack[-1]
+        quote = frame[1]
+        if quote in ("'", "$'"):
+            if c == "\\" and quote == "$'":
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            if c == "'":
+                frame[1] = None
+        elif c == "\\":
+            out.append(text[i:i + 2])  # an escaped character, or a line continuation
+            i += 2
+            continue
+        elif text.startswith("${", i):
+            stack.append(["{", None, 0])
+            out.append("${")
+            i += 2
+            continue
+        elif c == "}" and frame[0] == "{" and quote is None:
+            stack.pop()
+        elif text.startswith("$((", i) or (quote is None and text.startswith("((", i)):
+            k = 3 if c == "$" else 2
+            stack.append(["((", None, 0])
+            out.append(text[i:i + k])
+            i += k
+            continue
+        elif text.startswith("$(", i) or (quote is None and text[i:i + 2] in ("<(", ">(")):
+            stack.append(["(", None, 0])
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        elif c == "`":
+            if frame[0] == "`" and quote is None:
+                stack.pop()
+            else:
+                stack.append(["`", None, 0])
+        elif quote == '"':
+            if c == '"':
+                frame[1] = None
+            elif text.startswith("<<", i) and not text.startswith("<<<", i):
+                unsure(text, i, bodies)
+        elif c == '"':
+            frame[1] = '"'
+        elif c == "'":
+            frame[1] = "$'" if dollar == i - 1 else "'"
+        elif c == "(":
+            stack.append(["(", None, 0])
+        elif (c in "ce" and (i == 0 or text[i - 1] in COMMENT_START)
+              and re.match(r"(case|esac)(?=[\s;&|()]|$)", text[i:i + 5])):
+            frame[2] = max(0, frame[2] + (1 if c == "c" else -1))
+        elif c == ")" and frame[2]:
+            pass  # a case pattern's ), which closes nothing
+        elif c == ")" and len(stack) > 1:
+            if frame[0] == "((" and text.startswith("))", i):
+                stack.pop()
+                out.append("))")
+                i += 2
+                continue
+            stack.pop()
+        elif c == "#" and (i == 0 or text[i - 1] in COMMENT_START):
+            end = text.find("\n", i)
+            end = n if end == -1 else end
+            out.append(text[i:end])  # strip_comments_and_continuations() reads it
+            i = end
+            continue
+        elif text.startswith("<<", i) and not text.startswith("<<<", i) and (i == 0 or text[i - 1] != "<"):
+            match = HEREDOC.match(text, i)
+            if frame[0] in ("((", "{") or not match:
+                unsure(text, i, bodies)
+            else:
+                word = DELIMITER_WORD.match(text, match.start() + 2 + len(match.group(1))).group(1)
+                pending.append((match.group(1), match.group(3), bool(re.search(r"['\"\\]", word))))
+                out.append(match.group())
+                i = match.end()
+                continue
+        elif c == "\n" and pending:
+            out.append(c)
+            i = read_bodies(text, i + 1, pending, bodies, delimited)
+            pending = []
+            continue
+        if c == "$" and quote not in ("'", "$'"):
+            dollar = i
+        out.append(c)
         i += 1
-        found = HEREDOC.findall(line)
-        if len(HEREDOC_OPERATOR.findall(line)) > len(found):
-            bodies.append("\n".join(lines[i:]))
-        for dash, _, delim in found:
-            end = i
-            while end < len(lines):
-                candidate = lines[end].lstrip("\t") if dash else lines[end]
-                if candidate == delim:
-                    break
-                end += 1
-            if end == len(lines):
-                bodies.append("\n".join(lines[i:]))
-                break  # no terminator: leave the rest visible
-            bodies.append("\n".join(lines[i:end]))
+    return "".join(out), bodies
+
+
+def unsure(text, i, bodies):
+    """A << the shell may read as a heredoc: the lines after it stay in the
+    command, and are text to match too."""
+    end = text.find("\n", i)
+    if end != -1:
+        bodies.append(text[end + 1:])
+
+
+def read_bodies(text, i, pending, bodies, delimited):
+    """Reads each pending heredoc's body from text[i:], in order, into bodies, and
+    returns where the command goes on. With no terminator, the rest stays in the
+    command, as well as in bodies."""
+    for dash, delim, quoted in pending:
+        start = i
+        while True:
+            end = text.find("\n", i)
+            line = text[i:] if end == -1 else text[i:end]
+            if (line.lstrip("\t") if dash else line) == delim:
+                bodies.append(text[start:i].removesuffix("\n"))
+                if delimited is not None:
+                    delimited.append((delim, bodies[-1], quoted))
+                i = len(text) if end == -1 else end + 1
+                break
+            if end == -1:
+                bodies.append(text[start:])
+                return start  # no terminator: leave the rest visible
             i = end + 1
-    return "\n".join(out), bodies
+    return i
 
 
 def strip_comments_and_continuations(text):
@@ -147,7 +258,13 @@ def strip_comments_and_continuations(text):
 
 PUNCTUATION = ";&|()<>\n"
 FD_MARK = "\ue000"  # a private-use character that marks an fd number before shlex runs
-PRIVATE_MARKS = "\ue000\ue001\ue002\ue003"  # FD_MARK and the standard-input marks below
+# After a quoted or escaped part of a word, so that a quoted ';' or an escaped \; stays
+# a word, as find -exec's, and never separates commands or redirects.
+QUOTED_MARK = "\ue004"
+# Before an unquoted *, ?, [, {, ~, $' or $", or an extglob's @, + or ! before its (:
+# what tells a word the shell builds (Expands).
+EXPAND_MARK = "\ue005"
+PRIVATE_MARKS = "\ue000\ue001\ue002\ue003\ue004\ue005"  # FD_MARK, QUOTED_MARK, EXPAND_MARK and the standard-input marks below
 BLANKS = " \t\r"  # what tokenize() gives shlex as whitespace
 FD_NUMBER = re.compile(r"[0-9]+(?=[<>])")
 FD_NUMBER_MARKED = re.compile(FD_MARK + r"[0-9]+$")
@@ -183,11 +300,19 @@ def mark_fd_numbers(text):
             quote = None if c == "'" else quote
         elif c == "\\":
             out.append(text[i:i + 2])
+            if quote is None and text[i + 1:i + 2] not in ("", "\n"):
+                out.append(QUOTED_MARK)
             i, start, arrow, dup = i + 2, False, False, False
             continue
         elif c in "'\"":
             quote = None if quote == c else (quote or c)
+        after = text[i + 1:i + 2]
+        if unquoted and (c in "*?[{~" or c == "$" and after in ("'", '"')
+                         or c in "@+!" and after == "("):
+            out.append(EXPAND_MARK)
         out.append(c)
+        if not unquoted and quote is None:  # this closed a quote
+            out.append(QUOTED_MARK)
         i += 1
         closes_dup = unquoted and c == "&" and arrow
         if unquoted and c not in BLANKS:
@@ -209,12 +334,37 @@ def tokenize(text):
     lex.commenters = ""
     tokens = []
     for t in lex:
+        if QUOTED_MARK in t:
+            t = t.replace(QUOTED_MARK, "")
+            if t and set(t) <= set(PUNCTUATION):
+                t = Quoted(t)
+        if EXPAND_MARK in t:  # last, so the subclass stays
+            # A tilde expands only at the start, and is a program name only with no /.
+            expands = EXPANDING.search(t) or (t.startswith(EXPAND_MARK + "~") and "/" not in t)
+            t = t.replace(EXPAND_MARK, "")
+            t = Expands(t) if expands else t
         # A marked fd number joins the operator after it, as 2> or 2>&, and keeps
         # the mark, so that simple_commands() can tell it from a quoted "2>".
         if tokens and FD_NUMBER_MARKED.match(tokens[-1]) and t in REDIRECTS:
             t = tokens.pop() + t
         tokens.append(t)
     return [t[len(FD_MARK):] if FD_NUMBER_MARKED.match(t) else t for t in tokens]
+
+
+# An unquoted glob character, $' or $" (ANSI-C or locale quoting), an extglob's @, +
+# or ! before its (, or a brace group with a comma or .. in it: the shell builds the
+# word, so its text is not what runs. A ~ counts in tokenize(), at the start only.
+EXPANDING = re.compile(EXPAND_MARK + r"(?:[*?\[$@+!]|\{[^}]*(?:,|\.\.))")  # $ is marked only before ' or "
+
+
+class Expands(str):
+    """A word the shell builds from a glob, a brace group or $'...': its text, quotes
+    removed, is not the word that runs."""
+
+
+class Quoted(str):
+    """A word of punctuation that was quoted or escaped, as find's \\; : a word, never
+    a separator or a redirect."""
 
 
 REDIRECTS = {"<", ">", ">>", "<<", "<<<", ">&", "<&", "&>", "&>>", ">|", "<>"}
@@ -229,6 +379,8 @@ def redirect(t):
     fd other than 0 keeps its number, as 3<, so it is never read as standard
     input.
     """
+    if isinstance(t, Quoted):
+        return None
     if t in REDIRECTS:
         return t
     fd = FD_REDIRECT.match(t)
@@ -256,7 +408,7 @@ def simple_commands(tokens):
             i += 2
             continue
         # Any other run of punctuation separates commands: ; && || | & ( ) and newlines.
-        if t and set(t) <= set(PUNCTUATION):
+        if t and set(t) <= set(PUNCTUATION) and not isinstance(t, Quoted):
             if words or redirects:
                 commands.append((words, redirects))
             words, redirects = [], []
@@ -287,7 +439,20 @@ WRAPPERS = {
              "-R", "--chroot", "-T", "--command-timeout"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
     "builtin": set(),
+    "setsid": set(),
+    "stdbuf": {"-i", "--input", "-o", "--output", "-e", "--error"},
+    "flock": {"-w", "--wait", "--timeout", "-E", "--conflict-exit-code"},
+    "ionice": {"-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"},
+    "chrt": {"-T", "--sched-runtime", "-P", "--sched-period", "-D", "--sched-deadline"},
+    "taskset": set(),
 }
+# watch is no wrapper: it runs its command through sh -c unless -x is given.
+# Its long options that take a value; -n and -q are the short ones, and -d takes
+# an optional value only when joined to it.
+WATCH_WITH_VALUE = {"--interval", "--equexit"}
+# Wrappers that take one operand before the command: timeout's duration, flock's
+# lock file, chrt's priority and taskset's mask.
+WRAPPER_OPERANDS = {"timeout", "flock", "chrt", "taskset"}
 # Their long options that take no value, so that an abbreviation is read as
 # getopt_long reads it: --sig is --signal, which takes a value; --fore is not.
 WRAPPER_FLAGS = {
@@ -325,7 +490,7 @@ def unwrap(words):
             assigns.append(w)
             i += 1
             continue
-        if w in RESERVED:
+        if w in RESERVED and not isinstance(w, Expands):  # !(x) is an extglob, not !
             i += 1
             continue
         if w == "function":  # function f { ...; }: the name is not a program
@@ -337,6 +502,9 @@ def unwrap(words):
         name = os.path.basename(w)
         if name not in WRAPPERS or (name == "env" and env_split_string(words, i + 1)):
             break  # env -S runs a script, which nested_script() returns
+        if name == "command" and i + 1 < len(words) and re.fullmatch(r"-[pvV]*[vV][pvV]*",
+                                                                      words[i + 1]):
+            break  # command -v or -V names a program, and runs nothing
         i += 1
         while i < len(words) and words[i].startswith("-") and words[i] != "-":
             opt = words[i]
@@ -345,8 +513,12 @@ def unwrap(words):
                 break
             if wrapper_option_takes_value(name, opt):
                 i += 1
-        if name == "timeout" and i < len(words):
-            i += 1  # the duration
+        if name in WRAPPER_OPERANDS and i < len(words):
+            i += 1  # the duration, lock file, priority or mask
+            # flock FILE -c 'cmd': its options may follow the file, and the -c
+            # value is left as the program word, a script the policy hook parses.
+            while name == "flock" and i < len(words) and words[i] in ("-c", "--command"):
+                i += 1
         while name in ("env", "sudo") and i < len(words) and ASSIGNMENT.match(words[i]):
             assigns.append(words[i])
             i += 1
@@ -434,6 +606,9 @@ class Parsed:
         self.lost_dir = False
         self.unclosed = False  # a $(...) or backtick span whose end was not found
         self.opaque = False  # a script nested past MAX_DEPTH, which is not parsed
+        # (delimiter, body, quoted) for each heredoc read to its terminator; with the
+        # delimiter unquoted, the shell expands the body, substitutions and all.
+        self.heredocs = []
 
 
 def parse(text, cwd):
@@ -454,7 +629,7 @@ def parse_command(text, cwd, depth=0, found=None):
     their own, whose words are added from that parse. Everything else is matched.
     """
     found = found if found is not None else Parsed()
-    text, bodies = strip_heredocs(text)
+    text, bodies = strip_heredocs(text, found.heredocs)
     text, comments = strip_comments_and_continuations(text)
     found.stripped += bodies + comments
     # The commands keep their words as written, as callers that read them
@@ -519,8 +694,8 @@ def parse_command(text, cwd, depth=0, found=None):
 
 
 def substitutions(text):
-    """Returns (start, end, script, quoted, closed) for each $(...) and backtick
-    span outside single quotes, and each <(...) and >(...) process substitution
+    """Returns (start, end, script, quoted, closed) for each $(...), ${ ...; } and
+    backtick span outside single quotes, and each <(...) and >(...) process substitution
     outside any quotes: quoted says whether it is inside double quotes, and
     closed whether its end was found. Parentheses are counted without reading
     quotes, so "fix (wip" inside $(...) leaves the span unclosed.
@@ -557,8 +732,22 @@ def substitutions(text):
             bodies.append((i, j, text[i + 2:j - 1] if depth == 0 else text[i + 2:], quote == '"',
                            depth == 0))
             i = j - 1
+        elif FUNSUB.match(text, i):  # ${ cmd; } and ${| cmd; }, bash 5.3's substitutions
+            depth, j = 1, i + 2
+            while j < len(text) and depth:
+                depth += {"{": 1, "}": -1}.get(text[j], 0)
+                j += 1
+            start = i + 3 if text[i + 2] == "|" else i + 2
+            bodies.append((i, j, text[start:j - 1] if depth == 0 else text[start:], quote == '"',
+                           depth == 0))
+            i = j - 1
         i += 1
     return bodies
+
+
+# A ${ followed by a blank, a newline or a | runs the commands in it, from bash
+# 5.3, as $(...) does; ${VAR} and ${VAR:-x} do not.
+FUNSUB = re.compile(r"\$\{[ \t\n|]")
 
 
 # A shell's option grammar is not modelled exactly: three attempts each opened a
@@ -617,11 +806,41 @@ def nested_script(cmd):
         script, at = found
         rest = [shlex.quote(w) for w in cmd.words[at + 1:]]
         return " ".join([script] + rest), range(at, len(cmd.words))
+    if cmd.program == "watch":
+        script = watch_script(cmd.words)
+        return (script, range(1, len(cmd.words))) if script is not None else (None, [])
     if cmd.program in SHELLS:
         at = shell_candidates(cmd.words)
         if at:
             return "\n".join(cmd.words[k] for k in at), at
     return None, []
+
+
+def watch_script(words):
+    """The script watch runs, read both ways, one per line: its command's words as
+    they are (with -x), quoted so they read the same, then joined with spaces, as
+    it runs them through sh -c without -x. Both are checked, so a misread -x can't
+    matter. None if there is no command."""
+    i = 1
+    while i < len(words) and words[i].startswith("-") and words[i] != "-":
+        opt = words[i]
+        i += 1
+        if opt == "--":
+            break
+        if opt.startswith("--"):
+            name = opt.partition("=")[0]
+            if "=" not in opt and any(o.startswith(name) for o in WATCH_WITH_VALUE):
+                i += 1
+            continue
+        for k, letter in enumerate(opt[1:], 1):
+            if letter in "nq":  # takes the rest of the word, or the next word
+                i += k == len(opt) - 1
+                break
+            if letter == "d":  # -d[permanent]: an optional value, only joined to it
+                break
+    if i >= len(words):
+        return None
+    return shlex.join(words[i:]) + "\n" + " ".join(words[i:])
 
 
 # --- Gate escapes ---------------------------------------------------------------------
@@ -1112,8 +1331,32 @@ def decide(command, cwd):
     return None
 
 
+DEADLINE = 20  # seconds: well under the host's hook timeout, so a slow input is denied
+
+
+def start_deadline():
+    """Denies the command if the check runs past DEADLINE seconds of wall-clock or
+    CPU time, so no input can keep the hook running until the host gives up on it."""
+    def expire(signum, frame):
+        sys.stderr.write(f"leak hook: denied: the check ran past its {DEADLINE}-second deadline, "
+                         f"so the command cannot be checked. {BYPASS}\n")
+        sys.stderr.flush()
+        os._exit(2)
+    signal.signal(signal.SIGALRM, expire)
+    signal.alarm(DEADLINE)
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_CPU)
+        if hard == resource.RLIM_INFINITY or hard > DEADLINE:
+            signal.signal(signal.SIGXCPU, expire)
+            resource.setrlimit(resource.RLIMIT_CPU, (DEADLINE, hard))
+    except (ImportError, ValueError, OSError):
+        pass  # the wall-clock deadline still holds
+
+
 def main():
     try:
+        start_deadline()
         try:
             data = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))
         except ValueError:
