@@ -35,9 +35,9 @@ without --admin. A missing or unknown role, or a missing or unknown track,
 never grants anything. A call the hook cannot check is denied outside it, so no
 grant ever lets an unchecked call through.
 
-The command xargs, parallel, find -exec, script -c, watch or flock runs, and a
-script a shell reads on standard input, is checked like any other, and a gh
-alias or extension is denied. A check that runs past DEADLINE seconds is
+The command xargs, find -exec, script -c, watch or flock runs, and a script a
+shell reads on standard input, is checked like any other; parallel and its
+siblings, and a gh alias or extension, are denied. A check that runs past DEADLINE seconds is
 denied, so no input can keep the hook running until the host gives up on it.
 
 It parses commands with the leak hook's parser, imported from the same
@@ -831,7 +831,7 @@ def track_command(cmd):
 # --- Commands inside commands ----------------------------------------------------
 #
 # A script a shell reads on standard input, a heredoc body no command reads, and
-# the command xargs, parallel, find -exec or script -c runs are checked as
+# the command xargs, find -exec or script -c runs are checked as
 # commands too, to MAX_NESTING levels; past that, the call is denied.
 
 MAX_NESTING = 3
@@ -909,7 +909,9 @@ def expanded_substitution(found):
 
 XARGS_WITH_VALUE = {"-a", "--arg-file", "-d", "--delimiter", "-E", "-I", "-L", "-n", "--max-args",
                     "-P", "--max-procs", "-s", "--max-chars", "--process-slot-var"}
-PARALLEL_ENDS = {":::", "::::", ":::+", "::::+"}
+# GNU parallel and its siblings take their command and options from $PARALLEL,
+# ~/.parallel/config and -J profiles too, which the hook can't see.
+PARALLELS = {"parallel", "sem", "parset", "env_parallel"}
 FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 CHECKED_PROGRAMS = {"gh", "git"}
 
@@ -946,8 +948,8 @@ def lead_runner_merge(words):
 
 
 def replace_strings(rest):
-    """The strings xargs or parallel replace with an input item: -I R, -IR, --replace=R
-    (-i and a bare --replace mean {}). Parallel's {} forms are caught by their braces."""
+    """The strings xargs replaces with an input item: -I R, -IR, --replace=R (-i and a
+    bare --replace mean {})."""
     found = set()
     for k, w in enumerate(rest):
         if w in ("-I", "--replace") and k + 1 < len(rest) and w == "-I":
@@ -1001,8 +1003,7 @@ def runner_command(name, words, placeholders=()):
 
 # The options xargs may have before gh or git, spelled out exactly: (those that
 # take no value, those that take one). Any other, an abbreviation included, could
-# define a replace string the hook doesn't know. gh and git never run under
-# parallel, which also takes options the hook can't see.
+# define a replace string the hook doesn't know.
 RUNNER_OPTIONS = {
     "xargs": ({"-0", "--null", "-r", "--no-run-if-empty", "-i", "-t", "--verbose"},
               {"-n", "--max-args", "-P", "--max-procs", "-L", "-d", "--delimiter", "-I",
@@ -1044,13 +1045,6 @@ def runner_options(prog, words):
                 continue
         raise RunnerDeny(f"{prog} with an option before gh or git that isn't on its short "
                          "list, spelled out in full, where the hook can't tell what runs")
-
-
-def parallel_perl(words):
-    """Denies parallel's Perl, {= … =} or --rpl in any spelling, for every role."""
-    if any("{=" in w or re.match(r"--?rp", w) for w in words):
-        raise RunnerDeny("Perl code in parallel's {= =} or --rpl, where the hook can't tell "
-                         "what runs")
 
 
 def runner_backstop(name, words, starts):
@@ -1101,8 +1095,9 @@ def bundle_takes_next(word, with_value):
 
 
 def inner(cmd):
-    """Yields each script this command runs, as text: the command after xargs,
-    parallel or find -exec, joined back into a command line, or a script's text.
+    """Yields each script this command runs, as text: the command after xargs or
+    find -exec, joined back into a command line, or a script's text. parallel and its
+    siblings are denied before this.
     Each is then checked as a whole command, sh -c and all."""
     words, prog = cmd.words, cmd.program
     if " " in prog or "\t" in prog or "\n" in prog:  # flock f -c 'gh ...'
@@ -1111,26 +1106,16 @@ def inner(cmd):
         script = watch_script(words)
         if script is not None:
             yield script
-    if prog in ("xargs", "parallel"):
+    if prog == "xargs":
         rest = words[1:]
-        end = next((k for k, w in enumerate(rest) if prog == "parallel" and w in PARALLEL_ENDS),
-                   len(rest))
-        start = first_command(rest[:end], XARGS_WITH_VALUE)
-        if start < end:
-            yield shlex.join(rest[start:end])
-        if prog == "parallel":  # parallel ::: 'cmd' runs each argument
-            yield from (w for w in rest[end + 1:] if w not in PARALLEL_ENDS)
+        start = first_command(rest, XARGS_WITH_VALUE)
+        if start < len(rest):
+            yield shlex.join(rest[start:])
         # Last, so a denial of the command itself, with its plainer reason, comes first.
-        if prog == "parallel":
-            parallel_perl(rest)
-        if start < end and os.path.basename(rest[start]) in CHECKED_PROGRAMS:
-            if prog == "parallel":
-                raise RunnerDeny("gh or git inside parallel, which also reads options from "
-                                 "$PARALLEL, ~/.parallel/config or a -J profile, where the hook "
-                                 "can't tell what runs; use xargs")
+        if start < len(rest) and os.path.basename(rest[start]) in CHECKED_PROGRAMS:
             runner_options(prog, rest[:start])
         runner_backstop(prog, rest, {start})
-        runner_command(prog, rest[start:end], replace_strings(rest[:start]))
+        runner_command(prog, rest[start:], replace_strings(rest[:start]))
     elif prog == "find":
         # As find reads it: a command ends only at ; or, for -exec and -execdir, at +
         # right after {} (-ok and -okdir take no +), so an -exec inside the command is
@@ -1173,6 +1158,10 @@ def inner(cmd):
 def check_one(cmd, depth):
     """Checks one simple command, and the commands it runs. Raises Deny."""
     track_command(cmd)
+    if cmd.program in PARALLELS:
+        raise RunnerDeny(f"{cmd.program}, whose command and options can also come from "
+                         "$PARALLEL, ~/.parallel/config or a -J profile, where the hook can't "
+                         "tell what runs; use xargs -P")
     if cmd.program == "gh":
         gh_command(cmd)
     elif cmd.program == "git":
