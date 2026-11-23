@@ -999,21 +999,20 @@ def runner_command(name, words, placeholders=()):
                          "where the hook can't tell what runs")
 
 
-# The options xargs and parallel may have before gh or git, spelled out exactly:
-# (those that take no value, those that take one). Any other, an abbreviation
-# included, could define a replace string the hook doesn't know.
+# The options xargs may have before gh or git, spelled out exactly: (those that
+# take no value, those that take one). Any other, an abbreviation included, could
+# define a replace string the hook doesn't know. gh and git never run under
+# parallel, which also takes options the hook can't see.
 RUNNER_OPTIONS = {
     "xargs": ({"-0", "--null", "-r", "--no-run-if-empty", "-i", "-t", "--verbose"},
               {"-n", "--max-args", "-P", "--max-procs", "-L", "-d", "--delimiter", "-I",
                "--replace"}),
-    "parallel": ({"-0", "--null", "-k", "--keep-order", "-q", "--quote"},
-                 {"-j", "--jobs", "-I", "--replace"}),
 }
 
 
 def runner_options(prog, words):
-    """Denies, for every role, an option before gh or git under xargs or parallel that
-    isn't in RUNNER_OPTIONS: alone, with its value next or after =, or short ones
+    """Denies, for every role, an option before gh or git under xargs that isn't in
+    RUNNER_OPTIONS: alone, with its value next or after =, or short ones
     bundled as getopt reads them (-0rn 1, -0n1). xargs's -i takes an optional value
     joined to it, so it counts only alone."""
     plain, valued = RUNNER_OPTIONS[prog]
@@ -1125,6 +1124,10 @@ def inner(cmd):
         if prog == "parallel":
             parallel_perl(rest)
         if start < end and os.path.basename(rest[start]) in CHECKED_PROGRAMS:
+            if prog == "parallel":
+                raise RunnerDeny("gh or git inside parallel, which also reads options from "
+                                 "$PARALLEL, ~/.parallel/config or a -J profile, where the hook "
+                                 "can't tell what runs; use xargs")
             runner_options(prog, rest[:start])
         runner_backstop(prog, rest, {start})
         runner_command(prog, rest[start:end], replace_strings(rest[:start]))

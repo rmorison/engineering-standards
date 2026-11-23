@@ -424,6 +424,8 @@ WRAPPERS = {
     "taskset": set(),
 }
 # watch is no wrapper: it runs its command through sh -c unless -x is given.
+# Its long options that take a value; -n and -q are the short ones, and -d takes
+# an optional value only when joined to it.
 WATCH_WITH_VALUE = {"--interval", "--equexit"}
 # Wrappers that take one operand before the command: timeout's duration, flock's
 # lock file, chrt's priority and taskset's mask.
@@ -789,10 +791,11 @@ def nested_script(cmd):
 
 
 def watch_script(words):
-    """The script watch runs: its command's words joined with spaces, which it runs
-    with sh -c, or with -x (--exec) the words as they are, quoted so they read the
-    same. None if there is no command."""
-    i, plain = 1, False
+    """The script watch runs, read both ways, one per line: its command's words as
+    they are (with -x), quoted so they read the same, then joined with spaces, as
+    it runs them through sh -c without -x. Both are checked, so a misread -x can't
+    matter. None if there is no command."""
+    i = 1
     while i < len(words) and words[i].startswith("-") and words[i] != "-":
         opt = words[i]
         i += 1
@@ -800,7 +803,6 @@ def watch_script(words):
             break
         if opt.startswith("--"):
             name = opt.partition("=")[0]
-            plain = plain or (len(name) > 3 and "--exec".startswith(name))
             if "=" not in opt and any(o.startswith(name) for o in WATCH_WITH_VALUE):
                 i += 1
             continue
@@ -808,10 +810,11 @@ def watch_script(words):
             if letter in "nq":  # takes the rest of the word, or the next word
                 i += k == len(opt) - 1
                 break
-            plain = plain or letter == "x"
+            if letter == "d":  # -d[permanent]: an optional value, only joined to it
+                break
     if i >= len(words):
         return None
-    return shlex.join(words[i:]) if plain else " ".join(words[i:])
+    return shlex.join(words[i:]) + "\n" + " ".join(words[i:])
 
 
 # --- Gate escapes ---------------------------------------------------------------------

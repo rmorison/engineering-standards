@@ -297,7 +297,7 @@ def fixtures(sb):
         ("a quoted ; is a word, not a separator", "gh pr create --title ';' --body-file dirty.md", {3}),
         ("a quoted > is a word, not a redirect", "gh pr create --title '>' --body-file dirty.md", {3}),
         ("watch runs its command through sh -c",
-         "watch -n1 gh pr create --title t --body-file \"'dirty.md'\"", {3}),
+         "watch -n1 'gh pr create --title t --body-file dirty.md'", {3}),
         ("watch -x runs its words as written", "watch -x gh pr create --title t --body-file dirty.md", {3}),
     ]
     for name, command, lines in denied:
@@ -854,6 +854,10 @@ def fixtures(sb):
     escapes = [
         ("git commit --no-verify", "git commit --no-verify -m x", "--no-verify"),
         ("watch reparses: git commit --no-verify", "watch -n1 git commit \"'--no-verify'\" -m x",
+         "--no-verify"),
+        ("watch -dx still reparses: git commit --no-verify", "watch -dx git commit -m x \"'--no-verify'\"",
+         "--no-verify"),
+        ("watch -x is read both ways: git commit --no-verify", "watch -x git commit -m x \"'--no-verify'\"",
          "--no-verify"),
         ("watch reparses: git commit --no-verify, escaped", "watch -n1 git commit '\\-\\-no-verify' -m x",
          "--no-verify"),

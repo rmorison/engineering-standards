@@ -1344,7 +1344,9 @@ def fixtures(sb):
                     "echo a | xargs git -C . log",
                     "echo \"'-Ogh pr merge 12 --admin'\" | xargs git grep -l .",
                     "echo --show-token | xargs gh auth status", "echo x | xargs gh auth status"]:
-        lead_words = {"merge", "api"} & set(shlex.split(command.split("|")[-1]))
+        # Since round 3j, gh under parallel gets the rephrase message first.
+        lead_words = ({"merge", "api"} & set(shlex.split(command.split("|")[-1]))
+                      and not command.startswith("parallel"))
         for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
             lead = env is lead2 and lead_words
             check(f"round 3h deny, {label}: {command!r}", sb.bash(command, env=env), "deny",
@@ -1357,7 +1359,7 @@ def fixtures(sb):
         for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
             check(f"round 3h deny, {label}: {command!r}", sb.bash(command, env=env), "deny",
                   stop="policy hook: denied:")
-    for command in ["echo 1 | xargs -I{} gh pr view {}", "parallel -j2 gh pr view ::: 1 2",
+    for command in ["echo 1 | xargs -I{} gh pr view {}",
                     "echo 1 | xargs -I{} gh issue view {}", "echo a | xargs -n1 git log -1",
                     "find . -maxdepth 0 -exec git log {} \\;", "git ls-files | xargs git blame",
                     "echo a | xargs grep -l TODO", "echo 1 | xargs gh run view"]:
@@ -1399,13 +1401,40 @@ def fixtures(sb):
     check("round 3i deny, worker, on a feature branch: watch -n1 git push origin \"'trunk'\"",
           sb.bash("watch -n1 git push origin \"'trunk'\"", cwd=sb.feat, env=worker), "deny")
     for command in ["echo 1 | xargs -0 -r -n 1 -P4 gh pr view", "echo 1 | xargs --max-args=1 gh pr view",
-                    "echo 1 | xargs -I {} gh pr view {}", "parallel -k -j2 gh pr view ::: 1 2",
-                    "parallel --jobs=2 gh issue view ::: 1", "watch -n1 gh pr checks 12",
+                    "echo 1 | xargs -I {} gh pr view {}", "watch -n1 gh pr checks 12",
                     "watch -x gh pr view 12", "watch -n 5 git status", "parallel echo {} ::: a"]:
         for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
             check(f"round 3i allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
     check("round 3i allow, Track 2 lead: flock f gh pr merge 12",
           sb.bash("flock f gh pr merge 12", env=lead2), "allow")
+
+    # --- round 3j: watch's words read both ways; no gh or git under parallel
+    for command in ["watch -dx git push origin \"'trunk'\"", "watch -dnx git push origin \"'trunk'\"",
+                    "watch -xd git push origin \"'trunk'\"", "watch --differences=x git push origin \"'trunk'\"",
+                    "watch -x git push origin \"'trunk'\""]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3j deny, {label}, on a feature branch: {command!r}",
+                  sb.bash(command, cwd=sb.feat, env=env), "deny")
+    for command in ["watch -dx gh pr merge 12 \"'--admin'\"", "watch -dnx gh pr merge 12 \"'--admin'\"",
+                    "watch -xd gh pr merge 12 \"'--admin'\"", "watch --differences=x gh pr merge 12 \"'--admin'\"",
+                    "watch -dx gh api -X PUT repos/o/r/pulls/1/mer\"'g'\"e"]:
+        check(f"round 3j deny, worker: {command!r}", sb.bash(command, env=worker), "deny")
+        check(f"round 3j deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
+              stop=LEAD_STOP)
+    # parallel also takes options from $PARALLEL, ~/.parallel/config and -J profiles.
+    for command, cwd in [("PARALLEL=\"--rpl 'view s/.*/merge/' --rpl 'zz s/.*/--admin/'\" "
+                          "parallel gh pr view 12 zz ::: x", None),
+                         ("PARALLEL='-I log' parallel git log origin trunk ::: push", sb.feat),
+                         ("parallel -j2 gh pr view ::: 1 2", None), ("parallel git log ::: x", None),
+                         ("parallel --jobs=2 gh issue view ::: 1", None),
+                         ("parallel -k -j2 gh pr view ::: 1 2", None)]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3j deny, {label}: {command!r}", sb.bash(command, cwd=cwd, env=env), "deny",
+                  "inside parallel", stop=RUNNER_STOP)
+    for command in ["watch -n5 gh pr checks 12", "watch -n5 'git status'", "watch -x git status",
+                    "parallel gzip ::: a b", "parallel -j4 gzip ::: a"]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3j allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
 
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
