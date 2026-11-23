@@ -422,8 +422,9 @@ WRAPPERS = {
     "ionice": {"-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid"},
     "chrt": {"-T", "--sched-runtime", "-P", "--sched-period", "-D", "--sched-deadline"},
     "taskset": set(),
-    "watch": {"-n", "--interval", "-q", "--equexit"},
 }
+# watch is no wrapper: it runs its command through sh -c unless -x is given.
+WATCH_WITH_VALUE = {"--interval", "--equexit"}
 # Wrappers that take one operand before the command: timeout's duration, flock's
 # lock file, chrt's priority and taskset's mask.
 WRAPPER_OPERANDS = {"timeout", "flock", "chrt", "taskset"}
@@ -777,11 +778,40 @@ def nested_script(cmd):
         script, at = found
         rest = [shlex.quote(w) for w in cmd.words[at + 1:]]
         return " ".join([script] + rest), range(at, len(cmd.words))
+    if cmd.program == "watch":
+        script = watch_script(cmd.words)
+        return (script, range(1, len(cmd.words))) if script is not None else (None, [])
     if cmd.program in SHELLS:
         at = shell_candidates(cmd.words)
         if at:
             return "\n".join(cmd.words[k] for k in at), at
     return None, []
+
+
+def watch_script(words):
+    """The script watch runs: its command's words joined with spaces, which it runs
+    with sh -c, or with -x (--exec) the words as they are, quoted so they read the
+    same. None if there is no command."""
+    i, plain = 1, False
+    while i < len(words) and words[i].startswith("-") and words[i] != "-":
+        opt = words[i]
+        i += 1
+        if opt == "--":
+            break
+        if opt.startswith("--"):
+            name = opt.partition("=")[0]
+            plain = plain or (len(name) > 3 and "--exec".startswith(name))
+            if "=" not in opt and any(o.startswith(name) for o in WATCH_WITH_VALUE):
+                i += 1
+            continue
+        for k, letter in enumerate(opt[1:], 1):
+            if letter in "nq":  # takes the rest of the word, or the next word
+                i += k == len(opt) - 1
+                break
+            plain = plain or letter == "x"
+    if i >= len(words):
+        return None
+    return shlex.join(words[i:]) if plain else " ".join(words[i:])
 
 
 # --- Gate escapes ---------------------------------------------------------------------

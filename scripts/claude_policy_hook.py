@@ -76,7 +76,7 @@ sys.dont_write_bytecode = True  # no __pycache__ beside the installed hooks
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 try:
     from claude_leak_hook import (EXPORTERS, SHELLS, STDIN_PATHS, Deny, option, parse,
-                                  parse_command, shell_candidates)
+                                  parse_command, shell_candidates, watch_script)
 except Exception as error:  # fail closed: the parser is required
     sys.stderr.write(f"policy hook: denied: claude_leak_hook.py could not be imported "
                      f"({type(error).__name__}); install both hooks. {STOP}\n")
@@ -276,9 +276,10 @@ def gh_pr_merge(cmd):
         decide(MERGE, noun + " with --admin, which bypasses the branch rules"
                if granted(PR_MERGE) else noun)
     if UNDER_RUNNER[0]:
-        decide(MERGE, "a gh pr merge run by xargs, parallel or find, or by script, watch or "
-               "flock, which can add to what it runs, so it cannot be checked; run gh pr merge "
-               "on its own" if granted(PR_MERGE) else noun)
+        decide(MERGE, "a gh pr merge run by xargs, parallel or find, or by watch, or in a "
+               "script given to script -c or flock -c, which can add to what it runs or run it "
+               "again, so it cannot be checked; run gh pr merge on its own"
+               if granted(PR_MERGE) else noun)
     if any(EXPANDS.search(w) for w in cmd.words[1:]):
         decide(MERGE, "a gh pr merge with a word the shell could expand, so it cannot be "
                "checked; write the number and flags out, put a body that needs $, `, {, }, "
@@ -998,6 +999,61 @@ def runner_command(name, words, placeholders=()):
                          "where the hook can't tell what runs")
 
 
+# The options xargs and parallel may have before gh or git, spelled out exactly:
+# (those that take no value, those that take one). Any other, an abbreviation
+# included, could define a replace string the hook doesn't know.
+RUNNER_OPTIONS = {
+    "xargs": ({"-0", "--null", "-r", "--no-run-if-empty", "-i", "-t", "--verbose"},
+              {"-n", "--max-args", "-P", "--max-procs", "-L", "-d", "--delimiter", "-I",
+               "--replace"}),
+    "parallel": ({"-0", "--null", "-k", "--keep-order", "-q", "--quote"},
+                 {"-j", "--jobs", "-I", "--replace"}),
+}
+
+
+def runner_options(prog, words):
+    """Denies, for every role, an option before gh or git under xargs or parallel that
+    isn't in RUNNER_OPTIONS: alone, with its value next or after =, or short ones
+    bundled as getopt reads them (-0rn 1, -0n1). xargs's -i takes an optional value
+    joined to it, so it counts only alone."""
+    plain, valued = RUNNER_OPTIONS[prog]
+    flags = {o[1] for o in plain if len(o) == 2 and o != "-i"}
+    takes = {o[1] for o in valued if len(o) == 2}
+    k = 0
+    while k < len(words):
+        w = words[k]
+        k += 1
+        if w in plain:
+            continue
+        if w.startswith("--"):
+            name, eq, _ = w.partition("=")
+            if name in valued and (eq or k < len(words)):
+                k += 0 if eq else 1
+                continue
+        elif w.startswith("-") and len(w) > 1:
+            ok = False
+            for j, letter in enumerate(w[1:], 1):
+                if letter in takes:  # takes the rest of the word, or the next word
+                    ok = j < len(w) - 1 or k < len(words)
+                    k += j == len(w) - 1
+                    break
+                if letter not in flags:
+                    break
+            else:
+                ok = True
+            if ok:
+                continue
+        raise RunnerDeny(f"{prog} with an option before gh or git that isn't on its short "
+                         "list, spelled out in full, where the hook can't tell what runs")
+
+
+def parallel_perl(words):
+    """Denies parallel's Perl, {= … =} or --rpl in any spelling, for every role."""
+    if any("{=" in w or re.match(r"--?rp", w) for w in words):
+        raise RunnerDeny("Perl code in parallel's {= =} or --rpl, where the hook can't tell "
+                         "what runs")
+
+
 def runner_backstop(name, words, starts):
     """Denies, for every role, gh, git, a shell or a runner anywhere in a runner's words but
     at a start the hook found plainly, and a word holding whitespace with gh or git
@@ -1050,8 +1106,12 @@ def inner(cmd):
     parallel or find -exec, joined back into a command line, or a script's text.
     Each is then checked as a whole command, sh -c and all."""
     words, prog = cmd.words, cmd.program
-    if " " in prog or "\t" in prog or "\n" in prog:  # watch 'gh ...', flock f -c 'gh ...'
+    if " " in prog or "\t" in prog or "\n" in prog:  # flock f -c 'gh ...'
         yield " ".join(words)
+    if prog == "watch":  # through sh -c, or with -x as written
+        script = watch_script(words)
+        if script is not None:
+            yield script
     if prog in ("xargs", "parallel"):
         rest = words[1:]
         end = next((k for k, w in enumerate(rest) if prog == "parallel" and w in PARALLEL_ENDS),
@@ -1062,6 +1122,10 @@ def inner(cmd):
         if prog == "parallel":  # parallel ::: 'cmd' runs each argument
             yield from (w for w in rest[end + 1:] if w not in PARALLEL_ENDS)
         # Last, so a denial of the command itself, with its plainer reason, comes first.
+        if prog == "parallel":
+            parallel_perl(rest)
+        if start < end and os.path.basename(rest[start]) in CHECKED_PROGRAMS:
+            runner_options(prog, rest[:start])
         runner_backstop(prog, rest, {start})
         runner_command(prog, rest[start:end], replace_strings(rest[:start]))
     elif prog == "find":

@@ -1364,6 +1364,49 @@ def fixtures(sb):
         for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
             check(f"round 3h allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
 
+    # --- round 3i: runner options on a short list, watch through sh -c, parallel's Perl
+    # An option the hook doesn't know (an abbreviation, --rpl) can define a replace string.
+    for command in ["echo merge | xargs --r=view gh pr view 19 --admin",
+                    "echo merge | xargs --repl=view gh pr view 19 --admin",
+                    "echo merge | xargs --rep=view gh pr view 19 --admin",
+                    "parallel --repl=view gh pr view 19 --admin ::: merge",
+                    "parallel --rpl=view gh pr view 19 --admin ::: merge",
+                    "parallel --rpl='view s/.*/merge/' gh pr view 19 --admin ::: x",
+                    "echo push | xargs --r=log git log origin trunk",
+                    "echo push | xargs --repl=log git log origin trunk",
+                    "echo push | xargs --rep=log git log origin trunk",
+                    "parallel --repl=log git log origin trunk ::: push",
+                    "parallel --rpl=log git log origin trunk ::: push",
+                    "parallel --rpl='log s/.*/push/' git log origin trunk ::: x",
+                    "echo 1 | xargs --max-a=1 gh pr view", "echo 1 | xargs -x gh pr view"]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3i deny, {label}: {command!r}", sb.bash(command, cwd=sb.feat, env=env), "deny",
+                  RUNNER_BACKSTOP, stop=RUNNER_STOP)
+    # parallel runs Perl in {= =} and in --rpl, whatever the command.
+    for command in ["parallel echo '{= system(\"g\".\"h\",\"pr\",\"merge\",\"12\",\"--ad\".\"min\") =}' ::: a",
+                    "parallel --rpl '{x} s/a/b/' echo {x} ::: a", "parallel --rp='{x} 1' echo {x} ::: a"]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3i deny, {label}: {command!r}", sb.bash(command, env=env), "deny",
+                  "Perl code in parallel", stop=RUNNER_STOP)
+    # watch runs its command through sh -c unless -x is given, so quotes in its words count.
+    for command, frag in [("watch -n1 gh pr merge 12 \"'--admin'\"", "--admin"),
+                          ("watch -n1 gh pr merge 12 '\\-\\-admin'", "--admin"),
+                          ("watch -n1 gh pr merge 12", "or by watch"),
+                          ("watch -x gh pr merge 12 \"'--admin'\"", "or by watch"),
+                          ("watch -n1 gh api -X PUT repos/o/r/pulls/12/mer\"'g'\"e", "through the API")]:
+        check(f"round 3i deny, Track 2 lead: {command!r}", sb.bash(command, env=lead2), "deny",
+              frag, stop=LEAD_STOP)
+    check("round 3i deny, worker, on a feature branch: watch -n1 git push origin \"'trunk'\"",
+          sb.bash("watch -n1 git push origin \"'trunk'\"", cwd=sb.feat, env=worker), "deny")
+    for command in ["echo 1 | xargs -0 -r -n 1 -P4 gh pr view", "echo 1 | xargs --max-args=1 gh pr view",
+                    "echo 1 | xargs -I {} gh pr view {}", "parallel -k -j2 gh pr view ::: 1 2",
+                    "parallel --jobs=2 gh issue view ::: 1", "watch -n1 gh pr checks 12",
+                    "watch -x gh pr view 12", "watch -n 5 git status", "parallel echo {} ::: a"]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3i allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
+    check("round 3i allow, Track 2 lead: flock f gh pr merge 12",
+          sb.bash("flock f gh pr merge 12", env=lead2), "allow")
+
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
     broken.mkdir()
@@ -1396,6 +1439,8 @@ def fixtures(sb):
         ("a program that runs a command it is given", "fd -x gh pr merge 12"),
         ("a command given as a string", "trap 'gh pr merge 12' EXIT"),
         ("a substitution run while expanding a value", "x='$(gh pr merge 12)'; echo \"${x@P}\""),
+        ("a browser gh launches (#148)", "GH_BROWSER='gh pr merge 12 --admin' gh pr view 12 --web"),
+        ("an external diff git launches (#148)", "GIT_EXTERNAL_DIFF='gh pr merge 12 #' git diff"),
         ("editing the clone's config file",
          "printf '[agentpolicy]\\n\\tallowDefaultPush = true\\n' >> .git/config"),
     ]:
