@@ -261,7 +261,8 @@ FD_MARK = "\ue000"  # a private-use character that marks an fd number before shl
 # After a quoted or escaped part of a word, so that a quoted ';' or an escaped \; stays
 # a word, as find -exec's, and never separates commands or redirects.
 QUOTED_MARK = "\ue004"
-# Before an unquoted *, ?, [, { or $' : what tells a word the shell builds (Expands).
+# Before an unquoted *, ?, [, {, ~, $' or $", or an extglob's @, + or ! before its (:
+# what tells a word the shell builds (Expands).
 EXPAND_MARK = "\ue005"
 PRIVATE_MARKS = "\ue000\ue001\ue002\ue003\ue004\ue005"  # FD_MARK, QUOTED_MARK, EXPAND_MARK and the standard-input marks below
 BLANKS = " \t\r"  # what tokenize() gives shlex as whitespace
@@ -305,7 +306,9 @@ def mark_fd_numbers(text):
             continue
         elif c in "'\"":
             quote = None if quote == c else (quote or c)
-        if unquoted and (c in "*?[{" or c == "$" and text[i + 1:i + 2] == "'"):
+        after = text[i + 1:i + 2]
+        if unquoted and (c in "*?[{~" or c == "$" and after in ("'", '"')
+                         or c in "@+!" and after == "("):
             out.append(EXPAND_MARK)
         out.append(c)
         if not unquoted and quote is None:  # this closed a quote
@@ -336,7 +339,8 @@ def tokenize(text):
             if t and set(t) <= set(PUNCTUATION):
                 t = Quoted(t)
         if EXPAND_MARK in t:  # last, so the subclass stays
-            expands = EXPANDING.search(t)
+            # A tilde expands only at the start, and is a program name only with no /.
+            expands = EXPANDING.search(t) or (t.startswith(EXPAND_MARK + "~") and "/" not in t)
             t = t.replace(EXPAND_MARK, "")
             t = Expands(t) if expands else t
         # A marked fd number joins the operator after it, as 2> or 2>&, and keeps
@@ -347,9 +351,10 @@ def tokenize(text):
     return [t[len(FD_MARK):] if FD_NUMBER_MARKED.match(t) else t for t in tokens]
 
 
-# An unquoted glob character, $' (ANSI-C quoting), or a brace group with a comma
-# or .. in it: the shell builds the word, so its text is not what runs.
-EXPANDING = re.compile(EXPAND_MARK + r"(?:[*?\[$]|\{[^}]*(?:,|\.\.))")  # $ is marked only before '
+# An unquoted glob character, $' or $" (ANSI-C or locale quoting), an extglob's @, +
+# or ! before its (, or a brace group with a comma or .. in it: the shell builds the
+# word, so its text is not what runs. A ~ counts in tokenize(), at the start only.
+EXPANDING = re.compile(EXPAND_MARK + r"(?:[*?\[$@+!]|\{[^}]*(?:,|\.\.))")  # $ is marked only before ' or "
 
 
 class Expands(str):
@@ -485,7 +490,7 @@ def unwrap(words):
             assigns.append(w)
             i += 1
             continue
-        if w in RESERVED:
+        if w in RESERVED and not isinstance(w, Expands):  # !(x) is an extglob, not !
             i += 1
             continue
         if w == "function":  # function f { ...; }: the name is not a program

@@ -977,10 +977,11 @@ RUNNER_GIT_READS = {"log", "show", "diff", "blame", "ls-files", "ls-tree", "stat
 PLAIN_WORD = re.compile(r"[a-z][a-z-]*")
 
 
-# A program word the shell builds: a glob, a brace group or $'...', unquoted. The
-# test builtins [ and [[ are not built.
-BUILT = ("a program name the shell builds from a glob, a brace group or $'...', which the "
-         "hook can't read; write the program name out in full")
+# A program word the shell builds: a glob or an extglob, a brace group, a tilde with no
+# /, or $'...' or $"...", unquoted. The test builtins [ and [[ are not built.
+BUILT_FROM = "a glob, a brace group, a tilde, $'...' or $\"...\""
+BUILT = (f"a program name the shell builds from {BUILT_FROM}, which the hook can't read; "
+         "write the program name out in full")
 
 
 def built(word):
@@ -1068,7 +1069,7 @@ def runner_backstop(name, words, starts):
     A shell and gh or git in the same runner's words are denied together, wherever
     the hook reads the boundaries: a shell's "$@" can reach a gh or git after it.
     A word that holds whitespace and names a shell counts as a shell, and a word the
-    shell builds (a glob, a brace group, $'...') could be any program."""
+    shell builds (see built()) could be any program."""
     lead_runner_merge(words)
     names = {os.path.basename(w) for w in words}
     shells = bool(names & SHELLS) or any(shell_word(w) for w in words)
@@ -1079,9 +1080,8 @@ def runner_backstop(name, words, starts):
                 re.search(r"\s", w) and RUNNER_SCRIPT.search(w)):
             raise RunnerDeny(RUNNER_NOUN.format(name))
         if built(w):
-            raise RunnerDeny(f"a word the shell builds from a glob, a brace group or $'...' "
-                             f"inside {name}, where the hook can't tell what runs; write it "
-                             "out in full")
+            raise RunnerDeny(f"a word the shell builds from {BUILT_FROM} inside {name}, where "
+                             "the hook can't tell what runs; write it out in full")
 
 
 # Above zero while a command another command runs (xargs, parallel, find -exec,
@@ -1113,6 +1113,30 @@ def bundle_takes_next(word, with_value):
     return False
 
 
+# bash options that take the next word as their value.
+SHELL_LONG_WITH_VALUE = {"--rcfile", "--init-file"}
+
+
+def shell_script_at(words):
+    """Where a shell's -c script is, read as bash reads its options: every option
+    comes before the script, -c among them anywhere; -o, +o, -O and +O take the next
+    word; -- or - ends the options. None if there is no -c, or no script."""
+    i, run = 1, False
+    while i < len(words):
+        w = words[i]
+        if w in ("--", "-"):
+            i += 1
+            break
+        if w[:1] not in ("-", "+"):
+            break
+        if w.startswith("--"):
+            i += 2 if w in SHELL_LONG_WITH_VALUE else 1
+            continue
+        run = run or "c" in w
+        i += 1 + sum(w[1:].count(letter) for letter in "oO")
+    return i if run and i < len(words) else None
+
+
 def inner(cmd):
     """Yields each script this command runs, as text: the command after xargs or
     find -exec, joined back into a command line, or a script's text. parallel and its
@@ -1121,14 +1145,18 @@ def inner(cmd):
     words, prog = cmd.words, cmd.program
     if " " in prog or "\t" in prog or "\n" in prog:  # flock f -c 'gh ...'
         yield " ".join(words)
-    if prog in SHELLS:  # sh -c 'script' $0 args...: the args can be a command "$@" runs
-        first = next((j for j, w in enumerate(words[1:], 1)
-                      if w[:1] in ("-", "+") and not w.startswith("--") and "c" in w), None)
-        if first is not None:
-            at = first + 1 + (words[first + 1:first + 2] == ["--"])
-            if len(words) > at + 2:
-                yield shlex.join(words[at + 2:])
+    if prog in SHELLS:  # sh -c 'script' $0 args...: "$0" "$@" can run them as a command
+        at = shell_script_at(words)
+        if at is not None:
+            # Read again from text below, a built word would lose its mark.
+            if any(built(w) for w in words[at + 1:at + 3]):
+                raise RunnerDeny(BUILT)
+            for start in (at + 1, at + 2):
+                if start < len(words):
+                    yield shlex.join(words[start:])
     if prog == "watch":  # through sh -c, or with -x as written
+        if any(built(w) for w in words[1:]):  # read again from text below
+            raise RunnerDeny(BUILT)
         script = watch_script(words)
         if script is not None:
             yield script

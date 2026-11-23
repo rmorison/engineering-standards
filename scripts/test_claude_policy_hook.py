@@ -1477,6 +1477,52 @@ def fixtures(sb):
         for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
             check(f"round 3l allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
 
+    # --- round 3m: built words under watch and sh -c, bash's options after -c, $"...",
+    # extglobs and tildes at the program word
+    ext = "shopt -s extglob\n"
+    merges = ["watch -n1 $'gh' pr merge 12 --admin", "sh -c '\"$@\"' sh $'gh' pr merge 12 --admin",
+              "sh -c '\"$0\" \"$@\"' $'gh' pr merge 12 --admin",
+              "sh -c '\"$0\" \"$@\"' gh pr merge 12 --admin",
+              "bash -c -e '\"$@\"' sh gh pr merge 12 --admin",
+              "bash -c -o pipefail '\"$@\"' sh gh pr merge 12 --admin",
+              "bash -c -O extglob '\"$@\"' sh gh pr merge 12 --admin",
+              "$\"gh\" pr merge 12 --admin", "$\"g\"h pr merge 12 --admin",
+              "echo 12 | xargs $\"gh\" pr merge", "find . -exec $\"gh\" pr merge 12 \\;",
+              ext + "@(gh) pr merge 12 --admin", ext + "+(gh) pr merge 12 --admin",
+              ext + "/usr/bin/@(gh) pr merge 12 --admin", ext + "?(gh) pr merge 12 --admin",
+              ext + "*(gh) pr merge 12 --admin", ext + "!(x) pr merge 12 --admin",
+              "HOME=/usr/bin/gh; ~ pr merge 12 --admin", "OLDPWD=/usr/bin/gh; ~- pr merge 12 --admin",
+              "PWD=/usr/bin/gh; ~+ pr merge 12 --admin", "~gh pr merge 12 --admin",
+              "~2 pr merge 12 --admin"]
+    pushes = ["watch -n1 $'git' push origin trunk", "sh -c '\"$@\"' sh $'git' push origin trunk",
+              "bash -c -e '\"$@\"' sh git push origin trunk",
+              "$\"git\" push origin trunk", "$\"g\"it push origin trunk",
+              ext + "@(git) push origin trunk", "HOME=/usr/bin/git; ~ push origin trunk",
+              "OLDPWD=/usr/bin/git; ~- push origin trunk", "~git push origin trunk"]
+    # The plain gh and git forms meet the merge and push rules; the rest are built words.
+    plain = {"sh -c '\"$0\" \"$@\"' gh pr merge 12 --admin", "bash -c -e '\"$@\"' sh gh pr merge 12 --admin",
+             "bash -c -o pipefail '\"$@\"' sh gh pr merge 12 --admin",
+             "bash -c -O extglob '\"$@\"' sh gh pr merge 12 --admin",
+             "bash -c -e '\"$@\"' sh git push origin trunk"}
+    for command, cwd in [(c, None) for c in merges] + [(c, sb.feat) for c in pushes]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            if command in plain:
+                frag, stop = None, LEAD_STOP if env is lead2 and "merge" in command else STOP
+            else:
+                frag, stop = "the shell builds", RUNNER_STOP
+            check(f"round 3m deny, {label}: {command!r}", sb.bash(command, cwd=cwd, env=env), "deny",
+                  frag, stop=stop)
+    for command in ["bash -c -e 'echo \"$1\"' sh x", "echo $\"hi\"", "~/bin/tool x",
+                    ext + "ls @(a|b).md", "! true", "if ! grep -q x f; then echo y; fi",
+                    "cd ~ && ls", "gh pr view 12 --repo o/r"]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3m allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
+    # Pinned residuals: a program named at run time ("What it does not see").
+    for command in ["${X:-gh} pr merge 12 --admin", "$(echo gh) pr merge 12 --admin",
+                    "`echo gh` pr merge 12 --admin"]:
+        check(f"round 3m residual, still allowed, Track 2 lead: {command!r}",
+              sb.bash(command, env=lead2), "allow")
+
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
     broken.mkdir()
