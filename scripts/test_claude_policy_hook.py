@@ -1445,6 +1445,38 @@ def fixtures(sb):
         for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
             check(f"round 3k allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
 
+    # --- round 3l: the whole parallel family behind the runner backstop; program words the
+    # shell builds from a glob, a brace group or $'...'; sh -c's arguments; command -v
+    for command, cwd in [("PARALLEL='gh pr merge --admin' xargs --arg f sem 12", None),
+                         ("PARALLEL='--fg git push origin' xargs --arg f sem trunk", sb.feat),
+                         ("xargs --arg -- -- sem ::: 12", None)]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3l deny, {label}: {command!r}", sb.bash(command, cwd=cwd, env=env), "deny",
+                  RUNNER_BACKSTOP, stop=RUNNER_STOP)
+    built = [("{gh,} pr merge 12 --admin", None), ("/usr/bin/[g]h pr merge 12 --admin", None),
+             ("$'gh' pr merge 12 --admin", None), ("{git,} push origin trunk", sb.feat),
+             ("/usr/bin/gi? push origin trunk", sb.feat)]
+    for command, cwd in built + [(f"{pre}{c}", cwd) for c, cwd in built
+                                 for pre in ("env ", "timeout 5 ", "echo 1 | xargs ")]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3l deny, {label}: {command!r}", sb.bash(command, cwd=cwd, env=env), "deny",
+                  "the shell builds from a glob", stop=RUNNER_STOP)
+    check("round 3l deny, worker: sh -c's arguments read as a command",
+          sb.bash("sh -c '\"$@\"' sh gh pr merge 12 --admin", env=worker), "deny")
+    check("round 3l deny, Track 2 lead: sh -c's arguments read as a command",
+          sb.bash("sh -c '\"$@\"' sh gh pr merge 12 --admin", env=lead2), "deny", stop=LEAD_STOP)
+    check("round 3l deny, worker, on a feature branch: sh -c's arguments push to the default branch",
+          sb.bash("sh -c '\"$@\"' sh git push origin trunk", cwd=sb.feat, env=worker), "deny")
+    for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+        check(f"round 3l deny, {label}: command parallel", sb.bash("command parallel ::: a", env=env),
+              "deny", "use xargs -P", stop=RUNNER_STOP)
+    for command in ["./run.sh", "/usr/bin/env python3 x.py", "echo {a,b}", "ls *.md",
+                    "\"$HOME/bin/tool\" x", "printf $'a\\n'", "[ -f x ] && echo y",
+                    "for f in *.md; do echo \"$f\"; done", "sh -c 'echo \"$1\"' sh hello",
+                    "command -v parallel", "x=$(command -v parallel)", "command -V sem"]:
+        for env, label in ((worker, "worker"), (lead2, "Track 2 lead")):
+            check(f"round 3l allow, {label}: {command!r}", sb.bash(command, env=env), "allow")
+
     # --- KTD4, KTD5: a broken install denies every call --------------------------------
     broken = sb.root / "broken"
     broken.mkdir()

@@ -75,7 +75,7 @@ RUNNER_STOP = ("This may be a harmless command: rephrase it, for example match [
 sys.dont_write_bytecode = True  # no __pycache__ beside the installed hooks
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 try:
-    from claude_leak_hook import (EXPORTERS, SHELLS, STDIN_PATHS, Deny, option, parse,
+    from claude_leak_hook import (EXPORTERS, SHELLS, STDIN_PATHS, Deny, Expands, option, parse,
                                   parse_command, shell_candidates, watch_script)
 except Exception as error:  # fail closed: the parser is required
     sys.stderr.write(f"policy hook: denied: claude_leak_hook.py could not be imported "
@@ -919,7 +919,7 @@ CHECKED_PROGRAMS = {"gh", "git"}
 # gh, git, a shell or a runner inside a runner's words, other than as the command
 # the hook found, or a word holding a gh or git push command line: where the
 # options, a ::: list or -exec end can't be told for sure, so neither can what runs.
-RUNNER_PROGRAMS = CHECKED_PROGRAMS | SHELLS | {"xargs", "parallel", "find"}
+RUNNER_PROGRAMS = CHECKED_PROGRAMS | SHELLS | {"xargs", "find"} | PARALLELS
 RUNNER_SCRIPT = re.compile(r"\bgh\b|\bgit\s+push\b")
 RUNNER_NOUN = "gh, git, a shell or a runner inside {}, where the hook can't tell what runs"
 
@@ -977,11 +977,25 @@ RUNNER_GIT_READS = {"log", "show", "diff", "blame", "ls-files", "ls-tree", "stat
 PLAIN_WORD = re.compile(r"[a-z][a-z-]*")
 
 
+# A program word the shell builds: a glob, a brace group or $'...', unquoted. The
+# test builtins [ and [[ are not built.
+BUILT = ("a program name the shell builds from a glob, a brace group or $'...', which the "
+         "hook can't read; write the program name out in full")
+
+
+def built(word):
+    # An array element's assignment, a[$i]=x, is no program name.
+    return (isinstance(word, Expands) and word not in ("[", "[[")
+            and not re.match(r"[A-Za-z_][A-Za-z0-9_]*\[.*\]\+?=", word))
+
+
 def runner_command(name, words, placeholders=()):
     """What a runner may run of gh and git, which it can add arguments to when it
     runs: gh only for a read in RUNNER_GH_READS, its command and subcommand written as
     plain words, and git only for a read in RUNNER_GIT_READS written right after git,
     with no option before it. Denied for every role otherwise, gh api included."""
+    if words and built(words[0]):
+        raise RunnerDeny(BUILT)
     if not words or os.path.basename(words[0]) not in CHECKED_PROGRAMS:
         return
     gh = os.path.basename(words[0]) == "gh"
@@ -1053,7 +1067,8 @@ def runner_backstop(name, words, starts):
     push in it. Guessing where a runner's options end let three rounds through.
     A shell and gh or git in the same runner's words are denied together, wherever
     the hook reads the boundaries: a shell's "$@" can reach a gh or git after it.
-    A word that holds whitespace and names a shell counts as a shell."""
+    A word that holds whitespace and names a shell counts as a shell, and a word the
+    shell builds (a glob, a brace group, $'...') could be any program."""
     lead_runner_merge(words)
     names = {os.path.basename(w) for w in words}
     shells = bool(names & SHELLS) or any(shell_word(w) for w in words)
@@ -1063,6 +1078,10 @@ def runner_backstop(name, words, starts):
         if ((os.path.basename(w) in RUNNER_PROGRAMS or shell_word(w)) and k not in starts) or (
                 re.search(r"\s", w) and RUNNER_SCRIPT.search(w)):
             raise RunnerDeny(RUNNER_NOUN.format(name))
+        if built(w):
+            raise RunnerDeny(f"a word the shell builds from a glob, a brace group or $'...' "
+                             f"inside {name}, where the hook can't tell what runs; write it "
+                             "out in full")
 
 
 # Above zero while a command another command runs (xargs, parallel, find -exec,
@@ -1102,6 +1121,13 @@ def inner(cmd):
     words, prog = cmd.words, cmd.program
     if " " in prog or "\t" in prog or "\n" in prog:  # flock f -c 'gh ...'
         yield " ".join(words)
+    if prog in SHELLS:  # sh -c 'script' $0 args...: the args can be a command "$@" runs
+        first = next((j for j, w in enumerate(words[1:], 1)
+                      if w[:1] in ("-", "+") and not w.startswith("--") and "c" in w), None)
+        if first is not None:
+            at = first + 1 + (words[first + 1:first + 2] == ["--"])
+            if len(words) > at + 2:
+                yield shlex.join(words[at + 2:])
     if prog == "watch":  # through sh -c, or with -x as written
         script = watch_script(words)
         if script is not None:
@@ -1158,6 +1184,8 @@ def inner(cmd):
 def check_one(cmd, depth):
     """Checks one simple command, and the commands it runs. Raises Deny."""
     track_command(cmd)
+    if cmd.words and built(cmd.words[0]):
+        raise RunnerDeny(BUILT)
     if cmd.program in PARALLELS:
         raise RunnerDeny(f"{cmd.program}, whose command and options can also come from "
                          "$PARALLEL, ~/.parallel/config or a -J profile, where the hook can't "
